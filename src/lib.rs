@@ -6,9 +6,11 @@ use bevy::{
 use bevy_egui::{egui, EguiContext, EguiPlugin, EguiSettings};
 use bevy_inspector_egui::WorldInspectorPlugin;
 use bevy_mouse_tracking_plugin::{prelude::*, MainCamera, MousePosWorld};
+use bevy_prototype_lyon::{entity::ShapeBundle, prelude::{ShapePlugin, GeometryBuilder, DrawMode, FillMode}};
 use bevy_rapier2d::prelude::*;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
+use bevy_prototype_lyon::prelude::*;
 struct Images {
     bevy_icon: Handle<Image>,
     bevy_icon_inverted: Handle<Image>,
@@ -39,6 +41,7 @@ pub fn main() {
         .add_plugin(RapierPhysicsPlugin::<NoUserData>::pixels_per_meter(100.0))
         .add_plugin(RapierDebugRenderPlugin::default())
         .add_plugin(MousePosPlugin)
+        .add_plugin(ShapePlugin)
         .add_startup_system(configure_visuals)
         .add_startup_system(configure_ui_state)
         .add_startup_system(setup_graphics)
@@ -93,15 +96,41 @@ fn mouse_wheel(
     }
 }
 
-fn get_world(query: Query<(&GlobalTransform, &OrthographicProjection)>) -> Vec2 {
-    todo!()
-}
-
 fn setup_graphics(mut commands: Commands) {
     // Add a camera so we can see the debug-render.
     commands
         .spawn((Camera2dBundle::default(), MainCamera))
         .add_world_tracking();
+}
+
+#[derive(Bundle)]
+struct PhysicalObject {
+    rigid_body: RigidBody,
+    collider: Collider,
+    friction: Friction,
+    restitution: Restitution,
+    mass_props: ColliderMassProperties,
+    shape: ShapeBundle
+}
+
+impl PhysicalObject {
+    fn ball(radius: f32, transform: Transform) -> Self {
+        Self {
+            rigid_body: RigidBody::Dynamic,
+            collider: Collider::ball(radius),
+            friction: Friction::default(),
+            restitution: Restitution::coefficient(0.7),
+            mass_props: ColliderMassProperties::Density(1.0),
+            shape: GeometryBuilder::build_as(
+                &shapes::Circle { radius, ..Default::default() },
+                DrawMode::Outlined {
+                    fill_mode: FillMode::color(Color::CYAN),
+                    outline_mode: StrokeMode::new(Color::BLACK, 10.0),
+                },
+                transform
+            )
+        }
+    }
 }
 
 fn setup_physics(mut commands: Commands) {
@@ -110,12 +139,16 @@ fn setup_physics(mut commands: Commands) {
         .spawn(Collider::cuboid(500.0, 50.0))
         .insert(TransformBundle::from(Transform::from_xyz(0.0, -100.0, 0.0)));
 
-    /* Create the bouncing ball. */
+    let circle = PhysicalObject::ball(50.0, Transform::from_xyz(0.0, 200.0, 0.0));
     commands
+        .spawn(circle);
+
+    /* Create the bouncing ball. */
+/*     commands
         .spawn(RigidBody::Dynamic)
         .insert(Collider::ball(50.0))
         .insert(Restitution::coefficient(0.7))
-        .insert(TransformBundle::from(Transform::from_xyz(0.0, 400.0, 0.0)));
+        .insert(TransformBundle::from(Transform::from_xyz(0.0, 400.0, 0.0)));*/
 }
 
 #[cfg(target_arch = "wasm32")]
