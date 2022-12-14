@@ -3,25 +3,63 @@ use bevy::{
     prelude::*,
     render::camera::RenderTarget,
 };
-use bevy_egui::{egui, EguiContext, EguiPlugin, EguiSettings};
-use bevy_inspector_egui::WorldInspectorPlugin;
+use bevy_egui::{
+    egui::{self, Align2},
+    EguiContext, EguiPlugin, EguiSettings,
+};
 use bevy_mouse_tracking_plugin::{prelude::*, MainCamera, MousePosWorld};
-use bevy_prototype_lyon::{entity::ShapeBundle, prelude::{ShapePlugin, GeometryBuilder, DrawMode, FillMode}};
+use bevy_prototype_lyon::prelude::*;
+use bevy_prototype_lyon::{
+    entity::ShapeBundle,
+    prelude::{DrawMode, FillMode, GeometryBuilder, ShapePlugin},
+};
 use bevy_rapier2d::prelude::*;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
-use bevy_prototype_lyon::prelude::*;
 struct Images {
-    bevy_icon: Handle<Image>,
-    bevy_icon_inverted: Handle<Image>,
+    circle: Handle<Image>,
+    coil: Handle<Image>,
+    console: Handle<Image>,
+    drag: Handle<Image>,
+    fix: Handle<Image>,
+    gravity: Handle<Image>,
+    grid: Handle<Image>,
+    hinge: Handle<Image>,
+    laser: Handle<Image>,
+    move_: Handle<Image>,
+    options: Handle<Image>,
+    pause: Handle<Image>,
+    play: Handle<Image>,
+    rectangle: Handle<Image>,
+    reset: Handle<Image>,
+    thruster: Handle<Image>,
+    tracer: Handle<Image>,
+    wind: Handle<Image>,
 }
 
 impl FromWorld for Images {
     fn from_world(world: &mut World) -> Self {
         let asset_server = world.get_resource_mut::<AssetServer>().unwrap();
+
         Self {
-            bevy_icon: asset_server.load("icon.png"),
-            bevy_icon_inverted: asset_server.load("icon_inverted.png"),
+            circle: asset_server.load("circle.png"),
+            coil: asset_server.load("coil.png"),
+            console: asset_server.load("console.png"),
+            drag: asset_server.load("drag.png"),
+            fix: asset_server.load("fix.png"),
+            gravity: asset_server.load("gravity.png"),
+            grid: asset_server.load("grid.png"),
+            hinge: asset_server.load("hinge.png"),
+            laser: asset_server.load("laser.png"),
+            move_: asset_server.load("move.png"),
+            options: asset_server.load("options.png"),
+            pause: asset_server.load("pause.png"),
+            play: asset_server.load("play.png"),
+            rectangle: asset_server.load("rectangle.png"),
+            reset: asset_server.load("reset.png"),
+            thruster: asset_server.load("thruster.png"),
+            tracer: asset_server.load("tracer.png"),
+            wind: asset_server.load("wind.png"),
         }
     }
 }
@@ -70,7 +108,7 @@ fn mouse_moved(
 fn mouse_wheel(
     windows: Res<Windows>,
     mut mouse_wheel_events: EventReader<MouseWheel>,
-    mut cameras: Query<&mut Transform, With<MainCamera>>
+    mut cameras: Query<&mut Transform, With<MainCamera>>,
 ) {
     let prim = windows.get_primary().unwrap();
     let pos = match prim.cursor_position() {
@@ -106,29 +144,34 @@ fn setup_graphics(mut commands: Commands) {
 #[derive(Bundle)]
 struct PhysicalObject {
     rigid_body: RigidBody,
+    velocity: Velocity,
     collider: Collider,
     friction: Friction,
     restitution: Restitution,
     mass_props: ColliderMassProperties,
-    shape: ShapeBundle
+    shape: ShapeBundle,
 }
 
 impl PhysicalObject {
     fn ball(radius: f32, transform: Transform) -> Self {
         Self {
             rigid_body: RigidBody::Dynamic,
+            velocity: Velocity::default(),
             collider: Collider::ball(radius),
             friction: Friction::default(),
             restitution: Restitution::coefficient(0.7),
             mass_props: ColliderMassProperties::Density(1.0),
             shape: GeometryBuilder::build_as(
-                &shapes::Circle { radius, ..Default::default() },
+                &shapes::Circle {
+                    radius,
+                    ..Default::default()
+                },
                 DrawMode::Outlined {
                     fill_mode: FillMode::color(Color::CYAN),
                     outline_mode: StrokeMode::new(Color::BLACK, 10.0),
                 },
-                transform
-            )
+                transform,
+            ),
         }
     }
 }
@@ -140,15 +183,14 @@ fn setup_physics(mut commands: Commands) {
         .insert(TransformBundle::from(Transform::from_xyz(0.0, -100.0, 0.0)));
 
     let circle = PhysicalObject::ball(50.0, Transform::from_xyz(0.0, 200.0, 0.0));
-    commands
-        .spawn(circle);
+    commands.spawn(circle);
 
     /* Create the bouncing ball. */
-/*     commands
-        .spawn(RigidBody::Dynamic)
-        .insert(Collider::ball(50.0))
-        .insert(Restitution::coefficient(0.7))
-        .insert(TransformBundle::from(Transform::from_xyz(0.0, 400.0, 0.0)));*/
+    /*     commands
+    .spawn(RigidBody::Dynamic)
+    .insert(Collider::ball(50.0))
+    .insert(Restitution::coefficient(0.7))
+    .insert(TransformBundle::from(Transform::from_xyz(0.0, 400.0, 0.0)));*/
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -200,11 +242,8 @@ fn update_ui_scale_factor(
 fn ui_example(
     mut egui_ctx: ResMut<EguiContext>,
     mut ui_state: ResMut<UiState>,
-    // You are not required to store Egui texture ids in systems. We store this one here just to
-    // demonstrate that rendering by using a texture id of a removed image is handled without
-    // making bevy_egui panic.
-    mut rendered_texture_id: Local<egui::TextureId>,
     mut is_initialized: Local<bool>,
+    mut rapier: ResMut<RapierConfiguration>,
     // If you need to access the ids from multiple systems, you can also initialize the `Images`
     // resource while building the app and use `Res<Images>` instead.
     images: Local<Images>,
@@ -215,7 +254,6 @@ fn ui_example(
 
     if !*is_initialized {
         *is_initialized = true;
-        *rendered_texture_id = egui_ctx.add_image(images.bevy_icon.clone_weak());
     }
 
     egui::TopBottomPanel::top("top_panel").show(egui_ctx.ctx_mut(), |ui| {
@@ -239,21 +277,73 @@ fn ui_example(
             ui.label("You would normally chose either panels OR windows.");
         });
 
-    if invert {
-        ui_state.inverted = !ui_state.inverted;
-    }
-    if load || invert {
-        // If an image is already added to the context, it'll return an existing texture id.
-        if ui_state.inverted {
-            *rendered_texture_id = egui_ctx.add_image(images.bevy_icon_inverted.clone_weak());
-        } else {
-            *rendered_texture_id = egui_ctx.add_image(images.bevy_icon.clone_weak());
-        };
-    }
-    if remove {
-        egui_ctx.remove_image(&images.bevy_icon);
-        egui_ctx.remove_image(&images.bevy_icon_inverted);
-    }
+    let drag = egui_ctx.add_image(images.drag.clone());
+    let move_ = egui_ctx.add_image(images.move_.clone());
+    let rectangle = egui_ctx.add_image(images.rectangle.clone());
+    let circle = egui_ctx.add_image(images.circle.clone());
+    let play = egui_ctx.add_image(images.play.clone());
+    let pause = egui_ctx.add_image(images.pause.clone());
+    egui::Window::new("Tools")
+        .anchor(Align2::CENTER_BOTTOM, [0.0, 0.0])
+        .title_bar(false)
+        .resizable(false)
+        .show(egui_ctx.clone().ctx_mut(), |ui| {
+            ui.horizontal(|ui| {
+                if ui.add(egui::ImageButton::new(drag, [32.0, 32.0])).clicked() {
+                    info!("Drag");
+                }
+                if ui
+                    .add(egui::ImageButton::new(move_, [32.0, 32.0]))
+                    .clicked()
+                {
+                    info!("Move");
+                }
+                if ui
+                    .add(egui::ImageButton::new(rectangle, [32.0, 32.0]))
+                    .clicked()
+                {
+                    info!("Rectangle");
+                }
+                if ui
+                    .add(egui::ImageButton::new(circle, [32.0, 32.0]))
+                    .clicked()
+                {
+                    info!("Circle");
+                }
+                let playpause = ui.add(egui::ImageButton::new(
+                    if rapier.physics_pipeline_active {
+                        pause
+                    } else {
+                        play
+                    },
+                    [32.0, 32.0],
+                ));
+                if playpause.clicked() {
+                    rapier.physics_pipeline_active = !rapier.physics_pipeline_active;
+                }
+
+                playpause.context_menu(|ui| {
+                    let (max_dt, mut time_scale, substeps) = match rapier.timestep_mode {
+                        TimestepMode::Variable {
+                            max_dt,
+                            time_scale,
+                            substeps,
+                        } => (max_dt, time_scale, substeps),
+                        _ => unreachable!("Shouldn't happen"),
+                    };
+                    ui.add(
+                        egui::Slider::new(&mut time_scale, 0.1..=10.0)
+                            .logarithmic(true)
+                            .text("My value"),
+                    );
+                    rapier.timestep_mode = TimestepMode::Variable {
+                        max_dt,
+                        time_scale,
+                        substeps,
+                    };
+                });
+            })
+        });
 }
 
 struct Painting {
