@@ -1,3 +1,6 @@
+use bevy::input::mouse::MouseButtonInput;
+use bevy::input::ButtonState;
+use bevy::math::Vec3Swizzles;
 use bevy::{
     input::mouse::{MouseMotion, MouseWheel},
     prelude::*,
@@ -14,6 +17,7 @@ use bevy_prototype_lyon::{
     prelude::{DrawMode, FillMode, GeometryBuilder, ShapePlugin},
 };
 use bevy_rapier2d::prelude::*;
+use std::ops::DerefMut;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 struct Images {
@@ -69,7 +73,7 @@ impl FromWorld for Images {
 /// - toggling hidpi scaling (by pressing '/' button);
 /// - configuring egui contexts during the startup.
 
-pub fn main() {
+pub fn app_main() {
     App::new()
         .insert_resource(ClearColor(Color::rgb(0.0, 0.0, 0.0)))
         .insert_resource(Msaa { samples: 4 })
@@ -88,19 +92,61 @@ pub fn main() {
         .add_system(ui_example)
         .add_system(mouse_moved)
         .add_system(mouse_wheel)
+        .add_system(mouse_button)
         .run();
 }
+
+#[derive(Component)]
+struct TemporarilyFrozen;
 
 fn mouse_moved(
     mut mouse_motion_events: EventReader<MouseMotion>,
     mut cameras: Query<&mut Transform, With<MainCamera>>,
     mouse_button_input: Res<Input<MouseButton>>,
+    mut entities: Query<(&mut Transform, &mut RigidBody), Without<MainCamera>>,
+    mut ui_state: ResMut<UiState>,
+    mouse_pos: Res<MousePosWorld>,
+    mut commands: Commands,
 ) {
     if mouse_button_input.pressed(MouseButton::Right) {
-        let mut pos = cameras.single_mut();
-        let scale = pos.scale;
-        for event in mouse_motion_events.iter() {
-            pos.translation += Vec3::new(-event.delta.x, event.delta.y, 0.0) * scale;
+        if ui_state.rotating.is_none() {
+            if let Some(EntitySelection { entity, .. }) = ui_state.selected_entity {
+                commands.entity(entity).insert(TemporarilyFrozen);
+                let (mut entity, mut body) = entities.get_mut(entity).unwrap();
+                *body = RigidBody::Fixed;
+                ui_state.rotating = Some(entity.rotation);
+            } else {
+                let mut cam = cameras.single_mut();
+                let scale = cam.scale;
+                for event in mouse_motion_events.iter() {
+                    cam.translation += Vec3::new(-event.delta.x, event.delta.y, 0.0) * scale;
+                }
+            }
+        }
+
+        if let Some(rot) = ui_state.rotating {
+            let EntitySelection { entity, rel_pos } = &ui_state.selected_entity.as_ref().unwrap();
+            let (mut entity, mut body) = entities.get_mut(*entity).unwrap();
+            let rel = (**mouse_pos - entity.translation).truncate();
+            if rel != *rel_pos {
+                let rel_angle = -rel.angle_between(*rel_pos);
+                entity.rotation = rot * Quat::from_rotation_z(rel_angle);
+            }
+        }
+    }
+
+    if mouse_button_input.pressed(MouseButton::Left) {
+        if ui_state.current_tool == MouseTool::Move {
+            if let Some(EntitySelection { entity, .. }) = ui_state.selected_entity {
+                commands.entity(entity).insert(TemporarilyFrozen);
+                let (mut entity, mut body) = entities.get_mut(entity).unwrap();
+                *body = RigidBody::Fixed;
+                let mut cam = cameras.single_mut();
+                let scale = cam.scale;
+                for event in mouse_motion_events.iter() {
+                    entity.translation += Vec3::new(event.delta.x, -event.delta.y, 0.0) * scale;
+                }
+            }
         }
     }
 }
@@ -131,6 +177,101 @@ fn mouse_wheel(
         let new = transform.transform_point(off.extend(1.0));
         let diff = new - old;
         transform.translation -= diff;
+    }
+}
+
+fn set_selected(mut draw_mode: Mut<DrawMode>, selected: bool) {
+    *draw_mode = match *draw_mode {
+        DrawMode::Outlined {
+            fill_mode,
+            outline_mode,
+        } => DrawMode::Outlined {
+            fill_mode,
+            outline_mode: StrokeMode::new(if selected { Color::RED } else { Color::BLACK }, 3.0),
+        },
+        _ => unreachable!("shouldn't happen"),
+    };
+}
+
+fn mouse_button(
+    mut mouse_button_events: EventReader<MouseButtonInput>,
+    mut ui_state: ResMut<UiState>,
+    rapier_context: Res<RapierContext>,
+    mouse_pos: Res<MousePosWorld>,
+    mut query: Query<(&mut DrawMode, &Transform, &mut RigidBody)>,
+    frozen: Query<&TemporarilyFrozen>,
+    mut commands: Commands,
+) {
+    for event in mouse_button_events.iter() {
+        match (event.button, event.state) {
+            (MouseButton::Left | MouseButton::Right, ButtonState::Pressed) => {
+                let pos = mouse_pos.xy();
+                if let Some(EntitySelection { entity, .. }) = ui_state.selected_entity {
+                    let (mut shape, transform, _) = query.get_mut(entity).unwrap();
+                    set_selected(shape, false);
+                    ui_state.selected_entity = None;
+                }
+                rapier_context.intersections_with_point(pos, QueryFilter::default(), |ent| {
+                    let (mut shape, transform, _) = query.get_mut(ent).unwrap();
+                    set_selected(shape, true);
+                    ui_state.selected_entity = Some(EntitySelection {
+                        entity: ent,
+                        rel_pos: pos - transform.translation.truncate(),
+                    });
+                    false
+                });
+            }
+            (MouseButton::Left, ButtonState::Released) => {
+                if ui_state.current_tool == MouseTool::Move {
+                    if let Some(EntitySelection { entity, .. }) = ui_state.selected_entity {
+                        if frozen.get(entity).is_ok() {
+                            commands.entity(entity).remove::<TemporarilyFrozen>();
+                            let (_, _, mut body) = query.get_mut(entity).unwrap();
+                            *body = RigidBody::Dynamic;
+                        }
+                    }
+                }
+            }
+            (MouseButton::Right, ButtonState::Released) => {
+                if ui_state.rotating.is_some() {
+                    if let Some(EntitySelection { entity, .. }) = ui_state.selected_entity {
+                        if frozen.get(entity).is_ok() {
+                            commands.entity(entity).remove::<TemporarilyFrozen>();
+                            let (_, _, mut body) = query.get_mut(entity).unwrap();
+                            *body = RigidBody::Dynamic;
+                        }
+                    }
+                    ui_state.rotating = None;
+                }
+            }
+            _ => {}
+        };
+
+        if event.button == MouseButton::Left {
+            if event.state == ButtonState::Pressed {
+                let pos = mouse_pos.xy();
+                if let Some(EntitySelection { entity, .. }) = ui_state.selected_entity {
+                    let (mut shape, transform, _) = query.get_mut(entity).unwrap();
+                    set_selected(shape, false);
+                }
+                rapier_context.intersections_with_point(pos, QueryFilter::default(), |ent| {
+                    let (mut shape, transform, _) = query.get_mut(ent).unwrap();
+                    set_selected(shape, true);
+                    ui_state.selected_entity = Some(EntitySelection {
+                        entity: ent,
+                        rel_pos: pos - transform.translation.truncate(),
+                    });
+                    false
+                });
+            } else {
+                if ui_state.current_tool == MouseTool::Move {
+                    if let Some(EntitySelection { entity, .. }) = ui_state.selected_entity {
+                        let (_, _, mut body) = query.get_mut(entity).unwrap();
+                        *body = RigidBody::Dynamic;
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -168,7 +309,7 @@ impl PhysicalObject {
                 },
                 DrawMode::Outlined {
                     fill_mode: FillMode::color(Color::CYAN),
-                    outline_mode: StrokeMode::new(Color::BLACK, 10.0),
+                    outline_mode: StrokeMode::new(Color::BLACK, 3.0),
                 },
                 transform,
             ),
@@ -196,16 +337,39 @@ fn setup_physics(mut commands: Commands) {
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen(start)]
 fn wasm_main() {
-    main();
+    app_main();
+}
+
+#[derive(Copy, Clone, PartialEq, Eq)]
+enum MouseTool {
+    Drag,
+    Move,
+    DrawShape(ShapeTool),
+}
+
+impl Default for MouseTool {
+    fn default() -> Self {
+        Self::Drag
+    }
+}
+
+#[derive(Copy, Clone, PartialEq, Eq)]
+enum ShapeTool {
+    Circle,
+    Rectangle,
+}
+
+struct EntitySelection {
+    entity: Entity,
+    rel_pos: Vec2,
 }
 
 #[derive(Default, Resource)]
 struct UiState {
-    label: String,
-    value: f32,
-    painting: Painting,
-    inverted: bool,
+    current_tool: MouseTool,
+    rotating: Option<Quat>,
     is_window_open: bool,
+    selected_entity: Option<EntitySelection>,
 }
 
 fn configure_visuals(mut egui_ctx: ResMut<EguiContext>) {
@@ -248,10 +412,6 @@ fn ui_example(
     // resource while building the app and use `Res<Images>` instead.
     images: Local<Images>,
 ) {
-    let mut load = false;
-    let mut remove = false;
-    let mut invert = false;
-
     if !*is_initialized {
         *is_initialized = true;
     }
@@ -283,33 +443,27 @@ fn ui_example(
     let circle = egui_ctx.add_image(images.circle.clone());
     let play = egui_ctx.add_image(images.play.clone());
     let pause = egui_ctx.add_image(images.pause.clone());
+    let cur_tool = ui_state.current_tool;
     egui::Window::new("Tools")
         .anchor(Align2::CENTER_BOTTOM, [0.0, 0.0])
         .title_bar(false)
         .resizable(false)
         .show(egui_ctx.clone().ctx_mut(), |ui| {
             ui.horizontal(|ui| {
-                if ui.add(egui::ImageButton::new(drag, [32.0, 32.0])).clicked() {
-                    info!("Drag");
+                for (image, tool) in [
+                    (drag, MouseTool::Drag),
+                    (move_, MouseTool::Move),
+                    (rectangle, MouseTool::DrawShape(ShapeTool::Rectangle)),
+                    (circle, MouseTool::DrawShape(ShapeTool::Circle)),
+                ] {
+                    if ui
+                        .add(egui::ImageButton::new(image, [32.0, 32.0]).selected(cur_tool == tool))
+                        .clicked()
+                    {
+                        ui_state.current_tool = tool;
+                    }
                 }
-                if ui
-                    .add(egui::ImageButton::new(move_, [32.0, 32.0]))
-                    .clicked()
-                {
-                    info!("Move");
-                }
-                if ui
-                    .add(egui::ImageButton::new(rectangle, [32.0, 32.0]))
-                    .clicked()
-                {
-                    info!("Rectangle");
-                }
-                if ui
-                    .add(egui::ImageButton::new(circle, [32.0, 32.0]))
-                    .clicked()
-                {
-                    info!("Circle");
-                }
+
                 let playpause = ui.add(egui::ImageButton::new(
                     if rapier.physics_pipeline_active {
                         pause
@@ -318,10 +472,10 @@ fn ui_example(
                     },
                     [32.0, 32.0],
                 ));
+
                 if playpause.clicked() {
                     rapier.physics_pipeline_active = !rapier.physics_pipeline_active;
                 }
-
                 playpause.context_menu(|ui| {
                     let (max_dt, mut time_scale, substeps) = match rapier.timestep_mode {
                         TimestepMode::Variable {
@@ -334,7 +488,7 @@ fn ui_example(
                     ui.add(
                         egui::Slider::new(&mut time_scale, 0.1..=10.0)
                             .logarithmic(true)
-                            .text("My value"),
+                            .text("Simulation speed"),
                     );
                     rapier.timestep_mode = TimestepMode::Variable {
                         max_dt,
@@ -344,59 +498,4 @@ fn ui_example(
                 });
             })
         });
-}
-
-struct Painting {
-    lines: Vec<Vec<egui::Vec2>>,
-    stroke: egui::Stroke,
-}
-
-impl Default for Painting {
-    fn default() -> Self {
-        Self {
-            lines: Default::default(),
-            stroke: egui::Stroke::new(1.0, egui::Color32::LIGHT_BLUE),
-        }
-    }
-}
-
-impl Painting {
-    pub fn ui_control(&mut self, ui: &mut egui::Ui) -> egui::Response {
-        ui.horizontal(|ui| {
-            egui::stroke_ui(ui, &mut self.stroke, "Stroke");
-            ui.separator();
-            if ui.button("Clear Painting").clicked() {
-                self.lines.clear();
-            }
-        })
-        .response
-    }
-
-    pub fn ui_content(&mut self, ui: &mut egui::Ui) {
-        let (response, painter) =
-            ui.allocate_painter(ui.available_size_before_wrap(), egui::Sense::drag());
-        let rect = response.rect;
-
-        if self.lines.is_empty() {
-            self.lines.push(vec![]);
-        }
-
-        let current_line = self.lines.last_mut().unwrap();
-
-        if let Some(pointer_pos) = response.interact_pointer_pos() {
-            let canvas_pos = pointer_pos - rect.min;
-            if current_line.last() != Some(&canvas_pos) {
-                current_line.push(canvas_pos);
-            }
-        } else if !current_line.is_empty() {
-            self.lines.push(vec![]);
-        }
-
-        for line in &self.lines {
-            if line.len() >= 2 {
-                let points: Vec<egui::Pos2> = line.iter().map(|p| rect.min + *p).collect();
-                painter.add(egui::Shape::line(points, self.stroke));
-            }
-        }
-    }
 }

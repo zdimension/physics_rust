@@ -33,4 +33,4 @@ opt-level = 3
 
 [[bin]]
 name = "physics_rust"
-path = "src/lib.rs"
+path = "src/main.rs"
