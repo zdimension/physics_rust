@@ -10,7 +10,7 @@ use bevy_egui::{
     egui::{self, Align2},
     EguiContext, EguiPlugin, EguiSettings,
 };
-use bevy_mouse_tracking_plugin::{prelude::*, MainCamera, MousePosWorld, MousePos};
+use bevy_mouse_tracking_plugin::{prelude::*, MainCamera, MousePos, MousePosWorld};
 use bevy_prototype_lyon::prelude::*;
 use bevy_prototype_lyon::{
     entity::ShapeBundle,
@@ -202,6 +202,16 @@ fn set_selected(mut draw_mode: Mut<DrawMode>, selected: bool) {
     };
 }
 
+fn check_click(click_pos: &mut Option<Vec2>, cur_pos: Vec2) -> bool {
+    if let Some(pos) = *click_pos {
+        *click_pos = None;
+        if cur_pos == pos {
+            return true;
+        }
+    }
+    false
+}
+
 fn mouse_button(
     mut mouse_button_events: EventReader<MouseButtonInput>,
     mut ui_state: ResMut<UiState>,
@@ -211,90 +221,33 @@ fn mouse_button(
     mut cameras: Query<&mut Transform, With<MainCamera>>,
     mut query: Query<(&mut DrawMode, &mut Transform, &mut RigidBody), Without<MainCamera>>,
     frozen: Query<&TemporarilyFrozen>,
-    mut commands: Commands
+    mut commands: Commands,
 ) {
-    let ToolDef(_, builder) = ui_state.toolbox_selected;
-    let pos = mouse_pos.xy();
-    
-   // info!("sel_ent: {:?}", sel_ent);
-
-    let spos = **screen_pos;
+    let screen_pos = **screen_pos;
     for event in mouse_button_events.iter() {
-        match (event.button, event.state) {
-            (MouseButton::Left, ButtonState::Pressed) => {
-                ui_state.click_pos = Some(spos);
-
-                let ToolDef(_, builder) = ui_state.toolbox_selected;
-                let cam = CameraRef {
-                    camera: cameras.single_mut(),
-                };
-                {
-                    let mut sel_ent = None;
-                    rapier_context.intersections_with_point(pos, QueryFilter::default(), |ent| {
-                        sel_ent = Some(ent);
-                        false
-                    });
-                    let res = sel_ent.map(|entity| {
-                        let (shape, mut transform, mut body) = query.get_mut(entity).unwrap();
-                        PhysicalObjectRef {
-                            draw_mode: shape,
-                            transform: transform,
-                            body: body,
-                        }
-                    });
-                    let res = builder(&mut ui_state, cam, res, pos);
-                    if let Some(tool) = res {
-                        ui_state.current_tool = Some(tool);
-                    } else {
-                        ui_state.current_tool = None;
-                    }
-                };
-                
+        if event.state == ButtonState::Pressed {
+            match event.button {
+                MouseButton::Left => ui_state.mouse_left_pos = Some(screen_pos),
+                MouseButton::Right => ui_state.mouse_right_pos = Some(screen_pos),
+                _ => {}
             }
-            (MouseButton::Left, ButtonState::Released) => {
-                let cpos = ui_state.click_pos.unwrap();
-                let dist = (cpos - spos).length();
-                let cam = CameraRef {
-                    camera: cameras.single_mut(),
-                };
-                let selection = ui_state.selected_entity.map(|entity| {
-                    let (shape, transform, body) = query.get_mut(entity.entity).unwrap();
-                    PhysicalObjectRef {
-                        draw_mode: shape,
-                        transform: transform,
-                        body: body,
-                    }
-                });
-                //let mut cur_tool = ui_state.current_tool.as_mut().unwrap();
-                let mut cur_tool = std::mem::replace(&mut ui_state.current_tool, None).unwrap();
-                cur_tool.on_release(&mut ui_state, cam, selection);
-                if dist < 10.0 {
-                    //cur_tool.on_click(&mut world, &mut ui_state, sel_ent);
-
-                    if let Some(EntitySelection { entity }) = ui_state.selected_entity {
-                        let (shape, _transform, _) = query.get_mut(entity).unwrap();
-                        set_selected(shape, false);
-                        ui_state.selected_entity = None;
-                    }
-                    let mut sel_ent = None;
-                    rapier_context.intersections_with_point(pos, QueryFilter::default(), |ent| {
-                        sel_ent = Some(ent);
-                        false
-                    });
-                    if let Some(entity) = sel_ent {
-                        let (shape, _transform, _) = query.get_mut(entity).unwrap();
-                        set_selected(shape, true);
-                        ui_state.selected_entity = Some(EntitySelection {
-                            entity,
-                        });
-                    }
-                }
-                ui_state.click_pos = None;
+        } else if event.state == ButtonState::Released {
+            match event.button {
+                MouseButton::Left => if check_click(&mut ui_state.mouse_left_pos, screen_pos) {
+                    // perform left click
+                },
+                MouseButton::Right => if check_click(&mut ui_state.mouse_left_pos, screen_pos) {
+                    // perform left click
+                },
+                _ => {}
             }
-            _ => {}
         }
-    }
-    /*for event in mouse_button_events.iter() {
+
+
+
+
+
+        
         match (event.button, event.state) {
             (MouseButton::Left | MouseButton::Right, ButtonState::Pressed) => {
                 let pos = mouse_pos.xy();
@@ -342,7 +295,7 @@ fn mouse_button(
             }
             _ => {}
         };
-    }*/
+    }
 }
 
 fn setup_graphics(mut commands: Commands) {
@@ -403,127 +356,23 @@ fn wasm_main() {
     app_main();
 }
 
-#[derive(Copy, Clone, PartialEq)]
-enum MouseTool {
-    Drag,
-    Move,
-    DrawShape(ShapeTool),
+enum ToolEnum {
+    Pan(Option<PanState>),
+    Move(Option<MoveState>),
+    Rotate(Option<RotateState>),
 }
 
-trait Tool {
-    fn get_image() -> &'static str where Self: Sized;
-
-    fn on_press<'a>(ui_state: &mut UiState, cam: CameraRef<'a>, selection: Option<PhysicalObjectRef<'a>>, click_pos: Vec2) -> Option<Self> where Self: Sized;
-    fn on_release<'a>(&mut self, ui_state: &mut UiState, cam: CameraRef<'a>, selection: Option<PhysicalObjectRef<'a>>) {}
-    fn on_move<'a>(&mut self, ui_state: &mut UiState, cam: CameraRef<'a>, selection: Option<PhysicalObjectRef<'a>>, click_pos: Vec2, cur_pos: Vec2) {}
-    fn on_click(&mut self, ui_state: &mut UiState, entity: Option<Entity>) {}
-}
-
-struct CameraRef<'a> {
-    camera: Mut<'a, Transform>,
-}
-
-struct PanTool {
+struct PanState {
     orig_camera_pos: Vec2,
 }
 
-impl Tool for PanTool {
-    fn get_image() -> &'static str {
-        "pan.png"
-    }
-
-    fn on_press<'a>(ui_state: &mut UiState, cam: CameraRef<'a>, selection: Option<PhysicalObjectRef<'a>>, click_pos: Vec2) -> Option<Self> {
-        Some(Self {
-            orig_camera_pos: cam.camera.translation.truncate(),
-        })
-    }
-
-    fn on_move<'a>(&mut self, ui_state: &mut UiState, mut cam: CameraRef<'a>, selection: Option<PhysicalObjectRef<'a>>, click_pos: Vec2, cur_pos: Vec2) {
-        cam.camera.translation = (self.orig_camera_pos + (cur_pos - click_pos)).extend(0.0);
-    }
-}
-
-struct MoveTool {
+struct MoveState {
     orig_obj_pos: Vec2,
 }
 
-impl Tool for MoveTool {
-    fn get_image() -> &'static str where Self: Sized {
-        "move.png"
-    }
-
-    fn on_press<'a>(ui_state: &mut UiState, cam: CameraRef<'a>, selection: Option<PhysicalObjectRef<'a>>, click_pos: Vec2) -> Option<Self> {
-        if let PhysicalObjectRef { draw_mode, transform, mut body } = selection.unwrap() {
-            *body = RigidBody::KinematicPositionBased;
-            Some(Self {
-                orig_obj_pos: click_pos - transform.translation.truncate(),
-            })
-        } else {
-            None
-        }
-    }
-
-    fn on_move<'a>(&mut self, ui_state: &mut UiState, cam: CameraRef<'a>, selection: Option<PhysicalObjectRef<'a>>, click_pos: Vec2, cur_pos: Vec2) {
-        selection.unwrap().transform.translation = (self.orig_obj_pos + (cur_pos - click_pos)).extend(0.0);
-    }
-
-    fn on_release<'a>(&mut self, ui_state: &mut UiState, cam: CameraRef<'a>, selection: Option<PhysicalObjectRef<'a>>) {
-        let PhysicalObjectRef { draw_mode, transform, mut body } = selection.unwrap();
-        *body = RigidBody::Dynamic;
-    }
-}
-
-struct RotateTool {
+struct RotateState {
     orig_obj_pos: Vec2,
     orig_obj_rot: Quat,
-}
-
-impl Tool for RotateTool {
-    fn get_image() -> &'static str where Self: Sized {
-        "rotate.png"
-    }
-
-    fn on_press<'a>(ui_state: &mut UiState, cam: CameraRef<'a>, selection: Option<PhysicalObjectRef<'a>>, click_pos: Vec2) -> Option<Self> {
-        let PhysicalObjectRef { draw_mode, transform, mut body } = selection.unwrap();
-        *body = RigidBody::KinematicPositionBased;
-        Some(Self {
-            orig_obj_pos: click_pos - transform.translation.truncate(),
-            orig_obj_rot: transform.rotation,
-        })
-    }
-
-    fn on_move<'a>(&mut self, ui_state: &mut UiState, cam: CameraRef<'a>, selection: Option<PhysicalObjectRef<'a>>, click_pos: Vec2, cur_pos: Vec2) {
-        let PhysicalObjectRef { draw_mode, mut transform, body } = selection.unwrap();
-        let angle = (cur_pos - transform.translation.truncate()).angle_between(self.orig_obj_pos);
-        transform.rotation = self.orig_obj_rot * Quat::from_rotation_z(angle);
-    }
-
-    fn on_release<'a>(&mut self, ui_state: &mut UiState, cam: CameraRef<'a>, selection: Option<PhysicalObjectRef<'a>>) {
-        let PhysicalObjectRef { draw_mode, transform,mut body } = selection.unwrap();
-        *body = RigidBody::Dynamic;
-    }
-}
-
-enum ToolEnum {
-
-}
-
-struct PhysicalObjectRef<'a> {
-    draw_mode: Mut<'a, DrawMode>,
-    transform: Mut<'a, Transform>,
-    body: Mut<'a, RigidBody>,
-}
-
-impl Default for MouseTool {
-    fn default() -> Self {
-        Self::Drag
-    }
-}
-
-#[derive(Copy, Clone, PartialEq)]
-enum ShapeTool {
-    Circle(Option<Vec2>),
-    Rectangle(Option<Vec2>),
 }
 
 #[derive(Copy, Clone, PartialEq)]
@@ -533,13 +382,14 @@ struct EntitySelection {
 
 #[derive(Resource)]
 struct UiState {
-    is_window_open: bool,
-    click_pos: Option<Vec2>,
     selected_entity: Option<EntitySelection>,
-    current_tool: Option<Box<dyn Tool + Sync + Send>>,
     toolbox: Vec<Vec<ToolDef>>,
     toolbox_bottom: Vec<ToolDef>,
-    toolbox_selected: ToolDef
+    toolbox_selected: ToolDef,
+    mouse_left: Option<ToolEnum>,
+    mouse_left_pos: Option<Vec2>,
+    mouse_right: Option<ToolEnum>,
+    mouse_right_pos: Option<Vec2>,
 }
 
 impl FromWorld for UiState {
@@ -547,34 +397,21 @@ impl FromWorld for UiState {
         let mut egui_ctx = unsafe { world.get_resource_unchecked_mut::<EguiContext>().unwrap() };
         let assets = world.get_resource::<AssetServer>().unwrap();
         macro_rules! tool {
-            ($ty:ty) => {
-                ToolDef(egui_ctx.add_image(assets.load(String::from("tools/") + <$ty>::get_image())), |ui_state, cam, selection, click_pos| {
-                    if let Some(tool) = <$ty>::on_press(ui_state, cam, selection, click_pos) {
-                        Some(Box::new(tool) as Box<dyn Tool + Sync + Send>)
-                    } else {
-                        None
-                    }
-                })
+            ($img:literal, $ty:ident) => {
+                ToolDef(
+                    egui_ctx.add_image(assets.load(concat!("tools/", $img, ".png"))),
+                    || ToolEnum::$ty(Default::default()),
+                )
             };
         }
 
-        let pan = tool!(PanTool);
+        let pan = tool!("pan", Pan);
 
         Self {
-            is_window_open: false,
-            click_pos: None,
-            selected_entity: None,
-            current_tool: None,
-            toolbox: vec![
-                vec![
-                    tool!(MoveTool),
-                    tool!(RotateTool),
-                ],
-            ],
-            toolbox_bottom: vec! [
-                pan
-            ],
+            toolbox: vec![vec![tool!("move", Move), tool!("rotate", Rotate)]],
+            toolbox_bottom: vec![pan],
             toolbox_selected: pan,
+            ..Default::default()
         }
     }
 }
@@ -591,7 +428,7 @@ fn configure_ui_state(mut ui_state: ResMut<UiState>) {
 }
 
 #[derive(Copy, Clone)]
-struct ToolDef(TextureId, for<'a> fn(&mut UiState, CameraRef<'a>, Option<PhysicalObjectRef<'a>>, Vec2) -> Option<Box<dyn Tool + Sync + Send>>);
+struct ToolDef(TextureId, fn() -> ToolEnum);
 
 impl PartialEq for ToolDef {
     fn eq(&self, other: &Self) -> bool {
@@ -620,26 +457,31 @@ fn ui_example(
             });
         });
     });
-        
 
     egui::Window::new("Tools")
         .anchor(Align2::LEFT_BOTTOM, [0.0, 0.0])
         .title_bar(false)
         .resizable(false)
         .show(egui_ctx.clone().ctx_mut(), |ui| {
-            egui::Grid::new("toolsgrid").min_col_width(0.0).show(ui, |ui| {
-                let ui_state = &mut *ui_state;
-                for category in ui_state.toolbox.iter() {
-                    for (i, def @ ToolDef(image, _)) in category.iter().enumerate() {
-                        if ui
-                            .add(egui::ImageButton::new(*image, [26.0, 26.0]).selected(ui_state.toolbox_selected == *def))
-                            .clicked() {
+            egui::Grid::new("toolsgrid")
+                .min_col_width(0.0)
+                .show(ui, |ui| {
+                    let ui_state = &mut *ui_state;
+                    for category in ui_state.toolbox.iter() {
+                        for (i, def @ ToolDef(image, _)) in category.iter().enumerate() {
+                            if ui
+                                .add(
+                                    egui::ImageButton::new(*image, [26.0, 26.0])
+                                        .selected(ui_state.toolbox_selected == *def),
+                                )
+                                .clicked()
+                            {
                                 ui_state.toolbox_selected = *def;
                             }
+                        }
+                        ui.end_row();
                     }
-                    ui.end_row();
-                }
-            })
+                })
         });
 
     egui::Window::new("Tools2")
@@ -651,10 +493,14 @@ fn ui_example(
                 let ui_state = &mut *ui_state;
                 for def @ ToolDef(image, _) in ui_state.toolbox_bottom.iter() {
                     if ui
-                        .add(egui::ImageButton::new(*image, [32.0, 32.0]).selected(ui_state.toolbox_selected == *def))
-                        .clicked() {
-                            ui_state.toolbox_selected = *def;
-                        }
+                        .add(
+                            egui::ImageButton::new(*image, [32.0, 32.0])
+                                .selected(ui_state.toolbox_selected == *def),
+                        )
+                        .clicked()
+                    {
+                        ui_state.toolbox_selected = *def;
+                    }
                 }
 
                 let pause = egui_ctx.add_image(assets.load("gui/pause.png"));
