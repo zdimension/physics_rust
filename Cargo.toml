@@ -28,7 +28,7 @@ wasm-bindgen = "0.2.83"
 opt-level = 3 # fast and small wasm
 
 # Optimize all dependencies even in debug builds:
-[profile.dev.package."*"]
+[profile.dev.package.bevy_rapier2d]
 opt-level = 3
 
 [[bin]]

@@ -1,13 +1,8 @@
 use std::time::Duration;
 
-
-
 use bevy::math::Vec3Swizzles;
-use bevy::{
-    input::mouse::{MouseWheel},
-    prelude::*,
-};
-use bevy_egui::egui::{TextureId};
+use bevy::{input::mouse::MouseWheel, prelude::*};
+use bevy_egui::egui::TextureId;
 use bevy_egui::{
     egui::{self, Align2},
     EguiContext, EguiPlugin,
@@ -23,14 +18,19 @@ use bevy_rapier2d::prelude::*;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 struct Images {
+    hinge_background: Handle<Image>,
+    hinge_balls: Handle<Image>,
 }
+
+const BORDER_THICKNESS: f32 = 0.03;
 
 impl FromWorld for Images {
     fn from_world(world: &mut World) -> Self {
-        let _asset_server = world.get_resource_mut::<AssetServer>().unwrap();
+        let asset_server = world.get_resource_mut::<AssetServer>().unwrap();
 
         Self {
-           
+            hinge_background: asset_server.load("app/hinge_background.png"),
+            hinge_balls: asset_server.load("app/hinge_balls.png"),
         }
     }
 }
@@ -47,18 +47,34 @@ pub fn app_main() {
         .add_plugins(DefaultPlugins)
         .add_plugin(EguiPlugin)
         .init_resource::<UiState>()
-        .add_plugin(RapierPhysicsPlugin::<NoUserData>::pixels_per_meter(100.0))
-        .add_plugin(RapierDebugRenderPlugin::default())
+        .insert_resource(RapierConfiguration {
+            gravity: Vect::Y * -9.81,
+            ..Default::default()
+        })
+        .add_plugin(RapierPhysicsPlugin::<NoUserData>::pixels_per_meter(1.0))
+        .add_plugin(RapierDebugRenderPlugin {
+            style: DebugRenderStyle {
+                rigid_body_axes_length: 1.0,
+                ..Default::default()
+            },
+            ..Default::default()
+        })
         .add_plugin(MousePosPlugin)
         .add_plugin(ShapePlugin)
         .add_startup_system(configure_visuals)
         .add_startup_system(configure_ui_state)
         .add_startup_system(setup_graphics)
         .add_startup_system(setup_physics)
+        //.add_startup_system(center_camera.after(setup_graphics))
         .add_system(ui_example)
         .add_system(mouse_wheel)
         .add_system(mouse_button)
         .run();
+}
+
+fn center_camera(mut cameras: Query<&mut Transform, With<MainCamera>>) {
+    let mut camera = cameras.single_mut();
+    camera.scale = Vec3::new(1.0, 1.0, 1.0);
 }
 
 #[derive(Component)]
@@ -100,7 +116,7 @@ fn set_selected(mut draw_mode: Mut<DrawMode>, selected: bool) {
             outline_mode: _,
         } => DrawMode::Outlined {
             fill_mode,
-            outline_mode: StrokeMode::new(if selected { Color::WHITE } else { Color::BLACK }, 3.0),
+            outline_mode: StrokeMode::new(if selected { Color::WHITE } else { Color::BLACK }, BORDER_THICKNESS),
         },
         _ => unreachable!("shouldn't happen"),
     };
@@ -122,6 +138,7 @@ fn mouse_button(
     time: Res<Time>,
 ) {
     let screen_pos = **screen_pos;
+
 
     let ToolDef(_, builder) = ui_state.toolbox_selected;
     let hover_tool = builder();
@@ -161,22 +178,24 @@ fn mouse_button(
                     }
                 }
                 Some(Box(Some(draw_ent))) => {
+                    let camera = cameras.single();
                     commands.entity(draw_ent).insert(GeometryBuilder::build_as(
                         &shapes::Rectangle {
                             extents: pos - click_pos,
                             origin: RectangleOrigin::BottomLeft,
                         },
-                        DrawMode::Stroke(StrokeMode::new(Color::WHITE, 5.0)),
+                        DrawMode::Stroke(StrokeMode::new(Color::WHITE, 5.0 * camera.scale.x)),
                         Transform::from_translation(click_pos.extend(0.0)),
                     ));
                 }
                 Some(Circle(Some(draw_ent))) => {
+                    let camera = cameras.single();
                     commands.entity(draw_ent).insert(GeometryBuilder::build_as(
                         &shapes::Circle {
                             radius: (pos - click_pos).length(),
                             ..Default::default()
                         },
-                        DrawMode::Stroke(StrokeMode::new(Color::WHITE, 5.0)),
+                        DrawMode::Stroke(StrokeMode::new(Color::WHITE, 5.0 * camera.scale.x)),
                         Transform::from_translation(click_pos.extend(0.0)),
                     ));
                 }
@@ -230,17 +249,14 @@ fn mouse_button(
                                         })));
                                     }
                                     (Rotate(None), Some(under), _) => {
-                                        let (transform, mut body) =
-                                            query.get_mut(under).unwrap();
+                                        let (transform, mut body) = query.get_mut(under).unwrap();
                                         ui_state.mouse_left = Some(Rotate(Some(RotateState {
-                                            orig_obj_pos: transform.translation.xy(),
                                             orig_obj_rot: transform.rotation,
                                         })));
                                         *body = RigidBody::Fixed;
                                     }
                                     (_, Some(under), Some(sel)) if under == sel => {
-                                        let (transform, mut body) =
-                                            query.get_mut(under).unwrap();
+                                        let (transform, mut body) = query.get_mut(under).unwrap();
                                         ui_state.mouse_left = Some(Move(Some(MoveState {
                                             obj_delta: transform.translation.xy() - pos,
                                         })));
@@ -254,7 +270,10 @@ fn mouse_button(
                                         ui_state.mouse_left =
                                             Some(Circle(Some(commands.spawn(DrawObject).id())));
                                     }
-                                    _ => todo!()
+                                    (tool, _, _) => {
+                                        dbg!(tool);
+                                        todo!()
+                                    },
                                 }
                             }
                         }
@@ -285,16 +304,14 @@ fn mouse_button(
                         }
                     }
                     Box(Some(_ent)) if screen_pos.distance(click_pos_screen) > 6.0 => {
-                        commands.spawn(PhysicalObject::rect(
-                            pos - click_pos,
-                            click_pos,
-                        )).log_components();
+                        commands
+                            .spawn(PhysicalObject::rect(pos - click_pos, click_pos))
+                            .log_components();
                     }
                     Circle(Some(_ent)) if screen_pos.distance(click_pos_screen) > 6.0 => {
-                        commands.spawn(PhysicalObject::ball(
-                            (pos - click_pos).length(),
-                            click_pos,
-                        )).log_components();
+                        commands
+                            .spawn(PhysicalObject::ball((pos - click_pos).length(), click_pos))
+                            .log_components();
                     }
                     Spring(Some(_)) => {
                         todo!()
@@ -306,12 +323,55 @@ fn mouse_button(
                         todo!()
                     }
                     Hinge(()) => {
-                        todo!()
+                        let mut entity1 = None;
+                        let mut entity2 = None;
+                        rapier.intersections_with_point(pos, QueryFilter::default(), |ent| {
+                            if entity1 == None {
+                                entity1 = Some(ent);
+                                true
+                            } else {
+                                entity2 = Some(ent);
+                                false
+                            }
+                        });
+                        if let Some(entity1) = entity1 {
+                            let (transform, _) = query.get_mut(entity1).unwrap();
+                            let anchor1 = transform
+                                .compute_affine()
+                                .inverse()
+                                .transform_point3(pos.extend(0.0))
+                                .xy();
+
+                            if let Some(entity2) = entity2 {
+                                let (transform, _) = query.get_mut(entity2).unwrap();
+                                let anchor2 = transform
+                                    .compute_affine()
+                                    .inverse()
+                                    .transform_point3(pos.extend(0.0))
+                                    .xy();
+                                commands.entity(entity2).insert(ImpulseJoint::new(
+                                    entity1,
+                                    RevoluteJointBuilder::new()
+                                        .local_anchor1(anchor1)
+                                        .local_anchor2(anchor2),
+                                ));
+                            } else {
+                                commands.spawn((
+                                    ImpulseJoint::new(
+                                        entity1,
+                                        RevoluteJointBuilder::new()
+                                            .local_anchor1(anchor1)
+                                            .local_anchor2(pos),
+                                    ),
+                                    RigidBody::Dynamic,
+                                ));
+                            }
+                        }
                     }
                     Tracer(()) => {
                         todo!()
                     }
-                    Pan(Some(_)) | Zoom(Some(_)) | Drag(Some(_)) | Rotate(Some(_)) => {
+                    Pan(Some(_)) | Zoom(Some(_)) | Drag(Some(_)) => {
                         //
                     }
                     _ => {
@@ -361,8 +421,14 @@ impl PhysicalObject {
                     ..Default::default()
                 },
                 DrawMode::Outlined {
-                    fill_mode: FillMode::color(Color::CYAN),
-                    outline_mode: StrokeMode::new(Color::BLACK, 3.0),
+                    fill_mode: FillMode {
+                        color: Color::CYAN,
+                        options: FillOptions::default().with_tolerance(0.0001)
+                    },
+                    outline_mode: StrokeMode {
+                        color: Color::BLACK,
+                        options: StrokeOptions::default().with_tolerance(0.0001).with_line_width(BORDER_THICKNESS)
+                    },
                 },
                 Transform::from_translation(pos.extend(0.0)),
             ),
@@ -388,13 +454,13 @@ impl PhysicalObject {
             shape: GeometryBuilder::build_as(
                 &shapes::Rectangle {
                     extents: size,
-                    origin: RectangleOrigin::Center
+                    origin: RectangleOrigin::Center,
                 },
                 DrawMode::Outlined {
                     fill_mode: FillMode::color(Color::CYAN),
-                    outline_mode: StrokeMode::new(Color::BLACK, 3.0),
+                    outline_mode: StrokeMode::new(Color::BLACK, BORDER_THICKNESS),
                 },
-                Transform::from_translation((pos + size / 2.0).extend(0.0))
+                Transform::from_translation((pos + size / 2.0).extend(0.0)),
             ),
         }
     }
@@ -403,10 +469,10 @@ impl PhysicalObject {
 fn setup_physics(mut commands: Commands) {
     /* Create the ground. */
     commands
-        .spawn(Collider::cuboid(500.0, 50.0))
-        .insert(TransformBundle::from(Transform::from_xyz(0.0, -100.0, 0.0)));
+        .spawn(Collider::cuboid(4.0, 0.5))
+        .insert(TransformBundle::from(Transform::from_xyz(0.0, -3.0, 0.0)));
 
-    let circle = PhysicalObject::ball(50.0, Vec2::new(0.0, 200.0));
+    let circle = PhysicalObject::ball(0.5, Vec2::new(0.0, 3.0));
     commands.spawn(circle);
 }
 
@@ -416,6 +482,7 @@ fn wasm_main() {
     app_main();
 }
 
+#[derive(Debug)]
 enum ToolEnum {
     Move(Option<MoveState>),
     Drag(Option<DragState>),
@@ -431,23 +498,24 @@ enum ToolEnum {
     Zoom(Option<()>),
 }
 
+#[derive(Debug)]
 struct PanState {
     orig_camera_pos: Vec2,
 }
 
+#[derive(Debug)]
 struct DragState {
     entity: Entity,
     orig_obj_pos: Vec2,
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 struct MoveState {
     obj_delta: Vec2,
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 struct RotateState {
-    orig_obj_pos: Vec2,
     orig_obj_rot: Quat,
 }
 
@@ -562,9 +630,12 @@ fn ui_example(
     mut ui_state: ResMut<UiState>,
     mut is_initialized: Local<bool>,
     mut rapier: ResMut<RapierConfiguration>,
+    mut cameras: Query<&mut Transform, With<MainCamera>>,
     assets: Res<AssetServer>,
 ) {
     if !*is_initialized {
+        let mut camera = cameras.single_mut();
+        camera.scale = Vec3::new(0.01, 0.01, 1.0);
         *is_initialized = true;
     }
 
