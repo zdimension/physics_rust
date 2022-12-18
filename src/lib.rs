@@ -17,6 +17,7 @@ use bevy_rapier2d::prelude::*;
 
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
+#[derive(Resource)]
 struct Images {
     hinge_background: Handle<Image>,
     hinge_balls: Handle<Image>,
@@ -35,10 +36,40 @@ impl FromWorld for Images {
     }
 }
 
-/// This example demonstrates the following functionality and use-cases of bevy_egui:
-/// - rendering loaded assets;
-/// - toggling hidpi scaling (by pressing '/' button);
-/// - configuring egui contexts during the startup.
+struct CollideHooks;
+type CollideHookData<'a> = (&'a HingeObject, &'a MultibodyJoint);
+
+impl<'a> PhysicsHooksWithQuery<CollideHookData<'a>> for CollideHooks {
+    fn filter_contact_pair(
+        &self,
+        context: PairFilterContextView,
+        user_data: &Query<CollideHookData<'a>>,
+    ) -> Option<SolverFlags> {
+        fn check_hinge_contains(
+            query: &Query<CollideHookData<'_>>,
+            first: Entity,
+            second: Entity,
+        ) -> bool {
+            let Ok((_, joint)) = query.get(first) else {
+                return false;
+            };
+
+            joint.parent == second
+        }
+
+        let first = context.collider1();
+        let second = context.collider2();
+
+        let hinge_between = check_hinge_contains(user_data, first, second)
+            || check_hinge_contains(user_data, second, first);
+
+        if hinge_between {
+            None
+        } else {
+            Some(SolverFlags::COMPUTE_IMPULSES)
+        }
+    }
+}
 
 pub fn app_main() {
     App::new()
@@ -47,11 +78,16 @@ pub fn app_main() {
         .add_plugins(DefaultPlugins)
         .add_plugin(EguiPlugin)
         .init_resource::<UiState>()
+        .init_resource::<Images>()
         .insert_resource(RapierConfiguration {
             gravity: Vect::Y * -9.81,
+            physics_pipeline_active: false,
             ..Default::default()
         })
-        .add_plugin(RapierPhysicsPlugin::<NoUserData>::pixels_per_meter(1.0))
+        .insert_resource(PhysicsHooksWithQueryResource(Box::new(CollideHooks)))
+        .add_plugin(RapierPhysicsPlugin::<CollideHookData>::pixels_per_meter(
+            1.0,
+        ))
         .add_plugin(RapierDebugRenderPlugin {
             style: DebugRenderStyle {
                 rigid_body_axes_length: 1.0,
@@ -65,16 +101,10 @@ pub fn app_main() {
         .add_startup_system(configure_ui_state)
         .add_startup_system(setup_graphics)
         .add_startup_system(setup_physics)
-        //.add_startup_system(center_camera.after(setup_graphics))
         .add_system(ui_example)
         .add_system(mouse_wheel)
         .add_system(mouse_button)
         .run();
-}
-
-fn center_camera(mut cameras: Query<&mut Transform, With<MainCamera>>) {
-    let mut camera = cameras.single_mut();
-    camera.scale = Vec3::new(1.0, 1.0, 1.0);
 }
 
 #[derive(Component)]
@@ -116,7 +146,10 @@ fn set_selected(mut draw_mode: Mut<DrawMode>, selected: bool) {
             outline_mode: _,
         } => DrawMode::Outlined {
             fill_mode,
-            outline_mode: StrokeMode::new(if selected { Color::WHITE } else { Color::BLACK }, BORDER_THICKNESS),
+            outline_mode: StrokeMode::new(
+                if selected { Color::WHITE } else { Color::BLACK },
+                BORDER_THICKNESS,
+            ),
         },
         _ => unreachable!("shouldn't happen"),
     };
@@ -135,10 +168,11 @@ fn mouse_button(
     mut query: Query<(&mut Transform, &mut RigidBody), Without<MainCamera>>,
     mut draw_mode: Query<&mut DrawMode>,
     mut commands: Commands,
+    mut egui_ctx: ResMut<EguiContext>,
+    images: Res<Images>,
     time: Res<Time>,
 ) {
     let screen_pos = **screen_pos;
-
 
     let ToolDef(_, builder) = ui_state.toolbox_selected;
     let hover_tool = builder();
@@ -273,7 +307,7 @@ fn mouse_button(
                                     (tool, _, _) => {
                                         dbg!(tool);
                                         todo!()
-                                    },
+                                    }
                                 }
                             }
                         }
@@ -281,8 +315,12 @@ fn mouse_button(
                 }
             }
         } else {
-            ui_state.mouse_left = Some(hover_tool);
-            ui_state.mouse_left_pos = Some((time.elapsed(), pos, screen_pos));
+            if !egui_ctx.ctx_mut().is_pointer_over_area() {
+                info!("egui doesn't want pointer input");
+                ui_state.mouse_left = Some(hover_tool);
+                ui_state.mouse_left_pos = Some((time.elapsed(), pos, screen_pos));
+                ui_state.mouse_button = Some(UsedMouseButton::Left);
+            }
         }
     } else {
         if let Some((_at, click_pos, click_pos_screen)) = ui_state.mouse_left_pos {
@@ -320,7 +358,50 @@ fn mouse_button(
                         todo!()
                     }
                     Fix(()) => {
-                        todo!()
+                        let mut entity1 = None;
+                        let mut entity2 = None;
+                        rapier.intersections_with_point(pos, QueryFilter::default(), |ent| {
+                            if entity1 == None {
+                                entity1 = Some(ent);
+                                true
+                            } else {
+                                entity2 = Some(ent);
+                                false
+                            }
+                        });
+                        if let Some(entity1) = entity1 {
+                            let (transform, _) = query.get_mut(entity1).unwrap();
+                            let anchor1 = transform
+                                .compute_affine()
+                                .inverse()
+                                .transform_point3(pos.extend(0.0))
+                                .xy();
+
+                            if let Some(entity2) = entity2 {
+                                let (transform, _) = query.get_mut(entity2).unwrap();
+                                let anchor2 = transform
+                                    .compute_affine()
+                                    .inverse()
+                                    .transform_point3(pos.extend(0.0))
+                                    .xy();
+                                commands.entity(entity2).insert(MultibodyJoint::new(
+                                    entity1,
+                                    FixedJointBuilder::new()
+                                        .local_anchor1(anchor1)
+                                        .local_anchor2(anchor2),
+                                ));
+                            } else {
+                                commands.spawn((
+                                    ImpulseJoint::new(
+                                        entity1,
+                                        FixedJointBuilder::new()
+                                            .local_anchor1(anchor1)
+                                            .local_anchor2(pos),
+                                    ),
+                                    RigidBody::Dynamic,
+                                ));
+                            }
+                        }
                     }
                     Hinge(()) => {
                         let mut entity1 = None;
@@ -349,12 +430,33 @@ fn mouse_button(
                                     .inverse()
                                     .transform_point3(pos.extend(0.0))
                                     .xy();
-                                commands.entity(entity2).insert(ImpulseJoint::new(
-                                    entity1,
-                                    RevoluteJointBuilder::new()
-                                        .local_anchor1(anchor1)
-                                        .local_anchor2(anchor2),
-                                ));
+                                info!(
+                                    "hinge: {:?} {:?} {:?} {:?}",
+                                    entity1, anchor1, entity2, anchor2
+                                );
+                                commands.entity(entity2).insert((
+                                    HingeObject,
+                                    MultibodyJoint::new(
+                                        entity1,
+                                        RevoluteJointBuilder::new()
+                                            .local_anchor1(anchor1)
+                                            .local_anchor2(anchor2),
+                                    ),
+                                    ActiveHooks::FILTER_CONTACT_PAIRS,
+                                )).add_children(|builder| {
+                                    builder.spawn(SpriteBundle {
+                                        texture: images.hinge_background.clone(),
+                                        transform: Transform::from_scale(Vec3::new(0.001, 0.001, 1.0)).with_translation(anchor2.extend(1.0)),
+                                        ..Default::default()
+                                    });
+                                });
+                                commands.entity(entity1).add_children(|builder| {
+                                    builder.spawn(SpriteBundle {
+                                        texture: images.hinge_balls.clone(),
+                                        transform: Transform::from_scale(Vec3::new(0.001, 0.001, 1.0)).with_translation(anchor1.extend(1.0)),
+                                        ..Default::default()
+                                    });
+                                })
                             } else {
                                 commands.spawn((
                                     ImpulseJoint::new(
@@ -423,11 +525,13 @@ impl PhysicalObject {
                 DrawMode::Outlined {
                     fill_mode: FillMode {
                         color: Color::CYAN,
-                        options: FillOptions::default().with_tolerance(0.0001)
+                        options: FillOptions::default().with_tolerance(0.0001),
                     },
                     outline_mode: StrokeMode {
                         color: Color::BLACK,
-                        options: StrokeOptions::default().with_tolerance(0.0001).with_line_width(BORDER_THICKNESS)
+                        options: StrokeOptions::default()
+                            .with_tolerance(0.0001)
+                            .with_line_width(BORDER_THICKNESS),
                     },
                 },
                 Transform::from_translation(pos.extend(0.0)),
@@ -466,14 +570,38 @@ impl PhysicalObject {
     }
 }
 
+#[derive(Component)]
+struct HingeObject;
+
 fn setup_physics(mut commands: Commands) {
     /* Create the ground. */
-    commands
+    let ground = PhysicalObject::rect(Vec2::new(8.0, 0.5), Vec2::new(0.0, -3.0));
+    commands.spawn(ground).insert(RigidBody::Fixed);
+   /*  commands
         .spawn(Collider::cuboid(4.0, 0.5))
         .insert(TransformBundle::from(Transform::from_xyz(0.0, -3.0, 0.0)));
 
     let circle = PhysicalObject::ball(0.5, Vec2::new(0.0, 3.0));
     commands.spawn(circle);
+
+    let rect1 = PhysicalObject::rect(Vec2::new(2.0, 0.5), Vec2::new(-1.0, 0.0));
+    let collision_groups = CollisionGroups::new(Group::GROUP_2, Group::GROUP_3);
+    let collision_groups = CollisionGroups::default();
+    let rect1 = commands.spawn((rect1, collision_groups)).id();
+
+    let rect2 = PhysicalObject::rect(Vec2::new(0.5, 2.0), Vec2::new(-0.25, -1.5));
+    let mut rect2 = commands.spawn((rect2, collision_groups));
+
+    rect2.insert((
+        HingeObject,
+        MultibodyJoint::new(
+            rect1,
+            RevoluteJointBuilder::new()
+                .local_anchor1(Vec2::ZERO)
+                .local_anchor2(Vec2::ZERO),
+        ),
+        ActiveHooks::FILTER_CONTACT_PAIRS,
+    ));*/
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -524,6 +652,11 @@ struct EntitySelection {
     entity: Entity,
 }
 
+enum UsedMouseButton {
+    Left,
+    Right,
+}
+
 #[derive(Resource)]
 struct UiState {
     selected_entity: Option<EntitySelection>,
@@ -534,6 +667,7 @@ struct UiState {
     mouse_left_pos: Option<(Duration, Vec2, Vec2)>,
     mouse_right: Option<ToolEnum>,
     mouse_right_pos: Option<Vec2>,
+    mouse_button: Option<UsedMouseButton>,
 }
 
 impl UiState {
@@ -603,6 +737,7 @@ impl FromWorld for UiState {
             mouse_left_pos: None,
             mouse_right: None,
             mouse_right_pos: None,
+            mouse_button: None,
         }
     }
 }
