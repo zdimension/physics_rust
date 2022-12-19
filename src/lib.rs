@@ -15,6 +15,9 @@ use bevy_prototype_lyon::{
 };
 use bevy_rapier2d::prelude::*;
 
+mod palette;
+
+use palette::{PaletteLoader, PaletteList};
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 #[derive(Resource)]
@@ -77,6 +80,8 @@ pub fn app_main() {
         .insert_resource(Msaa { samples: 4 })
         .add_plugins(DefaultPlugins)
         .add_plugin(EguiPlugin)
+        .add_asset::<PaletteList>()
+        .init_asset_loader::<PaletteLoader>()
         .init_resource::<UiState>()
         .init_resource::<Images>()
         .insert_resource(RapierConfiguration {
@@ -101,10 +106,14 @@ pub fn app_main() {
         .add_startup_system(configure_ui_state)
         .add_startup_system(setup_graphics)
         .add_startup_system(setup_physics)
+        //.add_startup_system(setup_palettes)
         .add_system(ui_example)
         .add_system(mouse_wheel)
         .add_system(mouse_button)
         .run();
+
+
+    println!("caca");
 }
 
 #[derive(Component)]
@@ -668,6 +677,15 @@ struct UiState {
     mouse_right: Option<ToolEnum>,
     mouse_right_pos: Option<Vec2>,
     mouse_button: Option<UsedMouseButton>,
+}
+
+#[derive(Resource)]
+struct PaletteConfig {
+    palettes: Handle<PaletteList>
+}
+
+fn setup_palettes(mut PaletteConfig: ResMut<PaletteConfig>, asset_server: Res<AssetServer>) {
+    PaletteConfig.palettes = asset_server.load("palettes.ron");
 }
 
 impl UiState {

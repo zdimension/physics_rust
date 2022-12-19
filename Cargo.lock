@@ -841,6 +841,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "bevy_turborand"
+version = "0.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f9c4e02e4fd1405fdaeb1d9b47ff1c60f45dd1b69851a7360dbb0c18997d0319"
+dependencies = [
+ "bevy",
+ "serde",
+ "turborand",
+]
+
+[[package]]
 name = "bevy_ui"
 version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2796,7 +2807,9 @@ dependencies = [
  "bevy_mouse_tracking_plugin",
  "bevy_prototype_lyon",
  "bevy_rapier2d",
+ "bevy_turborand",
  "console_error_panic_hook",
+ "ron",
  "serde",
  "tracing-subscriber",
  "tracing-wasm",
@@ -3468,6 +3481,17 @@ name = "ttf-parser"
 version = "0.17.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "375812fa44dab6df41c195cd2f7fecb488f6c09fbaafb62807488cefab642bff"
+
+[[package]]
+name = "turborand"
+version = "0.8.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "864cf0694e5ee69e480a5a18c327a906bdacae18b2064a4d8209ef80e08c5b96"
+dependencies = [
+ "getrandom",
+ "instant",
+ "serde",
+]
 
 [[package]]
 name = "typenum"
