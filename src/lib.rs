@@ -3,6 +3,7 @@ use std::time::Duration;
 use bevy::math::Vec3Swizzles;
 use bevy::{input::mouse::MouseWheel, prelude::*};
 use bevy_egui::egui::TextureId;
+use bevy_egui::egui::epaint::Hsva;
 use bevy_egui::{
     egui::{self, Align2},
     EguiContext, EguiPlugin,
@@ -17,7 +18,8 @@ use bevy_rapier2d::prelude::*;
 
 mod palette;
 
-use palette::{PaletteLoader, PaletteList};
+use bevy_turborand::{DelegatedRng, RngComponent, RngPlugin, GlobalRng};
+use palette::{PaletteLoader, PaletteList, Palette};
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 #[derive(Resource)]
@@ -80,8 +82,10 @@ pub fn app_main() {
         .insert_resource(Msaa { samples: 4 })
         .add_plugins(DefaultPlugins)
         .add_plugin(EguiPlugin)
+        .add_plugin(RngPlugin::default())
         .add_asset::<PaletteList>()
         .init_asset_loader::<PaletteLoader>()
+        .init_resource::<PaletteConfig>()
         .init_resource::<UiState>()
         .init_resource::<Images>()
         .insert_resource(RapierConfiguration {
@@ -106,14 +110,18 @@ pub fn app_main() {
         .add_startup_system(configure_ui_state)
         .add_startup_system(setup_graphics)
         .add_startup_system(setup_physics)
-        //.add_startup_system(setup_palettes)
+        .add_startup_system(setup_palettes)
+        .add_startup_system(setup_rng)
         .add_system(ui_example)
         .add_system(mouse_wheel)
         .add_system(mouse_button)
         .run();
+}
 
-
-    println!("caca");
+fn setup_rng(mut commands: Commands, mut global_rng: ResMut<GlobalRng>) {
+    commands.spawn((
+        RngComponent::from(&mut global_rng),
+    ));
 }
 
 #[derive(Component)]
@@ -178,10 +186,14 @@ fn mouse_button(
     mut draw_mode: Query<&mut DrawMode>,
     mut commands: Commands,
     mut egui_ctx: ResMut<EguiContext>,
+    palette_config: Res<PaletteConfig>,
     images: Res<Images>,
     time: Res<Time>,
+    mut rng: Query<&mut RngComponent>
 ) {
     let screen_pos = **screen_pos;
+
+    let palette = &palette_config.current_palette;
 
     let ToolDef(_, builder) = ui_state.toolbox_selected;
     let hover_tool = builder();
@@ -353,11 +365,13 @@ fn mouse_button(
                     Box(Some(_ent)) if screen_pos.distance(click_pos_screen) > 6.0 => {
                         commands
                             .spawn(PhysicalObject::rect(pos - click_pos, click_pos))
+                            .insert(palette.get_draw_mode(&mut *rng.single_mut()))
                             .log_components();
                     }
                     Circle(Some(_ent)) if screen_pos.distance(click_pos_screen) > 6.0 => {
                         commands
                             .spawn(PhysicalObject::ball((pos - click_pos).length(), click_pos))
+                            .insert(palette.get_draw_mode(&mut *rng.single_mut()))
                             .log_components();
                     }
                     Spring(Some(_)) => {
@@ -378,6 +392,7 @@ fn mouse_button(
                                 false
                             }
                         });
+                        
                         if let Some(entity1) = entity1 {
                             let (transform, _) = query.get_mut(entity1).unwrap();
                             let anchor1 = transform
@@ -455,14 +470,14 @@ fn mouse_button(
                                 )).add_children(|builder| {
                                     builder.spawn(SpriteBundle {
                                         texture: images.hinge_background.clone(),
-                                        transform: Transform::from_scale(Vec3::new(0.001, 0.001, 1.0)).with_translation(anchor2.extend(1.0)),
+                                        transform: Transform::from_scale(Vec3::new(0.001, 0.001, 1.0)).with_translation(anchor2.extend(0.0)),
                                         ..Default::default()
                                     });
                                 });
                                 commands.entity(entity1).add_children(|builder| {
                                     builder.spawn(SpriteBundle {
                                         texture: images.hinge_balls.clone(),
-                                        transform: Transform::from_scale(Vec3::new(0.001, 0.001, 1.0)).with_translation(anchor1.extend(1.0)),
+                                        transform: Transform::from_scale(Vec3::new(0.001, 0.001, 1.0)).with_translation(anchor1.extend(0.0)),
                                         ..Default::default()
                                     });
                                 })
@@ -514,6 +529,32 @@ struct PhysicalObject {
     restitution: Restitution,
     mass_props: ColliderMassProperties,
     shape: ShapeBundle,
+}
+
+fn hsva_to_rgba(hsva: Hsva) -> Color {
+    let color = hsva.to_rgba_unmultiplied();
+    Color::rgba_linear(color[0], color[1], color[2], color[3])
+}
+
+const STROKE_TOLERANCE: f32 = 0.0001;
+
+impl Palette {
+    fn get_draw_mode(&self, rng: &mut impl DelegatedRng) -> DrawMode {
+        let color = self.color_range.rand_hsva(rng);
+        let darkened = Hsva { v: color.v * 0.5, ..color };
+        DrawMode::Outlined {
+            fill_mode: FillMode {
+                color: hsva_to_rgba(color),
+                options: FillOptions::default().with_tolerance(STROKE_TOLERANCE),
+            },
+            outline_mode: StrokeMode {
+                color: hsva_to_rgba(darkened),
+                options: StrokeOptions::default()
+                    .with_tolerance(STROKE_TOLERANCE)
+                    .with_line_width(BORDER_THICKNESS),
+            },
+        }
+    }
 }
 
 impl PhysicalObject {
@@ -584,8 +625,58 @@ struct HingeObject;
 
 fn setup_physics(mut commands: Commands) {
     /* Create the ground. */
-    let ground = PhysicalObject::rect(Vec2::new(8.0, 0.5), Vec2::new(0.0, -3.0));
+    let ground = PhysicalObject::rect(Vec2::new(8.0, 0.5), Vec2::new(-4.0, -3.0));
     commands.spawn(ground).insert(RigidBody::Fixed);
+
+    for i in 0..5 {
+        let stick = PhysicalObject::rect(Vec2::new(0.4, 2.4), Vec2::new(-1.0 + i as f32 * 0.8, 1.8));
+        let ball = PhysicalObject::ball(0.4, Vec2::new(-1.0 + i as f32 * 0.8 + 0.2, 2.0));
+        let stick_id = commands.spawn(stick).id();
+        commands.spawn(ball)
+        .insert((HingeObject,
+            MultibodyJoint::new(
+                stick_id,
+                RevoluteJointBuilder::new()
+                    .local_anchor1(Vec2::new(0.0, -1.0))
+                    .local_anchor2(Vec2::new(0.0, 0.0)),
+            ),
+            Restitution::coefficient(1.0),
+            ActiveHooks::FILTER_CONTACT_PAIRS));
+        commands.spawn((
+                ImpulseJoint::new(
+                    stick_id,
+                    RevoluteJointBuilder::new()
+                        .local_anchor1(Vec2::new(0.0, 1.0))
+                        .local_anchor2(Vec2::new(-1.0 + i as f32 * 0.8 + 0.2, 4.0)),
+                ),
+                RigidBody::Dynamic,
+            ));
+    }
+
+    let stick = PhysicalObject::rect(Vec2::new(2.4, 0.4), Vec2::new(-3.8, 3.8));
+    let ball = PhysicalObject::ball(0.4,  Vec2::new(-3.6, 4.0));
+    let stick_id = commands.spawn(stick).id();
+    commands.spawn(ball)
+    .insert((HingeObject,
+        MultibodyJoint::new(
+            stick_id,
+            RevoluteJointBuilder::new()
+                .local_anchor1(Vec2::new(-1.0, 0.0))
+                .local_anchor2(Vec2::new(0.0, 0.0)),
+        ),
+        Restitution::coefficient(1.0),
+        ActiveHooks::FILTER_CONTACT_PAIRS));
+    commands.spawn((
+            ImpulseJoint::new(
+                stick_id,
+                RevoluteJointBuilder::new()
+                    .local_anchor1(Vec2::new(1.0, 0.0))
+                    .local_anchor2(Vec2::new(-1.6, 4.0)),
+            ),
+            RigidBody::Dynamic,
+        ));
+
+
    /*  commands
         .spawn(Collider::cuboid(4.0, 0.5))
         .insert(TransformBundle::from(Transform::from_xyz(0.0, -3.0, 0.0)));
@@ -679,13 +770,14 @@ struct UiState {
     mouse_button: Option<UsedMouseButton>,
 }
 
-#[derive(Resource)]
+#[derive(Resource, Default)]
 struct PaletteConfig {
-    palettes: Handle<PaletteList>
+    palettes: Handle<PaletteList>,
+    current_palette: Palette
 }
 
-fn setup_palettes(mut PaletteConfig: ResMut<PaletteConfig>, asset_server: Res<AssetServer>) {
-    PaletteConfig.palettes = asset_server.load("palettes.ron");
+fn setup_palettes(mut palette_config: ResMut<PaletteConfig>, asset_server: Res<AssetServer>) {
+    palette_config.palettes = asset_server.load("palettes.ron");
 }
 
 impl UiState {

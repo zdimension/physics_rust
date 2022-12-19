@@ -11,15 +11,16 @@ use serde::Deserialize;
 use serde;
 
 #[derive(Debug, Deserialize)]
-struct ObjectAppearance {
-    opaque_borders: bool,
-    draw_circle_cakes: bool,
-    ruler: bool,
-    show_forces: bool,
-    protractor: bool,
-    show_momentums: bool,
-    show_velocities: bool,
-    borders: bool,
+#[serde(default)]
+pub struct ObjectAppearance {
+    pub opaque_borders: bool,
+    pub draw_circle_cakes: bool,
+    pub ruler: bool,
+    pub show_forces: bool,
+    pub protractor: bool,
+    pub show_momentums: bool,
+    pub show_velocities: bool,
+    pub borders: bool,
 }
 
 impl Default for ObjectAppearance {
@@ -38,7 +39,7 @@ impl Default for ObjectAppearance {
 }
 
 #[derive(Debug, Deserialize)]
-struct HsvaRange(
+pub struct HsvaRange(
     #[serde(deserialize_with = "deserialize_hsva")]
     Hsva, 
     #[serde(deserialize_with = "deserialize_hsva")]
@@ -51,35 +52,58 @@ where
 {
     use serde::de::Error;
     let (h, s, v, a) = <(f32, f32, f32, f32)>::deserialize(deserializer)?;
+    let h = h / 360.0;
     if h < 0.0 || h > 1.0 || s < 0.0 || s > 1.0 || v < 0.0 || v > 1.0 || a < 0.0 || a > 1.0 {
         return Err(D::Error::custom("HSVA is invalid"));
     }
     Ok(Hsva::new(h, s, v, a))
 }
 
+fn deserialize_rgba<'a, D>(deserializer: D) -> Result<Color, D::Error>
+where
+    D: serde::Deserializer<'a>,
+{
+    use serde::de::Error;
+    let (r, g, b, a) = <(f32, f32, f32, f32)>::deserialize(deserializer)?;
+    if r < 0.0 || r > 1.0 || g < 0.0 || g > 1.0 || b < 0.0 || b > 1.0 || a < 0.0 || a > 1.0 {
+        return Err(D::Error::custom("RGBA is invalid"));
+    }
+    Ok(Color::rgba_linear(r, g, b, a))
+}
+
 fn f32_between(rng: &mut impl DelegatedRng, min: f32, max: f32) -> f32 {
+    if min > max {
+        return f32_between(rng, max, min);
+    }
     let rnd = rng.f32(); // between 0 and 1
     min + (max - min) * rnd
 }
 
 impl HsvaRange {
-    fn rand(&self, rng: &mut impl DelegatedRng) -> Color {
+    pub fn rand(&self, rng: &mut impl DelegatedRng) -> Color {
+        let color = self.rand_hsva(rng).to_rgba_unmultiplied();
+        Color::rgba_linear(color[0], color[1], color[2], color[3])
+    }
+
+    pub fn rand_hsva(&self, rng: &mut impl DelegatedRng) -> Hsva {
         let hr = f32_between(rng, self.0.h, self.1.h);
         let sr = f32_between(rng, self.0.s, self.1.s).sqrt();
         let vr = f32_between(rng, self.0.v, self.1.v).cbrt();
         let ar = f32_between(rng, self.0.a, self.1.a);
-        let color = Hsva::new(hr, sr, vr, ar).to_rgba_unmultiplied();
-        Color::rgba_linear(color[0], color[1], color[2], color[3])
+        Hsva::new(hr, sr, vr, ar)
     }
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(default)]
 pub struct Palette {
-    object_appearance: ObjectAppearance,
-    draw_clouds: bool,
-    sky_color: Color,
-    selection_color: Color,
-    color_range: HsvaRange
+    pub object_appearance: ObjectAppearance,
+    pub draw_clouds: bool,
+    #[serde(deserialize_with = "deserialize_rgba")]
+    pub sky_color: Color,
+    #[serde(deserialize_with = "deserialize_rgba")]
+    pub selection_color: Color,
+    pub color_range: HsvaRange
 }
 
 impl Default for Palette {
