@@ -335,181 +335,177 @@ fn mouse_button(
                     }
                 }
             }
-        } else {
-            if !egui_ctx.ctx_mut().is_pointer_over_area() {
-                info!("egui doesn't want pointer input");
-                ui_state.mouse_left = Some(hover_tool);
-                ui_state.mouse_left_pos = Some((time.elapsed(), pos, screen_pos));
-                ui_state.mouse_button = Some(UsedMouseButton::Left);
-            }
+        } else if !egui_ctx.ctx_mut().is_pointer_over_area() {
+            info!("egui doesn't want pointer input");
+            ui_state.mouse_left = Some(hover_tool);
+            ui_state.mouse_left_pos = Some((time.elapsed(), pos, screen_pos));
+            ui_state.mouse_button = Some(UsedMouseButton::Left);
         }
-    } else {
-        if let Some((_at, click_pos, click_pos_screen)) = ui_state.mouse_left_pos {
-            if let Some(tool) = &ui_state.mouse_left {
-                match tool {
-                    Box(Some(ent)) => {
-                        commands.entity(*ent).despawn();
-                    }
-                    Circle(Some(ent)) => {
-                        commands.entity(*ent).despawn();
-                    }
-                    _ => {}
+    } else if let Some((_at, click_pos, click_pos_screen)) = ui_state.mouse_left_pos {
+        if let Some(tool) = &ui_state.mouse_left {
+            match tool {
+                Box(Some(ent)) => {
+                    commands.entity(*ent).despawn();
                 }
-                match tool {
-                    Move(Some(_)) | Rotate(Some(_)) => {
-                        if let Some(EntitySelection { entity }) = ui_state.selected_entity {
-                            let mut body = query.get_mut(entity).unwrap().1;
-                            *body = RigidBody::Dynamic;
+                Circle(Some(ent)) => {
+                    commands.entity(*ent).despawn();
+                }
+                _ => {}
+            }
+            match tool {
+                Move(Some(_)) | Rotate(Some(_)) => {
+                    if let Some(EntitySelection { entity }) = ui_state.selected_entity {
+                        let mut body = query.get_mut(entity).unwrap().1;
+                        *body = RigidBody::Dynamic;
+                    }
+                }
+                Box(Some(_ent)) if screen_pos.distance(click_pos_screen) > 6.0 => {
+                    commands
+                        .spawn(PhysicalObject::rect(pos - click_pos, click_pos))
+                        .insert(palette.get_draw_mode(&mut *rng.single_mut()))
+                        .log_components();
+                }
+                Circle(Some(_ent)) if screen_pos.distance(click_pos_screen) > 6.0 => {
+                    commands
+                        .spawn(PhysicalObject::ball((pos - click_pos).length(), click_pos))
+                        .insert(palette.get_draw_mode(&mut *rng.single_mut()))
+                        .log_components();
+                }
+                Spring(Some(_)) => {
+                    todo!()
+                }
+                Thruster(_) => {
+                    todo!()
+                }
+                Fix(()) => {
+                    let mut entity1 = None;
+                    let mut entity2 = None;
+                    rapier.intersections_with_point(pos, QueryFilter::default(), |ent| {
+                        if entity1.is_none() {
+                            entity1 = Some(ent);
+                            true
+                        } else {
+                            entity2 = Some(ent);
+                            false
                         }
-                    }
-                    Box(Some(_ent)) if screen_pos.distance(click_pos_screen) > 6.0 => {
-                        commands
-                            .spawn(PhysicalObject::rect(pos - click_pos, click_pos))
-                            .insert(palette.get_draw_mode(&mut *rng.single_mut()))
-                            .log_components();
-                    }
-                    Circle(Some(_ent)) if screen_pos.distance(click_pos_screen) > 6.0 => {
-                        commands
-                            .spawn(PhysicalObject::ball((pos - click_pos).length(), click_pos))
-                            .insert(palette.get_draw_mode(&mut *rng.single_mut()))
-                            .log_components();
-                    }
-                    Spring(Some(_)) => {
-                        todo!()
-                    }
-                    Thruster(_) => {
-                        todo!()
-                    }
-                    Fix(()) => {
-                        let mut entity1 = None;
-                        let mut entity2 = None;
-                        rapier.intersections_with_point(pos, QueryFilter::default(), |ent| {
-                            if entity1 == None {
-                                entity1 = Some(ent);
-                                true
-                            } else {
-                                entity2 = Some(ent);
-                                false
-                            }
-                        });
-                        
-                        if let Some(entity1) = entity1 {
-                            let (transform, _) = query.get_mut(entity1).unwrap();
-                            let anchor1 = transform
+                    });
+                    
+                    if let Some(entity1) = entity1 {
+                        let (transform, _) = query.get_mut(entity1).unwrap();
+                        let anchor1 = transform
+                            .compute_affine()
+                            .inverse()
+                            .transform_point3(pos.extend(0.0))
+                            .xy();
+
+                        if let Some(entity2) = entity2 {
+                            let (transform, _) = query.get_mut(entity2).unwrap();
+                            let anchor2 = transform
                                 .compute_affine()
                                 .inverse()
                                 .transform_point3(pos.extend(0.0))
                                 .xy();
-
-                            if let Some(entity2) = entity2 {
-                                let (transform, _) = query.get_mut(entity2).unwrap();
-                                let anchor2 = transform
-                                    .compute_affine()
-                                    .inverse()
-                                    .transform_point3(pos.extend(0.0))
-                                    .xy();
-                                commands.entity(entity2).insert(MultibodyJoint::new(
+                            commands.entity(entity2).insert(MultibodyJoint::new(
+                                entity1,
+                                FixedJointBuilder::new()
+                                    .local_anchor1(anchor1)
+                                    .local_anchor2(anchor2),
+                            ));
+                        } else {
+                            commands.spawn((
+                                ImpulseJoint::new(
                                     entity1,
                                     FixedJointBuilder::new()
                                         .local_anchor1(anchor1)
-                                        .local_anchor2(anchor2),
-                                ));
-                            } else {
-                                commands.spawn((
-                                    ImpulseJoint::new(
-                                        entity1,
-                                        FixedJointBuilder::new()
-                                            .local_anchor1(anchor1)
-                                            .local_anchor2(pos),
-                                    ),
-                                    RigidBody::Dynamic,
-                                ));
-                            }
+                                        .local_anchor2(pos),
+                                ),
+                                RigidBody::Dynamic,
+                            ));
                         }
                     }
-                    Hinge(()) => {
-                        let mut entity1 = None;
-                        let mut entity2 = None;
-                        rapier.intersections_with_point(pos, QueryFilter::default(), |ent| {
-                            if entity1 == None {
-                                entity1 = Some(ent);
-                                true
-                            } else {
-                                entity2 = Some(ent);
-                                false
-                            }
-                        });
-                        if let Some(entity1) = entity1 {
-                            let (transform, _) = query.get_mut(entity1).unwrap();
-                            let anchor1 = transform
+                }
+                Hinge(()) => {
+                    let mut entity1 = None;
+                    let mut entity2 = None;
+                    rapier.intersections_with_point(pos, QueryFilter::default(), |ent| {
+                        if entity1.is_none() {
+                            entity1 = Some(ent);
+                            true
+                        } else {
+                            entity2 = Some(ent);
+                            false
+                        }
+                    });
+                    if let Some(entity1) = entity1 {
+                        let (transform, _) = query.get_mut(entity1).unwrap();
+                        let anchor1 = transform
+                            .compute_affine()
+                            .inverse()
+                            .transform_point3(pos.extend(0.0))
+                            .xy();
+
+                        if let Some(entity2) = entity2 {
+                            let (transform, _) = query.get_mut(entity2).unwrap();
+                            let anchor2 = transform
                                 .compute_affine()
                                 .inverse()
                                 .transform_point3(pos.extend(0.0))
                                 .xy();
-
-                            if let Some(entity2) = entity2 {
-                                let (transform, _) = query.get_mut(entity2).unwrap();
-                                let anchor2 = transform
-                                    .compute_affine()
-                                    .inverse()
-                                    .transform_point3(pos.extend(0.0))
-                                    .xy();
-                                info!(
-                                    "hinge: {:?} {:?} {:?} {:?}",
-                                    entity1, anchor1, entity2, anchor2
-                                );
-                                commands.entity(entity2).insert((
-                                    HingeObject,
-                                    MultibodyJoint::new(
-                                        entity1,
-                                        RevoluteJointBuilder::new()
-                                            .local_anchor1(anchor1)
-                                            .local_anchor2(anchor2),
-                                    ),
-                                    ActiveHooks::FILTER_CONTACT_PAIRS,
-                                )).add_children(|builder| {
-                                    builder.spawn(SpriteBundle {
-                                        texture: images.hinge_background.clone(),
-                                        transform: Transform::from_scale(Vec3::new(0.001, 0.001, 1.0)).with_translation(anchor2.extend(0.0)),
-                                        ..Default::default()
-                                    });
+                            info!(
+                                "hinge: {:?} {:?} {:?} {:?}",
+                                entity1, anchor1, entity2, anchor2
+                            );
+                            commands.entity(entity2).insert((
+                                HingeObject,
+                                MultibodyJoint::new(
+                                    entity1,
+                                    RevoluteJointBuilder::new()
+                                        .local_anchor1(anchor1)
+                                        .local_anchor2(anchor2),
+                                ),
+                                ActiveHooks::FILTER_CONTACT_PAIRS,
+                            )).add_children(|builder| {
+                                builder.spawn(SpriteBundle {
+                                    texture: images.hinge_background.clone(),
+                                    transform: Transform::from_scale(Vec3::new(0.001, 0.001, 1.0)).with_translation(anchor2.extend(0.0)),
+                                    ..Default::default()
                                 });
-                                commands.entity(entity1).add_children(|builder| {
-                                    builder.spawn(SpriteBundle {
-                                        texture: images.hinge_balls.clone(),
-                                        transform: Transform::from_scale(Vec3::new(0.001, 0.001, 1.0)).with_translation(anchor1.extend(0.0)),
-                                        ..Default::default()
-                                    });
-                                })
-                            } else {
-                                commands.spawn((
-                                    ImpulseJoint::new(
-                                        entity1,
-                                        RevoluteJointBuilder::new()
-                                            .local_anchor1(anchor1)
-                                            .local_anchor2(pos),
-                                    ),
-                                    RigidBody::Dynamic,
-                                ));
-                            }
+                            });
+                            commands.entity(entity1).add_children(|builder| {
+                                builder.spawn(SpriteBundle {
+                                    texture: images.hinge_balls.clone(),
+                                    transform: Transform::from_scale(Vec3::new(0.001, 0.001, 1.0)).with_translation(anchor1.extend(0.0)),
+                                    ..Default::default()
+                                });
+                            })
+                        } else {
+                            commands.spawn((
+                                ImpulseJoint::new(
+                                    entity1,
+                                    RevoluteJointBuilder::new()
+                                        .local_anchor1(anchor1)
+                                        .local_anchor2(pos),
+                                ),
+                                RigidBody::Dynamic,
+                            ));
                         }
                     }
-                    Tracer(()) => {
-                        todo!()
-                    }
-                    Pan(Some(_)) | Zoom(Some(_)) | Drag(Some(_)) => {
-                        //
-                    }
-                    _ => {
-                        info!("selecting under mouse");
-                        ui_state.select_under_mouse(pos, &rapier, &mut draw_mode);
-                    }
+                }
+                Tracer(()) => {
+                    todo!()
+                }
+                Pan(Some(_)) | Zoom(Some(_)) | Drag(Some(_)) => {
+                    //
+                }
+                _ => {
+                    info!("selecting under mouse");
+                    ui_state.select_under_mouse(pos, &rapier, &mut draw_mode);
                 }
             }
-            info!("resetting state");
-            ui_state.mouse_left_pos = None;
-            ui_state.mouse_left = None;
         }
+        info!("resetting state");
+        ui_state.mouse_left_pos = None;
+        ui_state.mouse_left = None;
     }
 }
 
