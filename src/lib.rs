@@ -2,8 +2,8 @@ use std::time::Duration;
 
 use bevy::math::Vec3Swizzles;
 use bevy::{input::mouse::MouseWheel, prelude::*};
-use bevy_egui::egui::TextureId;
 use bevy_egui::egui::epaint::Hsva;
+use bevy_egui::egui::TextureId;
 use bevy_egui::{
     egui::{self, Align2},
     EguiContext, EguiPlugin,
@@ -18,8 +18,8 @@ use bevy_rapier2d::prelude::*;
 
 mod palette;
 
-use bevy_turborand::{DelegatedRng, RngComponent, RngPlugin, GlobalRng};
-use palette::{PaletteLoader, PaletteList, Palette};
+use bevy_turborand::{DelegatedRng, GlobalRng, RngComponent, RngPlugin};
+use palette::{Palette, PaletteList, PaletteLoader};
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 #[derive(Resource)]
@@ -106,6 +106,12 @@ pub fn app_main() {
         })
         .add_plugin(MousePosPlugin)
         .add_plugin(ShapePlugin)
+        .add_event::<AddObjectEvent>()
+        .add_event::<MouseLongOrMoved>()
+        .add_event::<PanEvent>()
+        .add_event::<MoveEvent>()
+        .add_event::<UnfreezeEntityEvent>()
+        .add_event::<RotateEvent>()
         .add_startup_system(configure_visuals)
         .add_startup_system(configure_ui_state)
         .add_startup_system(setup_graphics)
@@ -114,14 +120,19 @@ pub fn app_main() {
         .add_startup_system(setup_rng)
         .add_system(ui_example)
         .add_system(mouse_wheel)
-        .add_system(mouse_button)
+        .add_system(left_pressed)
+        .add_system(left_release)
+        .add_system(add_object)
+        .add_system(mouse_long_or_moved)
+        .add_system(process_pan)
+        .add_system(process_move)
+        .add_system(process_unfreeze_entity)
+        .add_system(process_rotate)
         .run();
 }
 
 fn setup_rng(mut commands: Commands, mut global_rng: ResMut<GlobalRng>) {
-    commands.spawn((
-        RngComponent::from(&mut global_rng),
-    ));
+    commands.spawn((RngComponent::from(&mut global_rng),));
 }
 
 #[derive(Component)]
@@ -172,290 +183,275 @@ fn set_selected(mut draw_mode: Mut<DrawMode>, selected: bool) {
     };
 }
 
+fn mouse_long_or_moved(
+    mut events: EventReader<MouseLongOrMoved>,
+    mut cameras: Query<&mut Transform, With<MainCamera>>,
+    mut ui_state: ResMut<UiState>,
+    mut draw_mode: Query<&mut DrawMode>,
+    mut query: Query<(&mut Transform, &mut RigidBody), Without<MainCamera>>,
+    mut commands: Commands,
+    rapier: Res<RapierContext>,
+) {
+    use ToolEnum::*;
+    for MouseLongOrMoved(hover_tool, pos) in events.iter() {
+        let pos = *pos;
+        info!("long or moved!");
+
+        match hover_tool {
+            Pan(None) => {
+                info!("panning");
+                ui_state.mouse_left = Some(Pan(Some(PanState {
+                    orig_camera_pos: cameras.single_mut().translation.xy(),
+                })));
+            }
+            Zoom(None) => {
+                todo!()
+            }
+            _ => {
+                let mut under_mouse = None;
+                rapier.intersections_with_point(pos, QueryFilter::default(), |ent| {
+                    under_mouse = Some(ent);
+                    false
+                });
+
+                if matches!(
+                    hover_tool,
+                    Move(None) | Rotate(None) | Fix(()) | Hinge(()) | Tracer(())
+                ) {
+                    ui_state.set_selected(under_mouse, &mut draw_mode);
+                }
+
+                match (
+                    hover_tool,
+                    under_mouse,
+                    ui_state.selected_entity.map(|s| s.entity),
+                ) {
+                    (Spring(None), _, _) => todo!(),
+                    (Drag(None), Some(ent), _) => {
+                        ui_state.mouse_left = Some(Drag(Some(DragState {
+                            entity: ent,
+                            orig_obj_pos: pos - query.get_mut(ent).unwrap().0.translation.xy(),
+                        })));
+                    }
+                    (Rotate(None), Some(under), _) => {
+                        let (transform, mut body) = query.get_mut(under).unwrap();
+                        ui_state.mouse_left = Some(Rotate(Some(RotateState {
+                            orig_obj_rot: transform.rotation,
+                        })));
+                        *body = RigidBody::Fixed;
+                    }
+                    (_, Some(under), Some(sel)) if under == sel => {
+                        let (transform, mut body) = query.get_mut(under).unwrap();
+                        ui_state.mouse_left = Some(Move(Some(MoveState {
+                            obj_delta: transform.translation.xy() - pos,
+                        })));
+                        *body = RigidBody::Fixed;
+                    }
+                    (Box(None), _, _) => {
+                        ui_state.mouse_left = Some(Box(Some(commands.spawn(DrawObject).id())));
+                    }
+                    (Circle(None), _, _) => {
+                        ui_state.mouse_left = Some(Circle(Some(commands.spawn(DrawObject).id())));
+                    }
+                    (tool, _, _) => {
+                        dbg!(tool);
+                        todo!()
+                    }
+                }
+            }
+        }
+    }
+}
+
 #[derive(Component)]
 struct DrawObject;
 
-fn mouse_button(
+fn left_release(
     mouse_button_input: Res<Input<MouseButton>>,
-    mut ui_state: ResMut<UiState>,
-    rapier: Res<RapierContext>,
-    mouse_pos: Res<MousePosWorld>,
-    screen_pos: Res<MousePos>,
-    mut cameras: Query<&mut Transform, With<MainCamera>>,
-    mut query: Query<(&mut Transform, &mut RigidBody), Without<MainCamera>>,
-    mut draw_mode: Query<&mut DrawMode>,
     mut commands: Commands,
-    mut egui_ctx: ResMut<EguiContext>,
-    palette_config: Res<PaletteConfig>,
-    images: Res<Images>,
-    time: Res<Time>,
-    mut rng: Query<&mut RngComponent>
+    screen_pos: Res<MousePos>,
+    mut ui_state: ResMut<UiState>,
+    mouse_pos: Res<MousePosWorld>,
+    rapier: Res<RapierContext>,
+    mut draw_mode: Query<&mut DrawMode>,
+    mut add_obj: EventWriter<AddObjectEvent>,
+    mut unfreeze: EventWriter<UnfreezeEntityEvent>,
 ) {
-    let screen_pos = **screen_pos;
-
-    let palette = &palette_config.current_palette;
-
-    let ToolDef(_, builder) = ui_state.toolbox_selected;
-    let hover_tool = builder();
-
     use ToolEnum::*;
-
-    let left = mouse_button_input.pressed(MouseButton::Left);
+    let screen_pos = **screen_pos;
     let pos = mouse_pos.xy();
+    let left = mouse_button_input.pressed(MouseButton::Left);
     if left {
-        if let Some((at, click_pos, click_pos_screen)) = ui_state.mouse_left_pos {
-            match ui_state.mouse_left {
-                Some(Pan(Some(PanState { orig_camera_pos }))) => {
-                    let mut camera = cameras.single_mut();
-                    camera.translation = (orig_camera_pos
-                        + (click_pos_screen - screen_pos) * camera.scale.xy())
-                    .extend(0.0);
-                }
-                Some(Move(Some(state))) => {
-                    if let Some(EntitySelection { entity }) = ui_state.selected_entity {
-                        let mut transform = query.get_mut(entity).unwrap().0;
-                        transform.translation = (pos + state.obj_delta).extend(0.0);
-                    } else {
-                        ui_state.mouse_left = None;
-                        ui_state.mouse_left_pos = None;
-                    }
-                }
-                Some(Rotate(Some(state))) => {
-                    if let Some(EntitySelection { entity }) = ui_state.selected_entity {
-                        let mut transform = query.get_mut(entity).unwrap().0;
-                        let start = click_pos - transform.translation.xy();
-                        let current = pos - transform.translation.xy();
-                        let angle = start.angle_between(current);
-                        transform.rotation = state.orig_obj_rot * Quat::from_rotation_z(angle);
-                    } else {
-                        ui_state.mouse_left = None;
-                        ui_state.mouse_left_pos = None;
-                    }
-                }
-                Some(Box(Some(draw_ent))) => {
-                    let camera = cameras.single();
-                    commands.entity(draw_ent).insert(GeometryBuilder::build_as(
-                        &shapes::Rectangle {
-                            extents: pos - click_pos,
-                            origin: RectangleOrigin::BottomLeft,
-                        },
-                        DrawMode::Stroke(StrokeMode::new(Color::WHITE, 5.0 * camera.scale.x)),
-                        Transform::from_translation(click_pos.extend(0.0)),
-                    ));
-                }
-                Some(Circle(Some(draw_ent))) => {
-                    let camera = cameras.single();
-                    commands.entity(draw_ent).insert(GeometryBuilder::build_as(
-                        &shapes::Circle {
-                            radius: (pos - click_pos).length(),
-                            ..Default::default()
-                        },
-                        DrawMode::Stroke(StrokeMode::new(Color::WHITE, 5.0 * camera.scale.x)),
-                        Transform::from_translation(click_pos.extend(0.0)),
-                    ));
-                }
-                _ => {
-                    let long_press = time.elapsed() - at > Duration::from_millis(200);
-                    let moved = (click_pos - pos).length() > 0.0;
-                    let long_or_moved = long_press || moved;
-
-                    if long_or_moved {
-                        info!("long or moved!");
-
-                        match hover_tool {
-                            Pan(None) => {
-                                info!("panning");
-                                ui_state.mouse_left = Some(Pan(Some(PanState {
-                                    orig_camera_pos: cameras.single_mut().translation.xy(),
-                                })));
-                            }
-                            Zoom(None) => {
-                                todo!()
-                            }
-                            _ => {
-                                let mut under_mouse = None;
-                                rapier.intersections_with_point(
-                                    pos,
-                                    QueryFilter::default(),
-                                    |ent| {
-                                        under_mouse = Some(ent);
-                                        false
-                                    },
-                                );
-
-                                if matches!(
-                                    hover_tool,
-                                    Move(None) | Rotate(None) | Fix(()) | Hinge(()) | Tracer(())
-                                ) {
-                                    ui_state.set_selected(under_mouse, &mut draw_mode);
-                                }
-
-                                match (
-                                    hover_tool,
-                                    under_mouse,
-                                    ui_state.selected_entity.map(|s| s.entity),
-                                ) {
-                                    (Spring(None), _, _) => todo!(),
-                                    (Drag(None), Some(ent), _) => {
-                                        ui_state.mouse_left = Some(Drag(Some(DragState {
-                                            entity: ent,
-                                            orig_obj_pos: pos
-                                                - query.get_mut(ent).unwrap().0.translation.xy(),
-                                        })));
-                                    }
-                                    (Rotate(None), Some(under), _) => {
-                                        let (transform, mut body) = query.get_mut(under).unwrap();
-                                        ui_state.mouse_left = Some(Rotate(Some(RotateState {
-                                            orig_obj_rot: transform.rotation,
-                                        })));
-                                        *body = RigidBody::Fixed;
-                                    }
-                                    (_, Some(under), Some(sel)) if under == sel => {
-                                        let (transform, mut body) = query.get_mut(under).unwrap();
-                                        ui_state.mouse_left = Some(Move(Some(MoveState {
-                                            obj_delta: transform.translation.xy() - pos,
-                                        })));
-                                        *body = RigidBody::Fixed;
-                                    }
-                                    (Box(None), _, _) => {
-                                        ui_state.mouse_left =
-                                            Some(Box(Some(commands.spawn(DrawObject).id())));
-                                    }
-                                    (Circle(None), _, _) => {
-                                        ui_state.mouse_left =
-                                            Some(Circle(Some(commands.spawn(DrawObject).id())));
-                                    }
-                                    (tool, _, _) => {
-                                        dbg!(tool);
-                                        todo!()
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        } else if !egui_ctx.ctx_mut().is_pointer_over_area() {
-            info!("egui doesn't want pointer input");
-            ui_state.mouse_left = Some(hover_tool);
-            ui_state.mouse_left_pos = Some((time.elapsed(), pos, screen_pos));
-            ui_state.mouse_button = Some(UsedMouseButton::Left);
+        return;
+    }
+    let Some((_at, click_pos, click_pos_screen)) = ui_state.mouse_left_pos else { return };
+    let selected = std::mem::replace(&mut ui_state.mouse_left, None);
+    info!("resetting state");
+    ui_state.mouse_left_pos = None;
+    let Some(tool) = selected else { return };
+    // remove selection overlays
+    match tool {
+        Box(Some(ent)) => {
+            commands.entity(ent).despawn();
         }
-    } else if let Some((_at, click_pos, click_pos_screen)) = ui_state.mouse_left_pos {
-        if let Some(tool) = &ui_state.mouse_left {
-            match tool {
-                Box(Some(ent)) => {
-                    commands.entity(*ent).despawn();
-                }
-                Circle(Some(ent)) => {
-                    commands.entity(*ent).despawn();
-                }
-                _ => {}
+        Circle(Some(ent)) => {
+            commands.entity(ent).despawn();
+        }
+        _ => {}
+    }
+    match tool {
+        Move(Some(_)) | Rotate(Some(_)) => {
+            if let Some(EntitySelection { entity }) = ui_state.selected_entity {
+                unfreeze.send(UnfreezeEntityEvent { entity });
             }
-            match tool {
-                Move(Some(_)) | Rotate(Some(_)) => {
-                    if let Some(EntitySelection { entity }) = ui_state.selected_entity {
-                        let mut body = query.get_mut(entity).unwrap().1;
-                        *body = RigidBody::Dynamic;
+        }
+        Box(Some(_ent)) if screen_pos.distance(click_pos_screen) > 6.0 => {
+            add_obj.send(AddObjectEvent::Box(click_pos, pos - click_pos));
+        }
+        Circle(Some(_ent)) if screen_pos.distance(click_pos_screen) > 6.0 => {
+            add_obj.send(AddObjectEvent::Circle(
+                click_pos,
+                (pos - click_pos).length(),
+            ));
+        }
+        Spring(Some(_)) => {
+            todo!()
+        }
+        Thruster(_) => {
+            todo!()
+        }
+        Fix(()) => {
+            add_obj.send(AddObjectEvent::Fix(pos));
+        }
+        Hinge(()) => {
+            add_obj.send(AddObjectEvent::Hinge(pos));
+        }
+        Tracer(()) => {
+            todo!()
+        }
+        Pan(Some(_)) | Zoom(Some(_)) | Drag(Some(_)) => {
+            //
+        }
+        _ => {
+            info!("selecting under mouse");
+            ui_state.select_under_mouse(pos, &rapier, &mut draw_mode);
+        }
+    }
+}
+
+enum AddObjectEvent {
+    Hinge(Vec2),
+    Fix(Vec2),
+    Circle(Vec2, f32),
+    Box(Vec2, Vec2),
+}
+
+fn add_object(
+    mut events: EventReader<AddObjectEvent>,
+    rapier: Res<RapierContext>,
+    mut query: Query<(&mut Transform, &mut RigidBody), Without<MainCamera>>,
+    images: Res<Images>,
+    mut commands: Commands,
+    palette_config: Res<PaletteConfig>,
+    mut rng: Query<&mut RngComponent>,
+) {
+    let palette = &palette_config.current_palette;
+    use AddObjectEvent::*;
+    for ev in events.iter() {
+        match *ev {
+            Box(pos, size) => {
+                commands
+                    .spawn(PhysicalObject::rect(size, pos))
+                    .insert(palette.get_draw_mode(&mut *rng.single_mut()))
+                    .log_components();
+            }
+            Circle(center, radius) => {
+                commands
+                    .spawn(PhysicalObject::ball(radius, center))
+                    .insert(palette.get_draw_mode(&mut *rng.single_mut()))
+                    .log_components();
+            }
+            Fix(pos) => {
+                let mut entity1 = None;
+                let mut entity2 = None;
+                rapier.intersections_with_point(pos, QueryFilter::default(), |ent| {
+                    if entity1.is_none() {
+                        entity1 = Some(ent);
+                        true
+                    } else {
+                        entity2 = Some(ent);
+                        false
                     }
-                }
-                Box(Some(_ent)) if screen_pos.distance(click_pos_screen) > 6.0 => {
-                    commands
-                        .spawn(PhysicalObject::rect(pos - click_pos, click_pos))
-                        .insert(palette.get_draw_mode(&mut *rng.single_mut()))
-                        .log_components();
-                }
-                Circle(Some(_ent)) if screen_pos.distance(click_pos_screen) > 6.0 => {
-                    commands
-                        .spawn(PhysicalObject::ball((pos - click_pos).length(), click_pos))
-                        .insert(palette.get_draw_mode(&mut *rng.single_mut()))
-                        .log_components();
-                }
-                Spring(Some(_)) => {
-                    todo!()
-                }
-                Thruster(_) => {
-                    todo!()
-                }
-                Fix(()) => {
-                    let mut entity1 = None;
-                    let mut entity2 = None;
-                    rapier.intersections_with_point(pos, QueryFilter::default(), |ent| {
-                        if entity1.is_none() {
-                            entity1 = Some(ent);
-                            true
-                        } else {
-                            entity2 = Some(ent);
-                            false
-                        }
-                    });
-                    
-                    if let Some(entity1) = entity1 {
-                        let (transform, _) = query.get_mut(entity1).unwrap();
-                        let anchor1 = transform
+                });
+
+                if let Some(entity1) = entity1 {
+                    let (transform, _) = query.get_mut(entity1).unwrap();
+                    let anchor1 = transform
+                        .compute_affine()
+                        .inverse()
+                        .transform_point3(pos.extend(0.0))
+                        .xy();
+
+                    if let Some(entity2) = entity2 {
+                        let (transform, _) = query.get_mut(entity2).unwrap();
+                        let anchor2 = transform
                             .compute_affine()
                             .inverse()
                             .transform_point3(pos.extend(0.0))
                             .xy();
-
-                        if let Some(entity2) = entity2 {
-                            let (transform, _) = query.get_mut(entity2).unwrap();
-                            let anchor2 = transform
-                                .compute_affine()
-                                .inverse()
-                                .transform_point3(pos.extend(0.0))
-                                .xy();
-                            commands.entity(entity2).insert(MultibodyJoint::new(
+                        commands.entity(entity2).insert(MultibodyJoint::new(
+                            entity1,
+                            FixedJointBuilder::new()
+                                .local_anchor1(anchor1)
+                                .local_anchor2(anchor2),
+                        ));
+                    } else {
+                        commands.spawn((
+                            ImpulseJoint::new(
                                 entity1,
                                 FixedJointBuilder::new()
                                     .local_anchor1(anchor1)
-                                    .local_anchor2(anchor2),
-                            ));
-                        } else {
-                            commands.spawn((
-                                ImpulseJoint::new(
-                                    entity1,
-                                    FixedJointBuilder::new()
-                                        .local_anchor1(anchor1)
-                                        .local_anchor2(pos),
-                                ),
-                                RigidBody::Dynamic,
-                            ));
-                        }
+                                    .local_anchor2(pos),
+                            ),
+                            RigidBody::Dynamic,
+                        ));
                     }
                 }
-                Hinge(()) => {
-                    let mut entity1 = None;
-                    let mut entity2 = None;
-                    rapier.intersections_with_point(pos, QueryFilter::default(), |ent| {
-                        if entity1.is_none() {
-                            entity1 = Some(ent);
-                            true
-                        } else {
-                            entity2 = Some(ent);
-                            false
-                        }
-                    });
-                    if let Some(entity1) = entity1 {
-                        let (transform, _) = query.get_mut(entity1).unwrap();
-                        let anchor1 = transform
+            }
+            Hinge(pos) => {
+                let mut entity1 = None;
+                let mut entity2 = None;
+                rapier.intersections_with_point(pos, QueryFilter::default(), |ent| {
+                    if entity1.is_none() {
+                        entity1 = Some(ent);
+                        true
+                    } else {
+                        entity2 = Some(ent);
+                        false
+                    }
+                });
+                if let Some(entity1) = entity1 {
+                    let (transform, _) = query.get_mut(entity1).unwrap();
+                    let anchor1 = transform
+                        .compute_affine()
+                        .inverse()
+                        .transform_point3(pos.extend(0.0))
+                        .xy();
+
+                    if let Some(entity2) = entity2 {
+                        let (transform, _) = query.get_mut(entity2).unwrap();
+                        let anchor2 = transform
                             .compute_affine()
                             .inverse()
                             .transform_point3(pos.extend(0.0))
                             .xy();
-
-                        if let Some(entity2) = entity2 {
-                            let (transform, _) = query.get_mut(entity2).unwrap();
-                            let anchor2 = transform
-                                .compute_affine()
-                                .inverse()
-                                .transform_point3(pos.extend(0.0))
-                                .xy();
-                            info!(
-                                "hinge: {:?} {:?} {:?} {:?}",
-                                entity1, anchor1, entity2, anchor2
-                            );
-                            commands.entity(entity2).insert((
+                        info!(
+                            "hinge: {:?} {:?} {:?} {:?}",
+                            entity1, anchor1, entity2, anchor2
+                        );
+                        commands
+                            .entity(entity2)
+                            .insert((
                                 HingeObject,
                                 MultibodyJoint::new(
                                     entity1,
@@ -464,48 +460,242 @@ fn mouse_button(
                                         .local_anchor2(anchor2),
                                 ),
                                 ActiveHooks::FILTER_CONTACT_PAIRS,
-                            )).add_children(|builder| {
+                            ))
+                            .add_children(|builder| {
                                 builder.spawn(SpriteBundle {
                                     texture: images.hinge_background.clone(),
-                                    transform: Transform::from_scale(Vec3::new(0.001, 0.001, 1.0)).with_translation(anchor2.extend(0.0)),
+                                    transform: Transform::from_scale(Vec3::new(0.001, 0.001, 1.0))
+                                        .with_translation(anchor2.extend(0.0)),
                                     ..Default::default()
                                 });
                             });
-                            commands.entity(entity1).add_children(|builder| {
-                                builder.spawn(SpriteBundle {
-                                    texture: images.hinge_balls.clone(),
-                                    transform: Transform::from_scale(Vec3::new(0.001, 0.001, 1.0)).with_translation(anchor1.extend(0.0)),
-                                    ..Default::default()
-                                });
-                            })
-                        } else {
-                            commands.spawn((
-                                ImpulseJoint::new(
-                                    entity1,
-                                    RevoluteJointBuilder::new()
-                                        .local_anchor1(anchor1)
-                                        .local_anchor2(pos),
-                                ),
-                                RigidBody::Dynamic,
-                            ));
-                        }
+                        commands.entity(entity1).add_children(|builder| {
+                            builder.spawn(SpriteBundle {
+                                texture: images.hinge_balls.clone(),
+                                transform: Transform::from_scale(Vec3::new(0.001, 0.001, 1.0))
+                                    .with_translation(anchor1.extend(0.0)),
+                                ..Default::default()
+                            });
+                        })
+                    } else {
+                        commands.spawn((
+                            ImpulseJoint::new(
+                                entity1,
+                                RevoluteJointBuilder::new()
+                                    .local_anchor1(anchor1)
+                                    .local_anchor2(pos),
+                            ),
+                            RigidBody::Dynamic,
+                        ));
+                        commands.entity(entity1).add_children(|builder| {
+                            builder.spawn(SpriteBundle {
+                                texture: images.hinge_balls.clone(),
+                                transform: Transform::from_scale(Vec3::new(0.001, 0.001, 1.0))
+                                    .with_translation(anchor1.extend(0.0)),
+                                ..Default::default()
+                            });
+                        })
                     }
-                }
-                Tracer(()) => {
-                    todo!()
-                }
-                Pan(Some(_)) | Zoom(Some(_)) | Drag(Some(_)) => {
-                    //
-                }
-                _ => {
-                    info!("selecting under mouse");
-                    ui_state.select_under_mouse(pos, &rapier, &mut draw_mode);
                 }
             }
         }
-        info!("resetting state");
-        ui_state.mouse_left_pos = None;
-        ui_state.mouse_left = None;
+    }
+}
+
+struct MouseLongOrMoved(ToolEnum, Vec2);
+
+#[derive(Copy, Clone)]
+struct PanEvent {
+    orig_camera_pos: Vec2,
+    delta: Vec2,
+}
+
+fn process_pan(
+    mut events: EventReader<PanEvent>,
+    mut cameras: Query<&mut Transform, With<MainCamera>>,
+) {
+    for PanEvent {
+        orig_camera_pos,
+        delta,
+    } in events.iter().copied()
+    {
+        let mut camera = cameras.single_mut();
+        camera.translation = (orig_camera_pos + delta * camera.scale.xy()).extend(0.0);
+    }
+}
+
+#[derive(Copy, Clone)]
+struct MoveEvent {
+    entity: Entity,
+    pos: Vec2,
+}
+
+fn process_move(mut events: EventReader<MoveEvent>, mut query: Query<&mut Transform>) {
+    for MoveEvent { entity, pos } in events.iter().copied() {
+        let mut transform = query.get_mut(entity).unwrap();
+        transform.translation = pos.extend(0.0);
+    }
+}
+
+#[derive(Copy, Clone)]
+struct UnfreezeEntityEvent {
+    entity: Entity,
+}
+
+fn process_unfreeze_entity(
+    mut events: EventReader<UnfreezeEntityEvent>,
+    mut query: Query<&mut RigidBody>,
+) {
+    for UnfreezeEntityEvent { entity } in events.iter().copied() {
+        let mut body = query.get_mut(entity).unwrap();
+        *body = RigidBody::Dynamic;
+    }
+}
+
+#[derive(Copy, Clone)]
+struct RotateEvent {
+    entity: Entity,
+    orig_obj_rot: Quat,
+    click_pos: Vec2,
+    mouse_pos: Vec2,
+}
+
+fn process_rotate(mut events: EventReader<RotateEvent>, mut query: Query<&mut Transform>) {
+    for RotateEvent {
+        entity,
+        orig_obj_rot,
+        click_pos,
+        mouse_pos,
+    } in events.iter().copied()
+    {
+        let mut transform = query.get_mut(entity).unwrap();
+        let start = click_pos - transform.translation.xy();
+        let current = mouse_pos - transform.translation.xy();
+        let angle = start.angle_between(current);
+        transform.rotation = orig_obj_rot * Quat::from_rotation_z(angle);
+    }
+}
+
+struct DrawOverlayEvent {
+    shape: ShapeBundle,
+    pos: Vec2,
+}
+
+fn process_draw_overlay(
+    mut events: EventReader<DrawOverlayEvent>,
+    mut cameras: Query<&mut Transform, With<MainCamera>>,
+    mut commands: Commands,
+) {
+    for DrawOverlayEvent { shape, pos } in events.iter() {
+        let camera = cameras.single();
+        let bundle = GeometryBuilder::new();
+        bundle.add
+        commands.entity(draw_ent).insert(GeometryBuilder::build_as(
+            &shapes::Rectangle {
+                extents: pos - click_pos,
+                origin: RectangleOrigin::BottomLeft,
+            },
+            DrawMode::Stroke(StrokeMode::new(Color::WHITE, 5.0 * camera.scale.x)),
+            Transform::from_translation(click_pos.extend(0.0)),
+        ));
+    }
+}
+
+fn left_pressed(
+    mouse_button_input: Res<Input<MouseButton>>,
+    mut ui_state: ResMut<UiState>,
+    mouse_pos: Res<MousePosWorld>,
+    screen_pos: Res<MousePos>,
+    mut cameras: Query<&mut Transform, With<MainCamera>>,
+    mut commands: Commands,
+    mut egui_ctx: ResMut<EguiContext>,
+    mut ev_long_or_moved: EventWriter<MouseLongOrMoved>,
+    mut ev_pan: EventWriter<PanEvent>,
+    mut ev_move: EventWriter<MoveEvent>,
+    mut ev_rotate: EventWriter<RotateEvent>,
+    time: Res<Time>,
+) {
+    let screen_pos = **screen_pos;
+
+    let ToolDef(_, builder) = ui_state.toolbox_selected;
+    let hover_tool = builder();
+
+    use ToolEnum::*;
+
+    let left = mouse_button_input.pressed(MouseButton::Left);
+    let pos = mouse_pos.xy();
+    if !left {
+        return;
+    }
+    if let Some((at, click_pos, click_pos_screen)) = ui_state.mouse_left_pos {
+        match ui_state.mouse_left {
+            Some(Pan(Some(PanState { orig_camera_pos }))) => {
+                ev_pan.send(PanEvent {
+                    orig_camera_pos,
+                    delta: click_pos_screen - screen_pos,
+                });
+            }
+            Some(Move(Some(state))) => {
+                if let Some(EntitySelection { entity }) = ui_state.selected_entity {
+                    ev_move.send(MoveEvent {
+                        entity,
+                        pos: pos + state.obj_delta,
+                    });
+                } else {
+                    ui_state.mouse_left = None;
+                    ui_state.mouse_left_pos = None;
+                }
+            }
+            Some(Rotate(Some(state))) => {
+                if let Some(EntitySelection { entity }) = ui_state.selected_entity {
+                    ev_rotate.send(RotateEvent {
+                        entity,
+                        orig_obj_rot: state.orig_obj_rot,
+                        click_pos,
+                        mouse_pos: pos,
+                    });
+                } else {
+                    ui_state.mouse_left = None;
+                    ui_state.mouse_left_pos = None;
+                }
+            }
+            Some(Box(Some(draw_ent))) => {
+                let camera = cameras.single();
+                commands.entity(draw_ent).insert(GeometryBuilder::build_as(
+                    &shapes::Rectangle {
+                        extents: pos - click_pos,
+                        origin: RectangleOrigin::BottomLeft,
+                    },
+                    DrawMode::Stroke(StrokeMode::new(Color::WHITE, 5.0 * camera.scale.x)),
+                    Transform::from_translation(click_pos.extend(0.0)),
+                ));
+            }
+            Some(Circle(Some(draw_ent))) => {
+                let camera = cameras.single();
+                commands.entity(draw_ent).insert(GeometryBuilder::build_as(
+                    &shapes::Circle {
+                        radius: (pos - click_pos).length(),
+                        ..Default::default()
+                    },
+                    DrawMode::Stroke(StrokeMode::new(Color::WHITE, 5.0 * camera.scale.x)),
+                    Transform::from_translation(click_pos.extend(0.0)),
+                ));
+            }
+            _ => {
+                let long_press = time.elapsed() - at > Duration::from_millis(200);
+                let moved = (click_pos - pos).length() > 0.0;
+                let long_or_moved = long_press || moved;
+
+                if long_or_moved {
+                    ev_long_or_moved.send(MouseLongOrMoved(hover_tool, pos));
+                }
+            }
+        }
+    } else if !egui_ctx.ctx_mut().is_pointer_over_area() {
+        info!("egui doesn't want pointer input");
+        ui_state.mouse_left = Some(hover_tool);
+        ui_state.mouse_left_pos = Some((time.elapsed(), pos, screen_pos));
+        ui_state.mouse_button = Some(UsedMouseButton::Left);
     }
 }
 
@@ -537,7 +727,10 @@ const STROKE_TOLERANCE: f32 = 0.0001;
 impl Palette {
     fn get_draw_mode(&self, rng: &mut impl DelegatedRng) -> DrawMode {
         let color = self.color_range.rand_hsva(rng);
-        let darkened = Hsva { v: color.v * 0.5, ..color };
+        let darkened = Hsva {
+            v: color.v * 0.5,
+            ..color
+        };
         DrawMode::Outlined {
             fill_mode: FillMode {
                 color: hsva_to_rgba(color),
@@ -625,11 +818,12 @@ fn setup_physics(mut commands: Commands) {
     commands.spawn(ground).insert(RigidBody::Fixed);
 
     for i in 0..5 {
-        let stick = PhysicalObject::rect(Vec2::new(0.4, 2.4), Vec2::new(-1.0 + i as f32 * 0.8, 1.8));
+        let stick =
+            PhysicalObject::rect(Vec2::new(0.4, 2.4), Vec2::new(-1.0 + i as f32 * 0.8, 1.8));
         let ball = PhysicalObject::ball(0.4, Vec2::new(-1.0 + i as f32 * 0.8 + 0.2, 2.0));
         let stick_id = commands.spawn(stick).id();
-        commands.spawn(ball)
-        .insert((HingeObject,
+        commands.spawn(ball).insert((
+            HingeObject,
             MultibodyJoint::new(
                 stick_id,
                 RevoluteJointBuilder::new()
@@ -637,23 +831,24 @@ fn setup_physics(mut commands: Commands) {
                     .local_anchor2(Vec2::new(0.0, 0.0)),
             ),
             Restitution::coefficient(1.0),
-            ActiveHooks::FILTER_CONTACT_PAIRS));
+            ActiveHooks::FILTER_CONTACT_PAIRS,
+        ));
         commands.spawn((
-                ImpulseJoint::new(
-                    stick_id,
-                    RevoluteJointBuilder::new()
-                        .local_anchor1(Vec2::new(0.0, 1.0))
-                        .local_anchor2(Vec2::new(-1.0 + i as f32 * 0.8 + 0.2, 4.0)),
-                ),
-                RigidBody::Dynamic,
-            ));
+            ImpulseJoint::new(
+                stick_id,
+                RevoluteJointBuilder::new()
+                    .local_anchor1(Vec2::new(0.0, 1.0))
+                    .local_anchor2(Vec2::new(-1.0 + i as f32 * 0.8 + 0.2, 4.0)),
+            ),
+            RigidBody::Dynamic,
+        ));
     }
 
     let stick = PhysicalObject::rect(Vec2::new(2.4, 0.4), Vec2::new(-3.8, 3.8));
-    let ball = PhysicalObject::ball(0.4,  Vec2::new(-3.6, 4.0));
+    let ball = PhysicalObject::ball(0.4, Vec2::new(-3.6, 4.0));
     let stick_id = commands.spawn(stick).id();
-    commands.spawn(ball)
-    .insert((HingeObject,
+    commands.spawn(ball).insert((
+        HingeObject,
         MultibodyJoint::new(
             stick_id,
             RevoluteJointBuilder::new()
@@ -661,19 +856,19 @@ fn setup_physics(mut commands: Commands) {
                 .local_anchor2(Vec2::new(0.0, 0.0)),
         ),
         Restitution::coefficient(1.0),
-        ActiveHooks::FILTER_CONTACT_PAIRS));
+        ActiveHooks::FILTER_CONTACT_PAIRS,
+    ));
     commands.spawn((
-            ImpulseJoint::new(
-                stick_id,
-                RevoluteJointBuilder::new()
-                    .local_anchor1(Vec2::new(1.0, 0.0))
-                    .local_anchor2(Vec2::new(-1.6, 4.0)),
-            ),
-            RigidBody::Dynamic,
-        ));
+        ImpulseJoint::new(
+            stick_id,
+            RevoluteJointBuilder::new()
+                .local_anchor1(Vec2::new(1.0, 0.0))
+                .local_anchor2(Vec2::new(-1.6, 4.0)),
+        ),
+        RigidBody::Dynamic,
+    ));
 
-
-   /*  commands
+    /*  commands
         .spawn(Collider::cuboid(4.0, 0.5))
         .insert(TransformBundle::from(Transform::from_xyz(0.0, -3.0, 0.0)));
 
@@ -769,7 +964,7 @@ struct UiState {
 #[derive(Resource, Default)]
 struct PaletteConfig {
     palettes: Handle<PaletteList>,
-    current_palette: Palette
+    current_palette: Palette,
 }
 
 fn setup_palettes(mut palette_config: ResMut<PaletteConfig>, asset_server: Res<AssetServer>) {
