@@ -5,7 +5,6 @@ use bevy::asset::LoadedAsset;
 use bevy::prelude::*;
 use bevy::reflect::TypeUuid;
 use bevy_egui::egui::epaint::Hsva;
-use bevy_turborand::RngComponent;
 use bevy_turborand::DelegatedRng;
 use serde::Deserialize;
 use serde;

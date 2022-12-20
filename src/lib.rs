@@ -19,6 +19,8 @@ use bevy_rapier2d::prelude::*;
 mod palette;
 
 use bevy_turborand::{DelegatedRng, GlobalRng, RngComponent, RngPlugin};
+use lyon_path::builder::Build;
+use lyon_path::path::{Builder, BuilderImpl};
 use palette::{Palette, PaletteList, PaletteLoader};
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
@@ -26,9 +28,11 @@ use wasm_bindgen::prelude::*;
 struct Images {
     hinge_background: Handle<Image>,
     hinge_balls: Handle<Image>,
+    hinge_inner: Handle<Image>,
 }
 
 const BORDER_THICKNESS: f32 = 0.03;
+const CAMERA_FAR: f32 = 1e6f32;
 
 impl FromWorld for Images {
     fn from_world(world: &mut World) -> Self {
@@ -37,6 +41,7 @@ impl FromWorld for Images {
         Self {
             hinge_background: asset_server.load("app/hinge_background.png"),
             hinge_balls: asset_server.load("app/hinge_balls.png"),
+            hinge_inner: asset_server.load("app/hinge_inner.png"),
         }
     }
 }
@@ -112,6 +117,7 @@ pub fn app_main() {
         .add_event::<MoveEvent>()
         .add_event::<UnfreezeEntityEvent>()
         .add_event::<RotateEvent>()
+        .add_event::<DrawOverlayEvent>()
         .add_startup_system(configure_visuals)
         .add_startup_system(configure_ui_state)
         .add_startup_system(setup_graphics)
@@ -128,6 +134,7 @@ pub fn app_main() {
         .add_system(process_move)
         .add_system(process_unfreeze_entity)
         .add_system(process_rotate)
+        .add_system(process_draw_overlay)
         .run();
 }
 
@@ -346,13 +353,55 @@ enum AddObjectEvent {
     Box(Vec2, Vec2),
 }
 
+trait DrawModeExt {
+    fn get_fill_color(&self) -> Color;
+    fn get_outline_color(&self) -> Color;
+}
+
+impl DrawModeExt for DrawMode {
+    fn get_fill_color(&self) -> Color {
+        match *self {
+            DrawMode::Fill(FillMode { color, .. }) => color,
+            DrawMode::Stroke(_) => Color::rgba(0.0, 0.0, 0.0, 0.0),
+            DrawMode::Outlined { fill_mode: FillMode { color , ..}, .. } => color
+        }
+    }
+
+    fn get_outline_color(&self) -> Color {
+        match *self {
+            DrawMode::Fill(_) => Color::rgba(0.0, 0.0, 0.0, 0.0),
+            DrawMode::Stroke(StrokeMode { color, .. }) => color,
+            DrawMode::Outlined { outline_mode: StrokeMode { color, .. }, .. } => color
+        }
+    }
+}
+
+#[derive(Default)]
+struct DepthSorter {
+    current_depth: f32,
+}
+
+impl DepthSorter {
+    fn next(&mut self) -> f32 {
+        self.current_depth += 1.0;
+        self.current_depth
+    }
+
+    fn pos(&mut self, pos: Vec2) -> Vec3 {
+        pos.extend(self.next())
+    }
+}
+
 fn add_object(
     mut events: EventReader<AddObjectEvent>,
     rapier: Res<RapierContext>,
     mut query: Query<(&mut Transform, &mut RigidBody), Without<MainCamera>>,
     images: Res<Images>,
     mut commands: Commands,
+    mut cameras: Query<&mut Transform, With<MainCamera>>,
+    draw_mode: Query<&DrawMode>,
     palette_config: Res<PaletteConfig>,
+    mut z: Local<DepthSorter>,
     mut rng: Query<&mut RngComponent>,
 ) {
     let palette = &palette_config.current_palette;
@@ -361,13 +410,13 @@ fn add_object(
         match *ev {
             Box(pos, size) => {
                 commands
-                    .spawn(PhysicalObject::rect(size, pos))
+                    .spawn(PhysicalObject::rect(size, z.pos(pos)))
                     .insert(palette.get_draw_mode(&mut *rng.single_mut()))
                     .log_components();
             }
             Circle(center, radius) => {
                 commands
-                    .spawn(PhysicalObject::ball(radius, center))
+                    .spawn(PhysicalObject::ball(radius, z.pos(center)))
                     .insert(palette.get_draw_mode(&mut *rng.single_mut()))
                     .log_components();
             }
@@ -437,8 +486,18 @@ fn add_object(
                         .inverse()
                         .transform_point3(pos.extend(0.0))
                         .xy();
-
+                    let scale = cameras.single_mut().scale.x * 0.28;
+                    let hinge_z = z.next();
+                    let hinge_delta = hinge_z - transform.translation.z;
+                    let hinge_pos = anchor1.extend(hinge_delta);
+                    let hinge_transform = Transform::from_scale(Vec3::new(scale, scale, 1.0))
+                        .with_translation(hinge_pos);
+                    let mut back_color = palette.sky_color;
                     if let Some(entity2) = entity2 {
+                        back_color = draw_mode
+                            .get(entity2)
+                            .unwrap()
+                            .get_fill_color();
                         let (transform, _) = query.get_mut(entity2).unwrap();
                         let anchor2 = transform
                             .compute_affine()
@@ -461,22 +520,14 @@ fn add_object(
                                 ),
                                 ActiveHooks::FILTER_CONTACT_PAIRS,
                             ))
-                            .add_children(|builder| {
+                            /*.add_children(|builder| {
                                 builder.spawn(SpriteBundle {
                                     texture: images.hinge_background.clone(),
-                                    transform: Transform::from_scale(Vec3::new(0.001, 0.001, 1.0))
-                                        .with_translation(anchor2.extend(0.0)),
+                                    transform: Transform::from_scale(Vec3::new(scale, scale, 1.0))
+                                        .with_translation(anchor2.extend(0.1)),
                                     ..Default::default()
                                 });
-                            });
-                        commands.entity(entity1).add_children(|builder| {
-                            builder.spawn(SpriteBundle {
-                                texture: images.hinge_balls.clone(),
-                                transform: Transform::from_scale(Vec3::new(0.001, 0.001, 1.0))
-                                    .with_translation(anchor1.extend(0.0)),
-                                ..Default::default()
-                            });
-                        })
+                            })*/;
                     } else {
                         commands.spawn((
                             ImpulseJoint::new(
@@ -487,19 +538,50 @@ fn add_object(
                             ),
                             RigidBody::Dynamic,
                         ));
-                        commands.entity(entity1).add_children(|builder| {
-                            builder.spawn(SpriteBundle {
-                                texture: images.hinge_balls.clone(),
-                                transform: Transform::from_scale(Vec3::new(0.001, 0.001, 1.0))
-                                    .with_translation(anchor1.extend(0.0)),
-                                ..Default::default()
-                            });
-                        })
                     }
+                    commands.entity(entity1).with_children(|builder| {
+                        builder.spawn(SpriteBundle {
+                            texture: images.hinge_balls.clone(),
+                            sprite: Sprite {
+                                color: draw_mode.get(entity1).unwrap().get_fill_color(),
+                                ..Default::default()
+                            },
+                            transform: hinge_transform,
+                            ..Default::default()
+                        });
+                    }).with_children(|builder| {
+                        builder.spawn(SpriteBundle {
+                            texture: images.hinge_background.clone(),
+                            sprite: Sprite {
+                                color: palette.get_color(&mut *rng.single_mut()),
+                                ..Default::default()
+                            },
+                            transform: hinge_transform,
+                            ..Default::default()
+                        });
+                    }).with_children(|builder| {
+                        builder.spawn(SpriteBundle {
+                            texture: images.hinge_inner.clone(),
+                            sprite: Sprite {
+                                color: back_color,
+                                ..Default::default()
+                            },
+                            transform: hinge_transform,
+                            ..Default::default()
+                        });
+                    });
                 }
             }
         }
     }
+}
+
+#[derive(Component)]
+struct ColorComponent(Hsva);
+
+#[derive(Bundle)]
+struct HingeBundle {
+
 }
 
 struct MouseLongOrMoved(ToolEnum, Vec2);
@@ -576,8 +658,16 @@ fn process_rotate(mut events: EventReader<RotateEvent>, mut query: Query<&mut Tr
     }
 }
 
+#[derive(Copy, Clone)]
+enum Overlay {
+    Rectangle(Vec2),
+    Circle(f32)
+}
+
+#[derive(Copy, Clone)]
 struct DrawOverlayEvent {
-    shape: ShapeBundle,
+    draw_ent: Entity,
+    shape: Overlay,
     pos: Vec2,
 }
 
@@ -586,17 +676,22 @@ fn process_draw_overlay(
     mut cameras: Query<&mut Transform, With<MainCamera>>,
     mut commands: Commands,
 ) {
-    for DrawOverlayEvent { shape, pos } in events.iter() {
+    for DrawOverlayEvent { draw_ent, shape, pos } in events.iter().copied() {
         let camera = cameras.single();
-        let bundle = GeometryBuilder::new();
-        bundle.add
-        commands.entity(draw_ent).insert(GeometryBuilder::build_as(
-            &shapes::Rectangle {
-                extents: pos - click_pos,
+        let builder = GeometryBuilder::new();
+        let builder = match shape {
+            Overlay::Rectangle(size) => builder.add(&shapes::Rectangle {
+                extents: size,
                 origin: RectangleOrigin::BottomLeft,
-            },
+            }),
+            Overlay::Circle(radius) => builder.add(&shapes::Circle {
+                radius,
+                ..Default::default()
+            })
+        };
+        commands.entity(draw_ent).insert(builder.build(
             DrawMode::Stroke(StrokeMode::new(Color::WHITE, 5.0 * camera.scale.x)),
-            Transform::from_translation(click_pos.extend(0.0)),
+            Transform::from_translation(pos.extend(CAMERA_FAR - 1.0))
         ));
     }
 }
@@ -606,13 +701,12 @@ fn left_pressed(
     mut ui_state: ResMut<UiState>,
     mouse_pos: Res<MousePosWorld>,
     screen_pos: Res<MousePos>,
-    mut cameras: Query<&mut Transform, With<MainCamera>>,
-    mut commands: Commands,
     mut egui_ctx: ResMut<EguiContext>,
     mut ev_long_or_moved: EventWriter<MouseLongOrMoved>,
     mut ev_pan: EventWriter<PanEvent>,
     mut ev_move: EventWriter<MoveEvent>,
     mut ev_rotate: EventWriter<RotateEvent>,
+    mut ev_draw_overlay: EventWriter<DrawOverlayEvent>,
     time: Res<Time>,
 ) {
     let screen_pos = **screen_pos;
@@ -660,26 +754,18 @@ fn left_pressed(
                 }
             }
             Some(Box(Some(draw_ent))) => {
-                let camera = cameras.single();
-                commands.entity(draw_ent).insert(GeometryBuilder::build_as(
-                    &shapes::Rectangle {
-                        extents: pos - click_pos,
-                        origin: RectangleOrigin::BottomLeft,
-                    },
-                    DrawMode::Stroke(StrokeMode::new(Color::WHITE, 5.0 * camera.scale.x)),
-                    Transform::from_translation(click_pos.extend(0.0)),
-                ));
+                ev_draw_overlay.send(DrawOverlayEvent {
+                    draw_ent,
+                    shape: Overlay::Rectangle(pos - click_pos),
+                    pos: click_pos,
+                });
             }
             Some(Circle(Some(draw_ent))) => {
-                let camera = cameras.single();
-                commands.entity(draw_ent).insert(GeometryBuilder::build_as(
-                    &shapes::Circle {
-                        radius: (pos - click_pos).length(),
-                        ..Default::default()
-                    },
-                    DrawMode::Stroke(StrokeMode::new(Color::WHITE, 5.0 * camera.scale.x)),
-                    Transform::from_translation(click_pos.extend(0.0)),
-                ));
+                ev_draw_overlay.send(DrawOverlayEvent {
+                    draw_ent,
+                    shape: Overlay::Circle((pos - click_pos).length()),
+                    pos: click_pos,
+                });
             }
             _ => {
                 let long_press = time.elapsed() - at > Duration::from_millis(200);
@@ -702,7 +788,7 @@ fn left_pressed(
 fn setup_graphics(mut commands: Commands) {
     // Add a camera so we can see the debug-render.
     commands
-        .spawn((Camera2dBundle::default(), MainCamera))
+        .spawn((Camera2dBundle::new_with_far(CAMERA_FAR), MainCamera))
         .add_world_tracking();
 }
 
@@ -725,6 +811,10 @@ fn hsva_to_rgba(hsva: Hsva) -> Color {
 const STROKE_TOLERANCE: f32 = 0.0001;
 
 impl Palette {
+    fn get_color(&self, rng: &mut impl DelegatedRng) -> Color {
+        self.color_range.rand(rng)
+    }
+
     fn get_draw_mode(&self, rng: &mut impl DelegatedRng) -> DrawMode {
         let color = self.color_range.rand_hsva(rng);
         let darkened = Hsva {
@@ -747,7 +837,7 @@ impl Palette {
 }
 
 impl PhysicalObject {
-    fn ball(radius: f32, pos: Vec2) -> Self {
+    fn ball(radius: f32, pos: Vec3) -> Self {
         let radius = radius.abs();
         Self {
             rigid_body: RigidBody::Dynamic,
@@ -773,12 +863,12 @@ impl PhysicalObject {
                             .with_line_width(BORDER_THICKNESS),
                     },
                 },
-                Transform::from_translation(pos.extend(0.0)),
+                Transform::from_translation(pos),
             ),
         }
     }
 
-    fn rect(mut size: Vec2, mut pos: Vec2) -> Self {
+    fn rect(mut size: Vec2, mut pos: Vec3) -> Self {
         if size.x < 0.0 {
             pos.x += size.x;
             size.x = -size.x;
@@ -803,7 +893,7 @@ impl PhysicalObject {
                     fill_mode: FillMode::color(Color::CYAN),
                     outline_mode: StrokeMode::new(Color::BLACK, BORDER_THICKNESS),
                 },
-                Transform::from_translation((pos + size / 2.0).extend(0.0)),
+                Transform::from_translation(pos + (size / 2.0).extend(0.0)),
             ),
         }
     }
@@ -814,13 +904,13 @@ struct HingeObject;
 
 fn setup_physics(mut commands: Commands) {
     /* Create the ground. */
-    let ground = PhysicalObject::rect(Vec2::new(8.0, 0.5), Vec2::new(-4.0, -3.0));
+    let ground = PhysicalObject::rect(Vec2::new(8.0, 0.5), Vec3::new(-4.0, -3.0, 0.0));
     commands.spawn(ground).insert(RigidBody::Fixed);
 
     for i in 0..5 {
         let stick =
-            PhysicalObject::rect(Vec2::new(0.4, 2.4), Vec2::new(-1.0 + i as f32 * 0.8, 1.8));
-        let ball = PhysicalObject::ball(0.4, Vec2::new(-1.0 + i as f32 * 0.8 + 0.2, 2.0));
+            PhysicalObject::rect(Vec2::new(0.4, 2.4), Vec3::new(-1.0 + i as f32 * 0.8, 1.8, 0.0));
+        let ball = PhysicalObject::ball(0.4, Vec3::new(-1.0 + i as f32 * 0.8 + 0.2, 2.0, 0.0));
         let stick_id = commands.spawn(stick).id();
         commands.spawn(ball).insert((
             HingeObject,
@@ -844,8 +934,8 @@ fn setup_physics(mut commands: Commands) {
         ));
     }
 
-    let stick = PhysicalObject::rect(Vec2::new(2.4, 0.4), Vec2::new(-3.8, 3.8));
-    let ball = PhysicalObject::ball(0.4, Vec2::new(-3.6, 4.0));
+    let stick = PhysicalObject::rect(Vec2::new(2.4, 0.4), Vec3::new(-3.8, 3.8, 0.0));
+    let ball = PhysicalObject::ball(0.4, Vec3::new(-3.6, 4.0, 0.0));
     let stick_id = commands.spawn(stick).id();
     commands.spawn(ball).insert((
         HingeObject,
