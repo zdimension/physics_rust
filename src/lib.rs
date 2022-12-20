@@ -33,6 +33,8 @@ struct Images {
 
 const BORDER_THICKNESS: f32 = 0.03;
 const CAMERA_FAR: f32 = 1e6f32;
+const CAMERA_Z: f32 = CAMERA_FAR - 0.1;
+const FOREGROUND_Z: f32 = CAMERA_Z - 0.2;
 
 impl FromWorld for Images {
     fn from_world(world: &mut World) -> Self {
@@ -99,6 +101,7 @@ pub fn app_main() {
             ..Default::default()
         })
         .insert_resource(PhysicsHooksWithQueryResource(Box::new(CollideHooks)))
+        .insert_resource(OverlayState::default())
         .add_plugin(RapierPhysicsPlugin::<CollideHookData>::pixels_per_meter(
             1.0,
         ))
@@ -117,7 +120,8 @@ pub fn app_main() {
         .add_event::<MoveEvent>()
         .add_event::<UnfreezeEntityEvent>()
         .add_event::<RotateEvent>()
-        .add_event::<DrawOverlayEvent>()
+        .add_event::<SelectUnderMouseEvent>()
+        .add_event::<SelectEvent>()
         .add_startup_system(configure_visuals)
         .add_startup_system(configure_ui_state)
         .add_startup_system(setup_graphics)
@@ -125,16 +129,21 @@ pub fn app_main() {
         .add_startup_system(setup_palettes)
         .add_startup_system(setup_rng)
         .add_system(ui_example)
-        .add_system(mouse_wheel)
-        .add_system(left_pressed)
-        .add_system(left_release)
-        .add_system(add_object)
-        .add_system(mouse_long_or_moved)
+        .add_system_set(
+            SystemSet::new()
+                .with_system(mouse_wheel)
+                .with_system(left_pressed)
+                .with_system(left_release)
+                .with_system(process_add_object)
+                .with_system(mouse_long_or_moved),
+        )
         .add_system(process_pan)
         .add_system(process_move)
         .add_system(process_unfreeze_entity)
         .add_system(process_rotate)
         .add_system(process_draw_overlay)
+        .add_system(process_select_under_mouse)
+        .add_system(process_select)
         .run();
 }
 
@@ -181,7 +190,7 @@ fn set_selected(mut draw_mode: Mut<DrawMode>, selected: bool) {
             outline_mode: _,
         } => DrawMode::Outlined {
             fill_mode,
-            outline_mode: StrokeMode::new(
+            outline_mode: make_stroke(
                 if selected { Color::WHITE } else { Color::BLACK },
                 BORDER_THICKNESS,
             ),
@@ -198,6 +207,7 @@ fn mouse_long_or_moved(
     mut query: Query<(&mut Transform, &mut RigidBody), Without<MainCamera>>,
     mut commands: Commands,
     rapier: Res<RapierContext>,
+    mut select_mouse: EventWriter<SelectEvent>,
 ) {
     use ToolEnum::*;
     for MouseLongOrMoved(hover_tool, pos) in events.iter() {
@@ -225,7 +235,9 @@ fn mouse_long_or_moved(
                     hover_tool,
                     Move(None) | Rotate(None) | Fix(()) | Hinge(()) | Tracer(())
                 ) {
-                    ui_state.set_selected(under_mouse, &mut draw_mode);
+                    select_mouse.send(SelectEvent {
+                        entity: under_mouse,
+                    });
                 }
 
                 match (
@@ -262,7 +274,7 @@ fn mouse_long_or_moved(
                     }
                     (tool, _, _) => {
                         dbg!(tool);
-                        todo!()
+                        //todo!()
                     }
                 }
             }
@@ -283,6 +295,8 @@ fn left_release(
     mut draw_mode: Query<&mut DrawMode>,
     mut add_obj: EventWriter<AddObjectEvent>,
     mut unfreeze: EventWriter<UnfreezeEntityEvent>,
+    mut select_mouse: EventWriter<SelectUnderMouseEvent>,
+    mut overlay: ResMut<OverlayState>,
 ) {
     use ToolEnum::*;
     let screen_pos = **screen_pos;
@@ -291,6 +305,7 @@ fn left_release(
     if left {
         return;
     }
+    *overlay = OverlayState { draw_ent: None };
     let Some((_at, click_pos, click_pos_screen)) = ui_state.mouse_left_pos else { return };
     let selected = std::mem::replace(&mut ui_state.mouse_left, None);
     info!("resetting state");
@@ -341,7 +356,7 @@ fn left_release(
         }
         _ => {
             info!("selecting under mouse");
-            ui_state.select_under_mouse(pos, &rapier, &mut draw_mode);
+            select_mouse.send(SelectUnderMouseEvent { pos });
         }
     }
 }
@@ -363,7 +378,10 @@ impl DrawModeExt for DrawMode {
         match *self {
             DrawMode::Fill(FillMode { color, .. }) => color,
             DrawMode::Stroke(_) => Color::rgba(0.0, 0.0, 0.0, 0.0),
-            DrawMode::Outlined { fill_mode: FillMode { color , ..}, .. } => color
+            DrawMode::Outlined {
+                fill_mode: FillMode { color, .. },
+                ..
+            } => color,
         }
     }
 
@@ -371,7 +389,10 @@ impl DrawModeExt for DrawMode {
         match *self {
             DrawMode::Fill(_) => Color::rgba(0.0, 0.0, 0.0, 0.0),
             DrawMode::Stroke(StrokeMode { color, .. }) => color,
-            DrawMode::Outlined { outline_mode: StrokeMode { color, .. }, .. } => color
+            DrawMode::Outlined {
+                outline_mode: StrokeMode { color, .. },
+                ..
+            } => color,
         }
     }
 }
@@ -392,7 +413,7 @@ impl DepthSorter {
     }
 }
 
-fn add_object(
+fn process_add_object(
     mut events: EventReader<AddObjectEvent>,
     rapier: Res<RapierContext>,
     mut query: Query<(&mut Transform, &mut RigidBody), Without<MainCamera>>,
@@ -403,6 +424,8 @@ fn add_object(
     palette_config: Res<PaletteConfig>,
     mut z: Local<DepthSorter>,
     mut rng: Query<&mut RngComponent>,
+    mut select_mouse: EventWriter<SelectUnderMouseEvent>,
+    sensor: Query<&Sensor>
 ) {
     let palette = &palette_config.current_palette;
     use AddObjectEvent::*;
@@ -423,7 +446,7 @@ fn add_object(
             Fix(pos) => {
                 let mut entity1 = None;
                 let mut entity2 = None;
-                rapier.intersections_with_point(pos, QueryFilter::default(), |ent| {
+                rapier.intersections_with_point(pos, QueryFilter::only_dynamic(), |ent| {
                     if entity1.is_none() {
                         entity1 = Some(ent);
                         true
@@ -432,8 +455,12 @@ fn add_object(
                         false
                     }
                 });
-
                 if let Some(entity1) = entity1 {
+                    if sensor.get(entity1).is_ok() {
+                        select_mouse.send(SelectUnderMouseEvent { pos });
+                        return;
+                    }
+
                     let (transform, _) = query.get_mut(entity1).unwrap();
                     let anchor1 = transform
                         .compute_affine()
@@ -470,34 +497,43 @@ fn add_object(
             Hinge(pos) => {
                 let mut entity1 = None;
                 let mut entity2 = None;
-                rapier.intersections_with_point(pos, QueryFilter::default(), |ent| {
-                    if entity1.is_none() {
-                        entity1 = Some(ent);
-                        true
-                    } else {
-                        entity2 = Some(ent);
-                        false
-                    }
-                });
+                rapier.intersections_with_point(
+                    pos,
+                    QueryFilter::default(),
+                    |ent| {
+                        info!("found entity: {:?}", ent);
+                        commands.entity(ent).log_components();
+                        if entity1.is_none() {
+                            entity1 = Some(ent);
+                            true
+                        } else {
+                            entity2 = Some(ent);
+                            false
+                        }
+                    },
+                );
                 if let Some(entity1) = entity1 {
-                    let (transform, _) = query.get_mut(entity1).unwrap();
+                    if sensor.get(entity1).is_ok() {
+                        select_mouse.send(SelectUnderMouseEvent { pos });
+                        return;
+                    }
+
+                    let Ok((transform, _)) = query.get_mut(entity1) else {
+                        commands.entity(entity1).log_components();
+                        continue;
+                    };
                     let anchor1 = transform
                         .compute_affine()
                         .inverse()
                         .transform_point3(pos.extend(0.0))
                         .xy();
-                    let scale = cameras.single_mut().scale.x * 0.28;
                     let hinge_z = z.next();
                     let hinge_delta = hinge_z - transform.translation.z;
                     let hinge_pos = anchor1.extend(hinge_delta);
-                    let hinge_transform = Transform::from_scale(Vec3::new(scale, scale, 1.0))
-                        .with_translation(hinge_pos);
+                    let hinge_transform = Transform::from_translation(hinge_pos);
                     let mut back_color = palette.sky_color;
                     if let Some(entity2) = entity2 {
-                        back_color = draw_mode
-                            .get(entity2)
-                            .unwrap()
-                            .get_fill_color();
+                        back_color = draw_mode.get(entity2).unwrap().get_fill_color();
                         let (transform, _) = query.get_mut(entity2).unwrap();
                         let anchor2 = transform
                             .compute_affine()
@@ -539,36 +575,63 @@ fn add_object(
                             RigidBody::Dynamic,
                         ));
                     }
-                    commands.entity(entity1).with_children(|builder| {
-                        builder.spawn(SpriteBundle {
-                            texture: images.hinge_balls.clone(),
-                            sprite: Sprite {
-                                color: draw_mode.get(entity1).unwrap().get_fill_color(),
-                                ..Default::default()
-                            },
-                            transform: hinge_transform,
-                            ..Default::default()
-                        });
-                    }).with_children(|builder| {
-                        builder.spawn(SpriteBundle {
-                            texture: images.hinge_background.clone(),
-                            sprite: Sprite {
-                                color: palette.get_color(&mut *rng.single_mut()),
-                                ..Default::default()
-                            },
-                            transform: hinge_transform,
-                            ..Default::default()
-                        });
-                    }).with_children(|builder| {
-                        builder.spawn(SpriteBundle {
-                            texture: images.hinge_inner.clone(),
-                            sprite: Sprite {
-                                color: back_color,
-                                ..Default::default()
-                            },
-                            transform: hinge_transform,
-                            ..Default::default()
-                        });
+
+                    let scale = cameras.single_mut().scale.x;
+                    // group the three sprites in an entity containing the transform
+                    commands.entity(entity1).add_children(|builder| {
+                        builder
+                            .spawn((
+                                GeometryBuilder::build_as(
+                                    &shapes::Circle {
+                                        radius: scale * 36.0,
+                                        ..Default::default()
+                                    },
+                                    make_stroke(Color::rgba(0.0, 0.0, 0.0, 0.0), BORDER_THICKNESS)
+                                        .as_mode(),
+                                    Transform::from_translation(hinge_pos),
+                                ),
+                                Collider::ball(scale * 36.0),
+                                Sensor,
+                            ))
+                            .add_children(|builder| {
+                                builder
+                                    .spawn(SpatialBundle::from_transform(Transform::from_scale(
+                                        Vec3::new(scale, scale, 1.0) * 0.28,
+                                    )))
+                                    .with_children(|builder| {
+                                        builder.spawn(SpriteBundle {
+                                            texture: images.hinge_balls.clone(),
+                                            sprite: Sprite {
+                                                color: draw_mode
+                                                    .get(entity1)
+                                                    .unwrap()
+                                                    .get_fill_color(),
+                                                ..Default::default()
+                                            },
+                                            ..Default::default()
+                                        });
+                                    })
+                                    .with_children(|builder| {
+                                        builder.spawn(SpriteBundle {
+                                            texture: images.hinge_background.clone(),
+                                            sprite: Sprite {
+                                                color: palette.get_color(&mut *rng.single_mut()),
+                                                ..Default::default()
+                                            },
+                                            ..Default::default()
+                                        });
+                                    })
+                                    .with_children(|builder| {
+                                        builder.spawn(SpriteBundle {
+                                            texture: images.hinge_inner.clone(),
+                                            sprite: Sprite {
+                                                color: back_color,
+                                                ..Default::default()
+                                            },
+                                            ..Default::default()
+                                        });
+                                    });
+                            });
                     });
                 }
             }
@@ -580,9 +643,7 @@ fn add_object(
 struct ColorComponent(Hsva);
 
 #[derive(Bundle)]
-struct HingeBundle {
-
-}
+struct HingeBundle {}
 
 struct MouseLongOrMoved(ToolEnum, Vec2);
 
@@ -602,7 +663,7 @@ fn process_pan(
     } in events.iter().copied()
     {
         let mut camera = cameras.single_mut();
-        camera.translation = (orig_camera_pos + delta * camera.scale.xy()).extend(0.0);
+        camera.translation = (orig_camera_pos + delta * camera.scale.xy()).extend(CAMERA_Z);
     }
 }
 
@@ -615,7 +676,7 @@ struct MoveEvent {
 fn process_move(mut events: EventReader<MoveEvent>, mut query: Query<&mut Transform>) {
     for MoveEvent { entity, pos } in events.iter().copied() {
         let mut transform = query.get_mut(entity).unwrap();
-        transform.translation = pos.extend(0.0);
+        transform.translation = pos.extend(transform.translation.z);
     }
 }
 
@@ -661,7 +722,7 @@ fn process_rotate(mut events: EventReader<RotateEvent>, mut query: Query<&mut Tr
 #[derive(Copy, Clone)]
 enum Overlay {
     Rectangle(Vec2),
-    Circle(f32)
+    Circle(f32),
 }
 
 #[derive(Copy, Clone)]
@@ -671,12 +732,33 @@ struct DrawOverlayEvent {
     pos: Vec2,
 }
 
+trait AsMode {
+    fn as_mode(self) -> DrawMode;
+}
+
+impl AsMode for StrokeMode {
+    fn as_mode(self) -> DrawMode {
+        DrawMode::Stroke(self)
+    }
+}
+
+impl AsMode for FillMode {
+    fn as_mode(self) -> DrawMode {
+        DrawMode::Fill(self)
+    }
+}
+
+#[derive(Resource, Default)]
+struct OverlayState {
+    draw_ent: Option<(Entity, Overlay, Vec2)>,
+}
+
 fn process_draw_overlay(
-    mut events: EventReader<DrawOverlayEvent>,
     mut cameras: Query<&mut Transform, With<MainCamera>>,
+    mut overlay: ResMut<OverlayState>,
     mut commands: Commands,
 ) {
-    for DrawOverlayEvent { draw_ent, shape, pos } in events.iter().copied() {
+    if let Some((draw_ent, shape, pos)) = overlay.draw_ent {
         let camera = cameras.single();
         let builder = GeometryBuilder::new();
         let builder = match shape {
@@ -687,11 +769,11 @@ fn process_draw_overlay(
             Overlay::Circle(radius) => builder.add(&shapes::Circle {
                 radius,
                 ..Default::default()
-            })
+            }),
         };
         commands.entity(draw_ent).insert(builder.build(
-            DrawMode::Stroke(StrokeMode::new(Color::WHITE, 5.0 * camera.scale.x)),
-            Transform::from_translation(pos.extend(CAMERA_FAR - 1.0))
+            make_stroke(Color::WHITE, 5.0 * camera.scale.x).as_mode(),
+            Transform::from_translation(pos.extend(FOREGROUND_Z)),
         ));
     }
 }
@@ -706,7 +788,7 @@ fn left_pressed(
     mut ev_pan: EventWriter<PanEvent>,
     mut ev_move: EventWriter<MoveEvent>,
     mut ev_rotate: EventWriter<RotateEvent>,
-    mut ev_draw_overlay: EventWriter<DrawOverlayEvent>,
+    mut overlay: ResMut<OverlayState>,
     time: Res<Time>,
 ) {
     let screen_pos = **screen_pos;
@@ -754,18 +836,18 @@ fn left_pressed(
                 }
             }
             Some(Box(Some(draw_ent))) => {
-                ev_draw_overlay.send(DrawOverlayEvent {
-                    draw_ent,
-                    shape: Overlay::Rectangle(pos - click_pos),
-                    pos: click_pos,
-                });
+                *overlay = OverlayState {
+                    draw_ent: Some((draw_ent, Overlay::Rectangle(pos - click_pos), click_pos)),
+                };
             }
             Some(Circle(Some(draw_ent))) => {
-                ev_draw_overlay.send(DrawOverlayEvent {
-                    draw_ent,
-                    shape: Overlay::Circle((pos - click_pos).length()),
-                    pos: click_pos,
-                });
+                *overlay = OverlayState {
+                    draw_ent: Some((
+                        draw_ent,
+                        Overlay::Circle((pos - click_pos).length()),
+                        click_pos,
+                    )),
+                };
             }
             _ => {
                 let long_press = time.elapsed() - at > Duration::from_millis(200);
@@ -808,6 +890,22 @@ fn hsva_to_rgba(hsva: Hsva) -> Color {
     Color::rgba_linear(color[0], color[1], color[2], color[3])
 }
 
+fn make_fill(color: Color) -> FillMode {
+    FillMode {
+        color,
+        options: FillOptions::default().with_tolerance(STROKE_TOLERANCE),
+    }
+}
+
+fn make_stroke(color: Color, thickness: f32) -> StrokeMode {
+    StrokeMode {
+        color,
+        options: StrokeOptions::default()
+            .with_tolerance(STROKE_TOLERANCE)
+            .with_line_width(thickness),
+    }
+}
+
 const STROKE_TOLERANCE: f32 = 0.0001;
 
 impl Palette {
@@ -822,16 +920,8 @@ impl Palette {
             ..color
         };
         DrawMode::Outlined {
-            fill_mode: FillMode {
-                color: hsva_to_rgba(color),
-                options: FillOptions::default().with_tolerance(STROKE_TOLERANCE),
-            },
-            outline_mode: StrokeMode {
-                color: hsva_to_rgba(darkened),
-                options: StrokeOptions::default()
-                    .with_tolerance(STROKE_TOLERANCE)
-                    .with_line_width(BORDER_THICKNESS),
-            },
+            fill_mode: make_fill(hsva_to_rgba(color)),
+            outline_mode: make_stroke(hsva_to_rgba(darkened), BORDER_THICKNESS),
         }
     }
 }
@@ -852,16 +942,8 @@ impl PhysicalObject {
                     ..Default::default()
                 },
                 DrawMode::Outlined {
-                    fill_mode: FillMode {
-                        color: Color::CYAN,
-                        options: FillOptions::default().with_tolerance(0.0001),
-                    },
-                    outline_mode: StrokeMode {
-                        color: Color::BLACK,
-                        options: StrokeOptions::default()
-                            .with_tolerance(0.0001)
-                            .with_line_width(BORDER_THICKNESS),
-                    },
+                    fill_mode: make_fill(Color::CYAN),
+                    outline_mode: make_stroke(Color::BLACK, BORDER_THICKNESS),
                 },
                 Transform::from_translation(pos),
             ),
@@ -890,8 +972,8 @@ impl PhysicalObject {
                     origin: RectangleOrigin::Center,
                 },
                 DrawMode::Outlined {
-                    fill_mode: FillMode::color(Color::CYAN),
-                    outline_mode: StrokeMode::new(Color::BLACK, BORDER_THICKNESS),
+                    fill_mode: make_fill(Color::CYAN),
+                    outline_mode: make_stroke(Color::BLACK, BORDER_THICKNESS),
                 },
                 Transform::from_translation(pos + (size / 2.0).extend(0.0)),
             ),
@@ -908,8 +990,10 @@ fn setup_physics(mut commands: Commands) {
     commands.spawn(ground).insert(RigidBody::Fixed);
 
     for i in 0..5 {
-        let stick =
-            PhysicalObject::rect(Vec2::new(0.4, 2.4), Vec3::new(-1.0 + i as f32 * 0.8, 1.8, 0.0));
+        let stick = PhysicalObject::rect(
+            Vec2::new(0.4, 2.4),
+            Vec3::new(-1.0 + i as f32 * 0.8, 1.8, 0.0),
+        );
         let ball = PhysicalObject::ball(0.4, Vec3::new(-1.0 + i as f32 * 0.8 + 0.2, 2.0, 0.0));
         let stick_id = commands.spawn(stick).id();
         commands.spawn(ball).insert((
@@ -1061,8 +1145,96 @@ fn setup_palettes(mut palette_config: ResMut<PaletteConfig>, asset_server: Res<A
     palette_config.palettes = asset_server.load("palettes.ron");
 }
 
+struct SelectEvent {
+    entity: Option<Entity>,
+}
+
+#[derive(Component)]
+struct UnselectedDrawMode {
+    draw_mode: DrawMode,
+}
+
+fn process_select(
+    mut events: EventReader<SelectEvent>,
+    mut state: ResMut<UiState>,
+    mut query: Query<&mut DrawMode>,
+    query_backup: Query<&UnselectedDrawMode>,
+    mut commands: Commands,
+) {
+    let mut set_selected = move |entity, selected| {
+        let mut current = query.get_mut(entity).unwrap();
+        if selected {
+            commands.entity(entity).insert(UnselectedDrawMode {
+                draw_mode: current.clone(),
+            });
+            let stroke = make_stroke(
+                Color::WHITE,
+                BORDER_THICKNESS,
+            );
+            *current = match *current {
+                DrawMode::Outlined {
+                    fill_mode,
+                    outline_mode: _,
+                } => DrawMode::Outlined {
+                    fill_mode,
+                    outline_mode: stroke,
+                },
+                DrawMode::Fill(fill_mode) => DrawMode::Outlined {
+                    fill_mode,
+                    outline_mode: stroke,
+                },
+                DrawMode::Stroke(_) => DrawMode::Stroke(stroke),
+            };
+            dbg!(current);
+        } else {
+            let backup = query_backup.get(entity).unwrap();
+            *current = backup.draw_mode;
+            commands.entity(entity).remove::<UnselectedDrawMode>();
+        }
+    };
+
+    for SelectEvent { entity } in events.iter() {
+        if let Some(EntitySelection { entity }) = state.selected_entity {
+            set_selected(entity, false);
+        }
+
+        if let Some(entity) = entity {
+            info!("Selecting entity: {:?}", entity);
+        } else {
+            info!("Deselecting entity");
+        }
+
+        state.selected_entity = entity.map(|entity| {
+            set_selected(entity, true);
+            EntitySelection { entity }
+        });
+    }
+}
+
+#[derive(Copy, Clone)]
+struct SelectUnderMouseEvent {
+    pos: Vec2,
+}
+
+fn process_select_under_mouse(
+    mut events: EventReader<SelectUnderMouseEvent>,
+    mut state: ResMut<UiState>,
+    rapier: Res<RapierContext>,
+    mut query: Query<&mut DrawMode>,
+    mut select: EventWriter<SelectEvent>,
+) {
+    for SelectUnderMouseEvent { pos } in events.iter().copied() {
+        let mut selected = None;
+        rapier.intersections_with_point(pos, QueryFilter::default(), |ent| {
+            selected = Some(ent);
+            false
+        });
+        select.send(SelectEvent { entity: selected });
+    }
+}
+
 impl UiState {
-    fn set_selected(&mut self, ent: Option<Entity>, query: &mut Query<&mut DrawMode>) {
+    /*fn set_selected(&mut self, ent: Option<Entity>, query: &mut Query<&mut DrawMode>) {
         if let Some(ent) = self.selected_entity {
             let dm = query.get_mut(ent.entity).unwrap();
             set_selected(dm, false);
@@ -1087,7 +1259,7 @@ impl UiState {
             false
         });
         self.set_selected(selected, query);
-    }
+    }*/
 }
 
 impl FromWorld for UiState {

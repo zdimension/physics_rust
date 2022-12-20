@@ -6,8 +6,8 @@ use bevy::prelude::*;
 use bevy::reflect::TypeUuid;
 use bevy_egui::egui::epaint::Hsva;
 use bevy_turborand::DelegatedRng;
-use serde::Deserialize;
 use serde;
+use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
 #[serde(default)]
@@ -39,10 +39,8 @@ impl Default for ObjectAppearance {
 
 #[derive(Debug, Deserialize)]
 pub struct HsvaRange(
-    #[serde(deserialize_with = "deserialize_hsva")]
-    Hsva, 
-    #[serde(deserialize_with = "deserialize_hsva")]
-    Hsva
+    #[serde(deserialize_with = "deserialize_hsva")] Hsva,
+    #[serde(deserialize_with = "deserialize_hsva")] Hsva,
 );
 
 fn deserialize_hsva<'a, D>(deserializer: D) -> Result<Hsva, D::Error>
@@ -102,7 +100,7 @@ pub struct Palette {
     pub sky_color: Color,
     #[serde(deserialize_with = "deserialize_rgba")]
     pub selection_color: Color,
-    pub color_range: HsvaRange
+    pub color_range: HsvaRange,
 }
 
 impl Default for Palette {
@@ -112,7 +110,10 @@ impl Default for Palette {
             draw_clouds: true,
             sky_color: Color::rgba(0.44999999, 0.55000001, 1.0000000, 1.0000000),
             selection_color: Color::rgb(0.0, 0.0, 0.0),
-            color_range: HsvaRange(Hsva::new(0.0, 0.0, 0.0, 1.0), Hsva::new(359.9, 1.0, 1.0, 1.0))
+            color_range: HsvaRange(
+                Hsva::new(0.0, 0.0, 0.0, 1.0),
+                Hsva::new(359.9, 1.0, 1.0, 1.0),
+            ),
         }
     }
 }
