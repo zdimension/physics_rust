@@ -20,8 +20,8 @@ mod palette;
 
 use bevy_turborand::{DelegatedRng, GlobalRng, RngComponent, RngPlugin};
 use lyon_path::builder::Build;
-use lyon_path::path::{Builder, BuilderImpl};
 use palette::{Palette, PaletteList, PaletteLoader};
+use paste::paste;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 #[derive(Resource)]
@@ -95,6 +95,7 @@ pub fn app_main() {
         .init_resource::<PaletteConfig>()
         .init_resource::<UiState>()
         .init_resource::<Images>()
+        .init_resource::<ToolIcons>()
         .insert_resource(RapierConfiguration {
             gravity: Vect::Y * -9.81,
             physics_pipeline_active: false,
@@ -144,6 +145,7 @@ pub fn app_main() {
         .add_system(process_draw_overlay)
         .add_system(process_select_under_mouse)
         .add_system(process_select)
+        .add_system(show_current_tool_icon.after(mouse_wheel))
         .run();
 }
 
@@ -203,7 +205,6 @@ fn mouse_long_or_moved(
     mut events: EventReader<MouseLongOrMoved>,
     mut cameras: Query<&mut Transform, With<MainCamera>>,
     mut ui_state: ResMut<UiState>,
-    mut draw_mode: Query<&mut DrawMode>,
     mut query: Query<(&mut Transform, &mut RigidBody), Without<MainCamera>>,
     mut commands: Commands,
     rapier: Res<RapierContext>,
@@ -291,8 +292,6 @@ fn left_release(
     screen_pos: Res<MousePos>,
     mut ui_state: ResMut<UiState>,
     mouse_pos: Res<MousePosWorld>,
-    rapier: Res<RapierContext>,
-    mut draw_mode: Query<&mut DrawMode>,
     mut add_obj: EventWriter<AddObjectEvent>,
     mut unfreeze: EventWriter<UnfreezeEntityEvent>,
     mut select_mouse: EventWriter<SelectUnderMouseEvent>,
@@ -530,7 +529,6 @@ fn process_add_object(
                     let hinge_z = z.next();
                     let hinge_delta = hinge_z - transform.translation.z;
                     let hinge_pos = anchor1.extend(hinge_delta);
-                    let hinge_transform = Transform::from_translation(hinge_pos);
                     let mut back_color = palette.sky_color;
                     if let Some(entity2) = entity2 {
                         back_color = draw_mode.get(entity2).unwrap().get_fill_color();
@@ -733,18 +731,18 @@ struct DrawOverlayEvent {
 }
 
 trait AsMode {
-    fn as_mode(self) -> DrawMode;
+    fn as_mode(&self) -> DrawMode;
 }
 
 impl AsMode for StrokeMode {
-    fn as_mode(self) -> DrawMode {
-        DrawMode::Stroke(self)
+    fn as_mode(&self) -> DrawMode {
+        DrawMode::Stroke(*self)
     }
 }
 
 impl AsMode for FillMode {
-    fn as_mode(self) -> DrawMode {
-        DrawMode::Fill(self)
+    fn as_mode(&self) -> DrawMode {
+        DrawMode::Fill(*self)
     }
 }
 
@@ -793,8 +791,8 @@ fn left_pressed(
 ) {
     let screen_pos = **screen_pos;
 
-    let ToolDef(_, builder) = ui_state.toolbox_selected;
-    let hover_tool = builder();
+    let builder = ui_state.toolbox_selected;
+    let hover_tool = builder;
 
     use ToolEnum::*;
 
@@ -872,6 +870,34 @@ fn setup_graphics(mut commands: Commands) {
     commands
         .spawn((Camera2dBundle::new_with_far(CAMERA_FAR), MainCamera))
         .add_world_tracking();
+
+    commands.spawn((
+        ToolCursor,
+        SpriteBundle::default()
+        ));
+}
+
+#[derive(Component)]
+struct ToolCursor;
+
+fn show_current_tool_icon(
+    ui_state: Res<UiState>,
+    mouse_pos: Res<MousePosWorld>,
+    mut icon: Query<(&mut Handle<Image>, &mut Transform), With<ToolCursor>>,
+    camera: Query<&Transform, (With<MainCamera>, Without<ToolCursor>)>,
+    tool_icons: Res<ToolIcons>
+) {
+    let current_tool = match ui_state.mouse_button {
+        Some(UsedMouseButton::Left) => ui_state.mouse_left,
+        Some(UsedMouseButton::Right) => ui_state.mouse_right,
+        None => None,
+    }.unwrap_or(ui_state.toolbox_selected);
+    let icon_handle = current_tool.icon(tool_icons);
+    let cam_scale = camera.single().scale.xy();
+    let (mut icon, mut transform) = icon.single_mut();
+    *icon = icon_handle;
+    transform.translation = (mouse_pos.xy() + cam_scale * 30.0 * Vec2::new(1.0, -1.0)).extend(FOREGROUND_Z);
+    transform.scale = (cam_scale * 0.26).extend(1.0);
 }
 
 #[derive(Bundle)]
@@ -1075,28 +1101,73 @@ fn wasm_main() {
     app_main();
 }
 
-#[derive(Debug)]
-enum ToolEnum {
-    Move(Option<MoveState>),
-    Drag(Option<DragState>),
-    Rotate(Option<RotateState>),
-    Box(Option<Entity>),
-    Circle(Option<Entity>),
-    Spring(Option<()>),
-    Thruster(Option<()>),
-    Fix(()),
-    Hinge(()),
-    Tracer(()),
-    Pan(Option<PanState>),
-    Zoom(Option<()>),
+macro_rules! tools_enum {
+    ($($pic:ident => $name:ident($data:ty)),*$(,)?) => {
+        #[derive(Debug, Copy, Clone)]
+        enum ToolEnum {
+            $($name($data)),*
+        }
+
+        paste! {
+            #[derive(Resource)]
+            struct ToolIcons {
+                $(
+                    [<icon_ $pic>]: Handle<Image>
+                ),*
+            }
+
+            impl FromWorld for ToolIcons {
+                fn from_world(world: &mut World) -> Self {
+                    let asset_server = world.get_resource_mut::<AssetServer>().unwrap();
+                    Self {
+                        $(
+                            [<icon_ $pic>]: asset_server.load(concat!("tools/", stringify!($pic), ".png"))
+                        ),*
+                    }
+                }
+            }
+
+            impl ToolEnum {
+                fn icon(&self, icons: impl AsRef<ToolIcons>) -> Handle<Image> {
+                    let icons = icons.as_ref();
+                    match self {
+                        $(
+                            Self::$name(_) => icons.[<icon_ $pic>].clone()
+                        ),*
+                    }
+                }
+            }
+        }
+    }
 }
 
-#[derive(Debug)]
+tools_enum! {
+    move => Move(Option<MoveState>),
+    drag => Drag(Option<DragState>),
+    rotate => Rotate(Option<RotateState>),
+    box => Box(Option<Entity>),
+    circle => Circle(Option<Entity>),
+    spring => Spring(Option<()>),
+    thruster => Thruster(Option<()>),
+    fixjoint => Fix(()),
+    hinge => Hinge(()),
+    tracer => Tracer(()),
+    pan => Pan(Option<PanState>),
+    zoom => Zoom(Option<()>),
+}
+
+impl ToolEnum {
+    fn is_same(&self, other: &Self) -> bool {
+        std::mem::discriminant(self) == std::mem::discriminant(other)
+    }
+}
+
+#[derive(Copy, Clone, Debug)]
 struct PanState {
     orig_camera_pos: Vec2,
 }
 
-#[derive(Debug)]
+#[derive(Copy, Clone, Debug)]
 struct DragState {
     entity: Entity,
     orig_obj_pos: Vec2,
@@ -1125,9 +1196,9 @@ enum UsedMouseButton {
 #[derive(Resource)]
 struct UiState {
     selected_entity: Option<EntitySelection>,
-    toolbox: Vec<Vec<ToolDef>>,
-    toolbox_bottom: Vec<ToolDef>,
-    toolbox_selected: ToolDef,
+    toolbox: Vec<Vec<ToolEnum>>,
+    toolbox_bottom: Vec<ToolEnum>,
+    toolbox_selected: ToolEnum,
     mouse_left: Option<ToolEnum>,
     mouse_left_pos: Option<(Duration, Vec2, Vec2)>,
     mouse_right: Option<ToolEnum>,
@@ -1218,9 +1289,7 @@ struct SelectUnderMouseEvent {
 
 fn process_select_under_mouse(
     mut events: EventReader<SelectUnderMouseEvent>,
-    mut state: ResMut<UiState>,
     rapier: Res<RapierContext>,
-    mut query: Query<&mut DrawMode>,
     mut select: EventWriter<SelectEvent>,
 ) {
     for SelectUnderMouseEvent { pos } in events.iter().copied() {
@@ -1234,32 +1303,7 @@ fn process_select_under_mouse(
 }
 
 impl UiState {
-    /*fn set_selected(&mut self, ent: Option<Entity>, query: &mut Query<&mut DrawMode>) {
-        if let Some(ent) = self.selected_entity {
-            let dm = query.get_mut(ent.entity).unwrap();
-            set_selected(dm, false);
-        }
 
-        self.selected_entity = ent.map(|ent| {
-            let dm = query.get_mut(ent).unwrap();
-            set_selected(dm, true);
-            EntitySelection { entity: ent }
-        });
-    }
-
-    fn select_under_mouse(
-        &mut self,
-        pos: Vec2,
-        rapier: &Res<RapierContext>,
-        query: &mut Query<&mut DrawMode>,
-    ) {
-        let mut selected = None;
-        rapier.intersections_with_point(pos, QueryFilter::default(), |ent| {
-            selected = Some(ent);
-            false
-        });
-        self.set_selected(selected, query);
-    }*/
 }
 
 impl FromWorld for UiState {
@@ -1267,34 +1311,31 @@ impl FromWorld for UiState {
         let mut egui_ctx = unsafe { world.get_resource_unchecked_mut::<EguiContext>().unwrap() };
         let assets = world.get_resource::<AssetServer>().unwrap();
         macro_rules! tool {
-            ($img:literal, $ty:ident) => {
-                ToolDef(
-                    egui_ctx.add_image(assets.load(concat!("tools/", $img, ".png"))),
-                    || ToolEnum::$ty(Default::default()),
-                )
+            ($ty:ident) => {
+                ToolEnum::$ty(Default::default())
             };
         }
 
-        let pan = tool!("pan", Pan);
+        let pan = tool!(Pan);
 
         Self {
             selected_entity: None,
             toolbox: vec![
                 vec![
-                    tool!("move", Move),
-                    tool!("drag", Drag),
-                    tool!("rotate", Rotate),
+                    tool!(Move),
+                    tool!(Drag),
+                    tool!(Rotate),
                 ],
-                vec![tool!("box", Box), tool!("circle", Circle)],
+                vec![tool!(Box), tool!(Circle)],
                 vec![
-                    tool!("spring", Spring),
-                    tool!("fixjoint", Fix),
-                    tool!("hinge", Hinge),
-                    tool!("thruster", Thruster),
-                    tool!("tracer", Tracer),
+                    tool!(Spring),
+                    tool!(Fix),
+                    tool!(Hinge),
+                    tool!(Thruster),
+                    tool!(Tracer),
                 ],
             ],
-            toolbox_bottom: vec![tool!("zoom", Zoom), pan],
+            toolbox_bottom: vec![tool!(Zoom), pan],
             toolbox_selected: pan,
             mouse_left: None,
             mouse_left_pos: None,
@@ -1315,7 +1356,7 @@ fn configure_visuals(mut egui_ctx: ResMut<EguiContext>) {
 fn configure_ui_state(_ui_state: ResMut<UiState>) {}
 
 #[derive(Copy, Clone)]
-struct ToolDef(TextureId, fn() -> ToolEnum);
+struct ToolDef(TextureId, ToolEnum);
 
 impl PartialEq for ToolDef {
     fn eq(&self, other: &Self) -> bool {
@@ -1329,6 +1370,7 @@ fn ui_example(
     mut is_initialized: Local<bool>,
     mut rapier: ResMut<RapierConfiguration>,
     mut cameras: Query<&mut Transform, With<MainCamera>>,
+    tool_icons: Res<ToolIcons>,
     assets: Res<AssetServer>,
 ) {
     if !*is_initialized {
@@ -1363,11 +1405,11 @@ fn ui_example(
                     }
                     for chunk in category.chunks(2) {
                         ui.horizontal(|ui| {
-                            for def @ ToolDef(image, _) in chunk {
+                            for def in chunk {
                                 if ui
                                     .add(
-                                        egui::ImageButton::new(*image, [24.0, 24.0])
-                                            .selected(ui_state.toolbox_selected == *def),
+                                        egui::ImageButton::new(egui_ctx.add_image(def.icon(&tool_icons)), [24.0, 24.0])
+                                            .selected(ui_state.toolbox_selected.is_same(def)),
                                     )
                                     .clicked()
                                 {
@@ -1387,11 +1429,11 @@ fn ui_example(
         .show(egui_ctx.clone().ctx_mut(), |ui| {
             ui.horizontal(|ui| {
                 let ui_state = &mut *ui_state;
-                for def @ ToolDef(image, _) in ui_state.toolbox_bottom.iter() {
+                for def in ui_state.toolbox_bottom.iter() {
                     if ui
                         .add(
-                            egui::ImageButton::new(*image, [32.0, 32.0])
-                                .selected(ui_state.toolbox_selected == *def),
+                            egui::ImageButton::new(egui_ctx.add_image(def.icon(&tool_icons)), [32.0, 32.0])
+                                .selected(ui_state.toolbox_selected.is_same(def)),
                         )
                         .clicked()
                     {
