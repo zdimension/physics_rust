@@ -22,6 +22,7 @@ use bevy_turborand::{DelegatedRng, GlobalRng, RngComponent, RngPlugin};
 use lyon_path::builder::Build;
 use palette::{Palette, PaletteList, PaletteLoader};
 use paste::paste;
+use derivative::Derivative;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 #[derive(Resource)]
@@ -117,6 +118,7 @@ pub fn app_main() {
         .add_plugin(ShapePlugin)
         .add_event::<AddObjectEvent>()
         .add_event::<MouseLongOrMoved>()
+        .add_event::<MouseLongOrMovedWriteback>()
         .add_event::<PanEvent>()
         .add_event::<MoveEvent>()
         .add_event::<UnfreezeEntityEvent>()
@@ -136,7 +138,8 @@ pub fn app_main() {
                 .with_system(left_pressed)
                 .with_system(left_release)
                 .with_system(process_add_object)
-                .with_system(mouse_long_or_moved),
+                .with_system(mouse_long_or_moved)
+                .with_system(mouse_long_or_moved_writeback)
         )
         .add_system(process_pan)
         .add_system(process_move)
@@ -201,8 +204,28 @@ fn set_selected(mut draw_mode: Mut<DrawMode>, selected: bool) {
     };
 }
 
+struct MouseLongOrMovedWriteback {
+    event: MouseLongOrMoved
+}
+
+impl From<MouseLongOrMoved> for MouseLongOrMovedWriteback {
+    fn from(event: MouseLongOrMoved) -> Self {
+        Self { event }
+    }
+}
+
+fn mouse_long_or_moved_writeback(
+    mut read: EventReader<MouseLongOrMovedWriteback>,
+    mut write: EventWriter<MouseLongOrMoved>,
+) {
+    for event in read.iter() {
+        write.send(event.event);
+    }
+}
+
 fn mouse_long_or_moved(
     mut events: EventReader<MouseLongOrMoved>,
+    mut ev_writeback: EventWriter<MouseLongOrMovedWriteback>,
     mut cameras: Query<&mut Transform, With<MainCamera>>,
     mut ui_state: ResMut<UiState>,
     mut query: Query<(&mut Transform, &mut RigidBody), Without<MainCamera>>,
@@ -211,14 +234,20 @@ fn mouse_long_or_moved(
     mut select_mouse: EventWriter<SelectEvent>,
 ) {
     use ToolEnum::*;
-    for MouseLongOrMoved(hover_tool, pos) in events.iter() {
+    for MouseLongOrMoved(hover_tool, pos, button) in events.iter() {
         let pos = *pos;
         info!("long or moved!");
+
+        let selected_entity = ui_state.selected_entity;
+        let ui_button = match button {
+            UsedMouseButton::Left => &mut ui_state.mouse_left,
+            UsedMouseButton::Right => &mut ui_state.mouse_right
+        };
 
         match hover_tool {
             Pan(None) => {
                 info!("panning");
-                ui_state.mouse_left = Some(Pan(Some(PanState {
+                *ui_button = Some(Pan(Some(PanState {
                     orig_camera_pos: cameras.single_mut().translation.xy(),
                 })));
             }
@@ -244,34 +273,42 @@ fn mouse_long_or_moved(
                 match (
                     hover_tool,
                     under_mouse,
-                    ui_state.selected_entity.map(|s| s.entity),
+                    selected_entity.map(|s| s.entity),
                 ) {
                     (Spring(None), _, _) => todo!(),
                     (Drag(None), Some(ent), _) => {
-                        ui_state.mouse_left = Some(Drag(Some(DragState {
+                        *ui_button = Some(Drag(Some(DragState {
                             entity: ent,
                             orig_obj_pos: pos - query.get_mut(ent).unwrap().0.translation.xy(),
                         })));
                     }
                     (Rotate(None), Some(under), _) => {
                         let (transform, mut body) = query.get_mut(under).unwrap();
-                        ui_state.mouse_left = Some(Rotate(Some(RotateState {
+                        info!("start rotate {:?}", under);
+                        *ui_button = Some(Rotate(Some(RotateState {
                             orig_obj_rot: transform.rotation,
                         })));
                         *body = RigidBody::Fixed;
                     }
+                    (Rotate(None), None, _) => {
+                        ev_writeback.send(MouseLongOrMoved(
+                            Pan(None),
+                            pos,
+                            *button,
+                        ).into());
+                    }
                     (_, Some(under), Some(sel)) if under == sel => {
                         let (transform, mut body) = query.get_mut(under).unwrap();
-                        ui_state.mouse_left = Some(Move(Some(MoveState {
+                        *ui_button = Some(Move(Some(MoveState {
                             obj_delta: transform.translation.xy() - pos,
                         })));
                         *body = RigidBody::Fixed;
                     }
                     (Box(None), _, _) => {
-                        ui_state.mouse_left = Some(Box(Some(commands.spawn(DrawObject).id())));
+                        *ui_button = Some(Box(Some(commands.spawn(DrawObject).id())));
                     }
                     (Circle(None), _, _) => {
-                        ui_state.mouse_left = Some(Circle(Some(commands.spawn(DrawObject).id())));
+                        *ui_button = Some(Circle(Some(commands.spawn(DrawObject).id())));
                     }
                     (tool, _, _) => {
                         dbg!(tool);
@@ -300,64 +337,77 @@ fn left_release(
     use ToolEnum::*;
     let screen_pos = **screen_pos;
     let pos = mouse_pos.xy();
-    let left = mouse_button_input.pressed(MouseButton::Left);
-    if left {
-        return;
-    }
-    *overlay = OverlayState { draw_ent: None };
-    let Some((_at, click_pos, click_pos_screen)) = ui_state.mouse_left_pos else { return };
-    let selected = std::mem::replace(&mut ui_state.mouse_left, None);
-    info!("resetting state");
-    ui_state.mouse_left_pos = None;
-    let Some(tool) = selected else { return };
-    // remove selection overlays
-    match tool {
-        Box(Some(ent)) => {
-            commands.entity(ent).despawn();
-        }
-        Circle(Some(ent)) => {
-            commands.entity(ent).despawn();
-        }
-        _ => {}
-    }
-    match tool {
-        Move(Some(_)) | Rotate(Some(_)) => {
-            if let Some(EntitySelection { entity }) = ui_state.selected_entity {
-                unfreeze.send(UnfreezeEntityEvent { entity });
+
+    macro_rules! process_button {
+        ($button: expr, $state_pos:expr, $state_button:expr) => {
+            'thing: {
+                let pressed = mouse_button_input.pressed($button.into());
+                if pressed {
+                    break 'thing;
+                }
+                let Some((_at, click_pos, click_pos_screen)) = $state_pos else { break 'thing; };
+                let selected = std::mem::replace(&mut $state_button, None);
+                info!("resetting state");
+                $state_pos = None;
+                let Some(tool) = selected else { break 'thing };
+                // remove selection overlays
+                if ui_state.mouse_button == Some($button) {
+                    ui_state.mouse_button = None;
+                }
+                *overlay = OverlayState { draw_ent: None };
+                match tool {
+                    Box(Some(ent)) => {
+                        commands.entity(ent).despawn();
+                    }
+                    Circle(Some(ent)) => {
+                        commands.entity(ent).despawn();
+                    }
+                    _ => {}
+                }
+                match tool {
+                    Move(Some(_)) | Rotate(Some(_)) => {
+                        if let Some(EntitySelection { entity }) = ui_state.selected_entity {
+                            unfreeze.send(UnfreezeEntityEvent { entity });
+                        }
+                    }
+                    Box(Some(_ent)) if screen_pos.distance(click_pos_screen) > 6.0 => {
+                        add_obj.send(AddObjectEvent::Box(click_pos, pos - click_pos));
+                    }
+                    Circle(Some(_ent)) if screen_pos.distance(click_pos_screen) > 6.0 => {
+                        add_obj.send(AddObjectEvent::Circle(
+                            click_pos,
+                            (pos - click_pos).length(),
+                        ));
+                    }
+                    Spring(Some(_)) => {
+                        todo!()
+                    }
+                    Thruster(_) => {
+                        todo!()
+                    }
+                    Fix(()) => {
+                        add_obj.send(AddObjectEvent::Fix(pos));
+                    }
+                    Hinge(()) => {
+                        add_obj.send(AddObjectEvent::Hinge(pos));
+                    }
+                    Tracer(()) => {
+                        todo!()
+                    }
+                    Pan(Some(_)) | Zoom(Some(_)) | Drag(Some(_)) => {
+                        //
+                    }
+                    _ => {
+                        info!("selecting under mouse");
+                        select_mouse.send(SelectUnderMouseEvent { pos });
+                    }
+                }
             }
         }
-        Box(Some(_ent)) if screen_pos.distance(click_pos_screen) > 6.0 => {
-            add_obj.send(AddObjectEvent::Box(click_pos, pos - click_pos));
-        }
-        Circle(Some(_ent)) if screen_pos.distance(click_pos_screen) > 6.0 => {
-            add_obj.send(AddObjectEvent::Circle(
-                click_pos,
-                (pos - click_pos).length(),
-            ));
-        }
-        Spring(Some(_)) => {
-            todo!()
-        }
-        Thruster(_) => {
-            todo!()
-        }
-        Fix(()) => {
-            add_obj.send(AddObjectEvent::Fix(pos));
-        }
-        Hinge(()) => {
-            add_obj.send(AddObjectEvent::Hinge(pos));
-        }
-        Tracer(()) => {
-            todo!()
-        }
-        Pan(Some(_)) | Zoom(Some(_)) | Drag(Some(_)) => {
-            //
-        }
-        _ => {
-            info!("selecting under mouse");
-            select_mouse.send(SelectUnderMouseEvent { pos });
-        }
     }
+
+    process_button!(UsedMouseButton::Left, ui_state.mouse_left_pos, ui_state.mouse_left);
+    process_button!(UsedMouseButton::Right, ui_state.mouse_right_pos, ui_state.mouse_right);
 }
 
 enum AddObjectEvent {
@@ -424,7 +474,7 @@ fn process_add_object(
     mut z: Local<DepthSorter>,
     mut rng: Query<&mut RngComponent>,
     mut select_mouse: EventWriter<SelectUnderMouseEvent>,
-    sensor: Query<&Sensor>
+    sensor: Query<&Sensor>,
 ) {
     let palette = &palette_config.current_palette;
     use AddObjectEvent::*;
@@ -496,21 +546,17 @@ fn process_add_object(
             Hinge(pos) => {
                 let mut entity1 = None;
                 let mut entity2 = None;
-                rapier.intersections_with_point(
-                    pos,
-                    QueryFilter::default(),
-                    |ent| {
-                        info!("found entity: {:?}", ent);
-                        commands.entity(ent).log_components();
-                        if entity1.is_none() {
-                            entity1 = Some(ent);
-                            true
-                        } else {
-                            entity2 = Some(ent);
-                            false
-                        }
-                    },
-                );
+                rapier.intersections_with_point(pos, QueryFilter::default(), |ent| {
+                    info!("found entity: {:?}", ent);
+                    commands.entity(ent).log_components();
+                    if entity1.is_none() {
+                        entity1 = Some(ent);
+                        true
+                    } else {
+                        entity2 = Some(ent);
+                        false
+                    }
+                });
                 if let Some(entity1) = entity1 {
                     if sensor.get(entity1).is_ok() {
                         select_mouse.send(SelectUnderMouseEvent { pos });
@@ -643,7 +689,8 @@ struct ColorComponent(Hsva);
 #[derive(Bundle)]
 struct HingeBundle {}
 
-struct MouseLongOrMoved(ToolEnum, Vec2);
+#[derive(Copy, Clone)]
+struct MouseLongOrMoved(ToolEnum, Vec2, UsedMouseButton);
 
 #[derive(Copy, Clone)]
 struct PanEvent {
@@ -791,78 +838,105 @@ fn left_pressed(
 ) {
     let screen_pos = **screen_pos;
 
-    let builder = ui_state.toolbox_selected;
-    let hover_tool = builder;
-
     use ToolEnum::*;
 
-    let left = mouse_button_input.pressed(MouseButton::Left);
-    let pos = mouse_pos.xy();
-    if !left {
-        return;
+    enum HandleStatus {
+        Handled,
+        HandledAndStop,
+        NotHandled,
     }
-    if let Some((at, click_pos, click_pos_screen)) = ui_state.mouse_left_pos {
-        match ui_state.mouse_left {
-            Some(Pan(Some(PanState { orig_camera_pos }))) => {
-                ev_pan.send(PanEvent {
-                    orig_camera_pos,
-                    delta: click_pos_screen - screen_pos,
-                });
-            }
-            Some(Move(Some(state))) => {
-                if let Some(EntitySelection { entity }) = ui_state.selected_entity {
-                    ev_move.send(MoveEvent {
-                        entity,
-                        pos: pos + state.obj_delta,
-                    });
-                } else {
-                    ui_state.mouse_left = None;
-                    ui_state.mouse_left_pos = None;
-                }
-            }
-            Some(Rotate(Some(state))) => {
-                if let Some(EntitySelection { entity }) = ui_state.selected_entity {
-                    ev_rotate.send(RotateEvent {
-                        entity,
-                        orig_obj_rot: state.orig_obj_rot,
-                        click_pos,
-                        mouse_pos: pos,
-                    });
-                } else {
-                    ui_state.mouse_left = None;
-                    ui_state.mouse_left_pos = None;
-                }
-            }
-            Some(Box(Some(draw_ent))) => {
-                *overlay = OverlayState {
-                    draw_ent: Some((draw_ent, Overlay::Rectangle(pos - click_pos), click_pos)),
-                };
-            }
-            Some(Circle(Some(draw_ent))) => {
-                *overlay = OverlayState {
-                    draw_ent: Some((
-                        draw_ent,
-                        Overlay::Circle((pos - click_pos).length()),
-                        click_pos,
-                    )),
-                };
-            }
-            _ => {
-                let long_press = time.elapsed() - at > Duration::from_millis(200);
-                let moved = (click_pos - pos).length() > 0.0;
-                let long_or_moved = long_press || moved;
 
-                if long_or_moved {
-                    ev_long_or_moved.send(MouseLongOrMoved(hover_tool, pos));
+    use HandleStatus::*;
+
+    let pos = mouse_pos.xy();
+
+    macro_rules! process_button {
+        ($button:expr, $tool:expr, $state_pos:expr, $state_button:expr) => {
+            'thing: {
+                let button = $button;
+                let tool = $tool;
+                let pressed = mouse_button_input.pressed(button.into());
+
+                if !pressed {
+                    break 'thing;
+                }
+                if let Some((at, click_pos, click_pos_screen)) = $state_pos {
+                     match $state_button {
+                        Some(Pan(Some(PanState { orig_camera_pos }))) => {
+                            ev_pan.send(PanEvent {
+                                orig_camera_pos,
+                                delta: click_pos_screen - screen_pos,
+                            });
+                        }
+                        Some(Move(Some(state))) => {
+                            if let Some(EntitySelection { entity }) = ui_state.selected_entity {
+                                ev_move.send(MoveEvent {
+                                    entity,
+                                    pos: pos + state.obj_delta,
+                                });
+                            } else {
+                                $state_pos = None;
+                                $state_button = None;
+                            }
+                        }
+                        Some(Rotate(Some(state))) => {
+                            if let Some(EntitySelection { entity }) = ui_state.selected_entity {
+                                ev_rotate.send(RotateEvent {
+                                    entity,
+                                    orig_obj_rot: state.orig_obj_rot,
+                                    click_pos,
+                                    mouse_pos: pos,
+                                });
+                            } else {
+                                $state_pos = None;
+                                $state_button = None;
+                            }
+                        }
+                        Some(Box(Some(draw_ent))) => {
+                            *overlay = OverlayState {
+                                draw_ent: Some((draw_ent, Overlay::Rectangle(pos - click_pos), click_pos)),
+                            };
+                        }
+                        Some(Circle(Some(draw_ent))) => {
+                            *overlay = OverlayState {
+                                draw_ent: Some((
+                                    draw_ent,
+                                    Overlay::Circle((pos - click_pos).length()),
+                                    click_pos,
+                                )),
+                            };
+                        }
+                        _ => {
+                            let long_press = time.elapsed() - at > Duration::from_millis(200);
+                            let moved = (click_pos - pos).length() > 0.0;
+                            let long_or_moved = long_press || moved;
+                            if long_or_moved {
+                                ev_long_or_moved.send(MouseLongOrMoved(tool, pos, $button));
+                            }
+                        }
+                    }
+                } else if !egui_ctx.ctx_mut().is_pointer_over_area() {
+                    info!("egui doesn't want pointer input");
+                    $state_button = Some(tool);
+                    $state_pos = Some((time.elapsed(), pos, screen_pos));
+                    ui_state.mouse_button = Some(button);
                 }
             }
-        }
-    } else if !egui_ctx.ctx_mut().is_pointer_over_area() {
-        info!("egui doesn't want pointer input");
-        ui_state.mouse_left = Some(hover_tool);
-        ui_state.mouse_left_pos = Some((time.elapsed(), pos, screen_pos));
-        ui_state.mouse_button = Some(UsedMouseButton::Left);
+        };
     }
+
+    process_button!(
+        UsedMouseButton::Left,
+        ui_state.toolbox_selected,
+        ui_state.mouse_left_pos,
+        ui_state.mouse_left
+    );
+    process_button!(
+        UsedMouseButton::Right,
+        Rotate(None),
+        ui_state.mouse_right_pos,
+        ui_state.mouse_right
+    );
 }
 
 fn setup_graphics(mut commands: Commands) {
@@ -871,10 +945,7 @@ fn setup_graphics(mut commands: Commands) {
         .spawn((Camera2dBundle::new_with_far(CAMERA_FAR), MainCamera))
         .add_world_tracking();
 
-    commands.spawn((
-        ToolCursor,
-        SpriteBundle::default()
-        ));
+    commands.spawn((ToolCursor, SpriteBundle::default()));
 }
 
 #[derive(Component)]
@@ -885,18 +956,20 @@ fn show_current_tool_icon(
     mouse_pos: Res<MousePosWorld>,
     mut icon: Query<(&mut Handle<Image>, &mut Transform), With<ToolCursor>>,
     camera: Query<&Transform, (With<MainCamera>, Without<ToolCursor>)>,
-    tool_icons: Res<ToolIcons>
+    tool_icons: Res<ToolIcons>,
 ) {
     let current_tool = match ui_state.mouse_button {
         Some(UsedMouseButton::Left) => ui_state.mouse_left,
         Some(UsedMouseButton::Right) => ui_state.mouse_right,
         None => None,
-    }.unwrap_or(ui_state.toolbox_selected);
+    }
+    .unwrap_or(ui_state.toolbox_selected);
     let icon_handle = current_tool.icon(tool_icons);
     let cam_scale = camera.single().scale.xy();
     let (mut icon, mut transform) = icon.single_mut();
     *icon = icon_handle;
-    transform.translation = (mouse_pos.xy() + cam_scale * 30.0 * Vec2::new(1.0, -1.0)).extend(FOREGROUND_Z);
+    transform.translation =
+        (mouse_pos.xy() + cam_scale * 30.0 * Vec2::new(1.0, -1.0)).extend(FOREGROUND_Z);
     transform.scale = (cam_scale * 0.26).extend(1.0);
 }
 
@@ -1183,26 +1256,39 @@ struct RotateState {
     orig_obj_rot: Quat,
 }
 
-#[derive(Copy, Clone, PartialEq)]
+#[derive(Copy, Clone, PartialEq, Debug)]
 struct EntitySelection {
     entity: Entity,
 }
 
+#[derive(Copy, Clone, Debug, PartialEq)]
 enum UsedMouseButton {
     Left,
     Right,
 }
 
-#[derive(Resource)]
+impl From<UsedMouseButton> for MouseButton {
+    fn from(button: UsedMouseButton) -> Self {
+        match button {
+            UsedMouseButton::Left => MouseButton::Left,
+            UsedMouseButton::Right => MouseButton::Right,
+        }
+    }
+}
+
+#[derive(Resource, Derivative)]
+#[derivative(Debug)]
 struct UiState {
     selected_entity: Option<EntitySelection>,
+    #[derivative(Debug="ignore")]
     toolbox: Vec<Vec<ToolEnum>>,
+    #[derivative(Debug="ignore")]
     toolbox_bottom: Vec<ToolEnum>,
     toolbox_selected: ToolEnum,
     mouse_left: Option<ToolEnum>,
     mouse_left_pos: Option<(Duration, Vec2, Vec2)>,
     mouse_right: Option<ToolEnum>,
-    mouse_right_pos: Option<Vec2>,
+    mouse_right_pos: Option<(Duration, Vec2, Vec2)>,
     mouse_button: Option<UsedMouseButton>,
 }
 
@@ -1238,10 +1324,7 @@ fn process_select(
             commands.entity(entity).insert(UnselectedDrawMode {
                 draw_mode: current.clone(),
             });
-            let stroke = make_stroke(
-                Color::WHITE,
-                BORDER_THICKNESS,
-            );
+            let stroke = make_stroke(Color::WHITE, BORDER_THICKNESS);
             *current = match *current {
                 DrawMode::Outlined {
                     fill_mode,
@@ -1302,9 +1385,7 @@ fn process_select_under_mouse(
     }
 }
 
-impl UiState {
-
-}
+impl UiState {}
 
 impl FromWorld for UiState {
     fn from_world(world: &mut World) -> Self {
@@ -1321,11 +1402,7 @@ impl FromWorld for UiState {
         Self {
             selected_entity: None,
             toolbox: vec![
-                vec![
-                    tool!(Move),
-                    tool!(Drag),
-                    tool!(Rotate),
-                ],
+                vec![tool!(Move), tool!(Drag), tool!(Rotate)],
                 vec![tool!(Box), tool!(Circle)],
                 vec![
                     tool!(Spring),
@@ -1390,6 +1467,11 @@ fn ui_example(
         });
     });
 
+    egui::Window::new("Debug")
+        .show(egui_ctx.clone().ctx_mut(), |ui| {
+            ui.monospace(format!("{:#?}", ui_state));
+        });
+
     egui::Window::new("Tools")
         .anchor(Align2::LEFT_BOTTOM, [0.0, 0.0])
         .title_bar(false)
@@ -1408,8 +1490,11 @@ fn ui_example(
                             for def in chunk {
                                 if ui
                                     .add(
-                                        egui::ImageButton::new(egui_ctx.add_image(def.icon(&tool_icons)), [24.0, 24.0])
-                                            .selected(ui_state.toolbox_selected.is_same(def)),
+                                        egui::ImageButton::new(
+                                            egui_ctx.add_image(def.icon(&tool_icons)),
+                                            [24.0, 24.0],
+                                        )
+                                        .selected(ui_state.toolbox_selected.is_same(def)),
                                     )
                                     .clicked()
                                 {
@@ -1432,8 +1517,11 @@ fn ui_example(
                 for def in ui_state.toolbox_bottom.iter() {
                     if ui
                         .add(
-                            egui::ImageButton::new(egui_ctx.add_image(def.icon(&tool_icons)), [32.0, 32.0])
-                                .selected(ui_state.toolbox_selected.is_same(def)),
+                            egui::ImageButton::new(
+                                egui_ctx.add_image(def.icon(&tool_icons)),
+                                [32.0, 32.0],
+                            )
+                            .selected(ui_state.toolbox_selected.is_same(def)),
                         )
                         .clicked()
                     {
