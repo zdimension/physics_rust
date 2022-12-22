@@ -239,6 +239,16 @@ fn mouse_long_or_moved(
         info!("long or moved!");
 
         let selected_entity = ui_state.selected_entity;
+
+        /*let (ui_button, other_button) = match button {
+            UsedMouseButton::Left => (&ui_state.mouse_left, &ui_state.mouse_right),
+            UsedMouseButton::Right => (&ui_state.mouse_right, &ui_state.mouse_left)
+        };
+
+        if Some(button) == ui_state.mouse_button.as_ref() && other_button.is_some() {
+            continue;
+        }*/ // todo: is this really needed?
+
         let ui_button = match button {
             UsedMouseButton::Left => &mut ui_state.mouse_left,
             UsedMouseButton::Right => &mut ui_state.mouse_right
@@ -919,7 +929,9 @@ fn left_pressed(
                     info!("egui doesn't want pointer input");
                     $state_button = Some(tool);
                     $state_pos = Some((time.elapsed(), pos, screen_pos));
-                    ui_state.mouse_button = Some(button);
+                    if ui_state.mouse_button == None {
+                        ui_state.mouse_button = Some(button);
+                    }
                 }
             }
         };
@@ -927,13 +939,19 @@ fn left_pressed(
 
     process_button!(
         UsedMouseButton::Left,
-        ui_state.toolbox_selected,
+        match ui_state.mouse_right {
+            Some(x) => Pan(None),
+            None => ui_state.toolbox_selected
+        },
         ui_state.mouse_left_pos,
         ui_state.mouse_left
     );
     process_button!(
         UsedMouseButton::Right,
-        Rotate(None),
+        match ui_state.mouse_left {
+            Some(x) => Pan(None),
+            None => Rotate(None)
+        },
         ui_state.mouse_right_pos,
         ui_state.mouse_right
     );
