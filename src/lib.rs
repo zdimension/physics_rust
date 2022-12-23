@@ -1,9 +1,10 @@
+use std::collections::HashMap;
 use std::time::Duration;
 
 use bevy::math::Vec3Swizzles;
 use bevy::{input::mouse::MouseWheel, prelude::*};
 use bevy_egui::egui::epaint::Hsva;
-use bevy_egui::egui::TextureId;
+use bevy_egui::egui::{Context, Id, TextureId, Ui};
 use bevy_egui::{
     egui::{self, Align2},
     EguiContext, EguiPlugin,
@@ -125,6 +126,7 @@ pub fn app_main() {
         .add_event::<RotateEvent>()
         .add_event::<SelectUnderMouseEvent>()
         .add_event::<SelectEvent>()
+        .add_event::<ContextMenuEvent>()
         .add_startup_system(configure_visuals)
         .add_startup_system(configure_ui_state)
         .add_startup_system(setup_graphics)
@@ -147,6 +149,7 @@ pub fn app_main() {
         .add_system(process_rotate)
         .add_system(process_draw_overlay)
         .add_system(process_select_under_mouse)
+        .add_system(handle_context_menu.after(process_select_under_mouse))
         .add_system(process_select)
         .add_system(show_current_tool_icon.after(mouse_wheel))
         .run();
@@ -342,6 +345,7 @@ fn left_release(
     mut add_obj: EventWriter<AddObjectEvent>,
     mut unfreeze: EventWriter<UnfreezeEntityEvent>,
     mut select_mouse: EventWriter<SelectUnderMouseEvent>,
+    mut context_menu: EventWriter<ContextMenuEvent>,
     mut overlay: ResMut<OverlayState>,
 ) {
     use ToolEnum::*;
@@ -349,7 +353,7 @@ fn left_release(
     let pos = mouse_pos.xy();
 
     macro_rules! process_button {
-        ($button: expr, $state_pos:expr, $state_button:expr) => {
+        ($button: expr, $state_pos:expr, $state_button:expr, $click_act:expr) => {
             'thing: {
                 let pressed = mouse_button_input.pressed($button.into());
                 if pressed {
@@ -407,17 +411,44 @@ fn left_release(
                     Pan(Some(_)) | Zoom(Some(_)) | Drag(Some(_)) => {
                         //
                     }
-                    _ => {
-                        info!("selecting under mouse");
-                        select_mouse.send(SelectUnderMouseEvent { pos });
-                    }
+                    _ => $click_act
                 }
             }
         }
     }
 
-    process_button!(UsedMouseButton::Left, ui_state.mouse_left_pos, ui_state.mouse_left);
-    process_button!(UsedMouseButton::Right, ui_state.mouse_right_pos, ui_state.mouse_right);
+    process_button!(UsedMouseButton::Left, ui_state.mouse_left_pos, ui_state.mouse_left, {
+                        info!("selecting under mouse");
+                        select_mouse.send(SelectUnderMouseEvent { pos });
+                    });
+    process_button!(UsedMouseButton::Right, ui_state.mouse_right_pos, ui_state.mouse_right, {
+                        info!("selecting under mouse");
+                        select_mouse.send(SelectUnderMouseEvent { pos });
+                        context_menu.send(ContextMenuEvent { screen_pos });
+                    });
+}
+
+struct ContextMenuEvent {
+    screen_pos: Vec2
+}
+
+fn handle_context_menu(
+    mut ev: EventReader<ContextMenuEvent>,
+    time: Res<Time>,
+    mut ui: ResMut<UiState>,
+) {
+    for ev in ev.iter() {
+        info!("context menu at {:?}", ev.screen_pos);
+
+        let id = Id::new(time.elapsed());
+        ui.windows.push(Box::new(move |ui| {
+            egui::Window::new("context menu")
+                .id(id)
+                .show(ui, |ui| {
+                    ui.label("hello world");
+                });
+        }));
+    }
 }
 
 enum AddObjectEvent {
@@ -1308,6 +1339,8 @@ struct UiState {
     mouse_right: Option<ToolEnum>,
     mouse_right_pos: Option<(Duration, Vec2, Vec2)>,
     mouse_button: Option<UsedMouseButton>,
+    #[derivative(Debug="ignore")]
+    windows: Vec<Box<dyn FnMut(&Context)+ Send + Sync>>
 }
 
 #[derive(Resource, Default)]
@@ -1436,6 +1469,7 @@ impl FromWorld for UiState {
             mouse_right: None,
             mouse_right_pos: None,
             mouse_button: None,
+            windows: vec![]
         }
     }
 }
@@ -1583,4 +1617,8 @@ fn ui_example(
                 });
             })
         });
+
+    for wnd in ui_state.windows.iter_mut() {
+        wnd(egui_ctx.clone().ctx_mut());
+    }
 }
