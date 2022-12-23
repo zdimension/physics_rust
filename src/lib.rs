@@ -312,7 +312,7 @@ fn mouse_long_or_moved(
                         *ui_button = Some(Move(Some(MoveState {
                             obj_delta: transform.translation.xy() - pos,
                         })));
-                        *body = RigidBody::Fixed;
+                        *body = RigidBody::KinematicPositionBased;
                     }
                     (Box(None), _, _) => {
                         *ui_button = Some(Box(Some(commands.spawn(DrawObject).id())));
@@ -1357,7 +1357,6 @@ fn process_select(
                 },
                 DrawMode::Stroke(_) => DrawMode::Stroke(stroke),
             };
-            dbg!(current);
         } else {
             let backup = query_backup.get(entity).unwrap();
             *current = backup.draw_mode;
