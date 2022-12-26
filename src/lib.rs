@@ -4,12 +4,15 @@ use std::time::Duration;
 use bevy::math::Vec3Swizzles;
 use bevy::{input::mouse::MouseWheel, prelude::*};
 use bevy_egui::egui::epaint::Hsva;
-use bevy_egui::egui::{Color32, Context, egui_assert, Id, NumExt, pos2, Response, Sense, Separator, TextureId, Ui, vec2, Visuals, Widget, WidgetInfo, WidgetText, WidgetType};
+use bevy_egui::egui::{
+    egui_assert, pos2, vec2, Color32, Context, Id, NumExt, Response, Sense, Separator, TextureId,
+    Ui, Visuals, Widget, WidgetInfo, WidgetText, WidgetType,
+};
 use bevy_egui::{
     egui::{self, Align2, TextStyle},
     EguiContext, EguiPlugin,
 };
-use bevy_mouse_tracking_plugin::{MainCamera, MousePos, MousePosWorld, prelude::*};
+use bevy_mouse_tracking_plugin::{prelude::*, MainCamera, MousePos, MousePosWorld};
 use bevy_prototype_lyon::prelude::*;
 use bevy_prototype_lyon::{
     entity::ShapeBundle,
@@ -17,6 +20,7 @@ use bevy_prototype_lyon::{
 };
 use bevy_rapier2d::prelude::*;
 
+mod demo;
 mod palette;
 mod ui;
 
@@ -216,7 +220,7 @@ pub fn app_main() {
         .add_startup_system(setup_physics)
         .add_startup_system(setup_palettes)
         .add_startup_system(setup_rng)
-        .add_system(ui::ui_example)
+        .add_system_set(ui::draw_ui())
         .add_system_set(
             SystemSet::new()
                 .with_system(mouse_wheel)
@@ -239,7 +243,6 @@ pub fn app_main() {
         )
         .add_system(process_select)
         .add_system(show_current_tool_icon.after(mouse_wheel))
-        .add_system(ui::show_subwindows)
         .run();
 }
 
@@ -339,7 +342,7 @@ fn mouse_long_or_moved(
         if Some(button) == ui_state.mouse_button.as_ref() && other_button.is_some() {
             continue;
         }*/
- // todo: is this really needed?
+        // todo: is this really needed?
 
         let ui_button = match button {
             UsedMouseButton::Left => &mut ui_state.mouse_left,
@@ -1053,8 +1056,6 @@ fn left_pressed(
         };
     }
 
-
-
     process_button!(
         UsedMouseButton::Left,
         match ui_state.mouse_right {
@@ -1082,7 +1083,6 @@ fn setup_graphics(mut commands: Commands, mut egui_ctx: ResMut<EguiContext>) {
         .add_world_tracking();
 
     commands.spawn((ToolCursor, SpriteBundle::default()));
-
 }
 
 #[derive(Component)]
@@ -1228,66 +1228,7 @@ struct HingeObject;
 
 fn setup_physics(mut commands: Commands) {
     /* Create the ground. */
-    let mut z = 1.0;
-    let mut z = || {
-        z += 0.1;
-        z
-    };
-    let ground = PhysicalObject::rect(Vec2::new(8.0, 0.5), Vec3::new(-4.0, -3.0, z()));
-    commands.spawn(ground).insert(RigidBody::Fixed);
-
-    for i in 0..5 {
-        let stick = PhysicalObject::rect(
-            Vec2::new(0.4, 2.4),
-            Vec3::new(-1.0 + i as f32 * 0.8, 1.8, z()),
-        );
-        let ball = PhysicalObject::ball(0.4, Vec3::new(-1.0 + i as f32 * 0.8 + 0.2, 2.0, z()));
-        let stick_id = commands.spawn(stick).id();
-        commands.spawn(ball).insert((
-            HingeObject,
-            MultibodyJoint::new(
-                stick_id,
-                RevoluteJointBuilder::new()
-                    .local_anchor1(Vec2::new(0.0, -1.0))
-                    .local_anchor2(Vec2::new(0.0, 0.0)),
-            ),
-            Restitution::coefficient(1.0),
-            ActiveHooks::FILTER_CONTACT_PAIRS,
-        ));
-        commands.spawn((
-            ImpulseJoint::new(
-                stick_id,
-                RevoluteJointBuilder::new()
-                    .local_anchor1(Vec2::new(0.0, 1.0))
-                    .local_anchor2(Vec2::new(-1.0 + i as f32 * 0.8 + 0.2, 4.0)),
-            ),
-            RigidBody::Dynamic,
-        ));
-    }
-
-    let stick = PhysicalObject::rect(Vec2::new(2.4, 0.4), Vec3::new(-3.8, 3.8, z()));
-    let ball = PhysicalObject::ball(0.4, Vec3::new(-3.6, 4.0, z()));
-    let stick_id = commands.spawn(stick).id();
-    commands.spawn(ball).insert((
-        HingeObject,
-        MultibodyJoint::new(
-            stick_id,
-            RevoluteJointBuilder::new()
-                .local_anchor1(Vec2::new(-1.0, 0.0))
-                .local_anchor2(Vec2::new(0.0, 0.0)),
-        ),
-        Restitution::coefficient(1.0),
-        ActiveHooks::FILTER_CONTACT_PAIRS,
-    ));
-    commands.spawn((
-        ImpulseJoint::new(
-            stick_id,
-            RevoluteJointBuilder::new()
-                .local_anchor1(Vec2::new(1.0, 0.0))
-                .local_anchor2(Vec2::new(-1.6, 4.0)),
-        ),
-        RigidBody::Dynamic,
-    ));
+    demo::newton_cradle::init(&mut commands);
 
     /*  commands
         .spawn(Collider::cuboid(4.0, 0.5))
@@ -1440,7 +1381,7 @@ pub struct UiState {
     mouse_right_pos: Option<(Duration, Vec2, Vec2)>,
     mouse_button: Option<UsedMouseButton>,
     windows: HashMap<Id, WindowData>,
-    window_temp: Option<Id>
+    window_temp: Option<Id>,
 }
 
 #[derive(Resource, Default)]
@@ -1539,8 +1480,6 @@ impl UiState {}
 
 impl FromWorld for UiState {
     fn from_world(world: &mut World) -> Self {
-        let mut egui_ctx = unsafe { world.get_resource_unchecked_mut::<EguiContext>().unwrap() };
-        let assets = world.get_resource::<AssetServer>().unwrap();
         macro_rules! tool {
             ($ty:ident) => {
                 ToolEnum::$ty(Default::default())
@@ -1576,7 +1515,11 @@ impl FromWorld for UiState {
     }
 }
 
-fn configure_visuals(mut egui_ctx: ResMut<EguiContext>, palette: Res<PaletteConfig>, mut clear_color: ResMut<ClearColor>) {
+fn configure_visuals(
+    mut egui_ctx: ResMut<EguiContext>,
+    palette: Res<PaletteConfig>,
+    mut clear_color: ResMut<ClearColor>,
+) {
     egui_ctx.ctx_mut().set_visuals(egui::Visuals {
         window_rounding: 0.0.into(),
         ..Default::default()
@@ -1585,12 +1528,3 @@ fn configure_visuals(mut egui_ctx: ResMut<EguiContext>, palette: Res<PaletteConf
 }
 
 fn configure_ui_state(_ui_state: ResMut<UiState>) {}
-
-#[derive(Copy, Clone)]
-struct ToolDef(TextureId, ToolEnum);
-
-impl PartialEq for ToolDef {
-    fn eq(&self, other: &Self) -> bool {
-        self.0 == other.0
-    }
-}

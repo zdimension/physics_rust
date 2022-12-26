@@ -1,24 +1,29 @@
-use bevy::prelude::{Commands, Entity, EventReader, Local, Query, Res, ResMut, Time, Transform, With};
-use bevy_egui::egui::{Align2, Context, Id, NumExt, pos2, Response, Sense, Separator, TextStyle, TextureId, Ui, vec2, Widget, WidgetInfo, WidgetText, WidgetType};
-use derivative::Derivative;
-use bevy::math::{Vec2, Vec3};
-use bevy_egui::{egui, EguiContext};
-use bevy_rapier2d::plugin::{RapierConfiguration, TimestepMode};
-use bevy_mouse_tracking_plugin::MainCamera;
+use crate::{GuiIcons, ToolIcons, UiState};
 use bevy::asset::AssetServer;
 use bevy::log::info;
-use crate::{GuiIcons, ToolIcons, UiState};
+use bevy::math::{Vec2, Vec3};
+use bevy::prelude::{
+    Commands, Entity, EventReader, Local, Query, Res, ResMut, SystemSet, Time, Transform, With,
+};
+use bevy_egui::egui::{
+    pos2, vec2, Align2, Context, Id, NumExt, Response, Sense, Separator, TextStyle, TextureId, Ui,
+    Widget, WidgetInfo, WidgetText, WidgetType,
+};
+use bevy_egui::{egui, EguiContext};
+use bevy_mouse_tracking_plugin::MainCamera;
+use bevy_rapier2d::plugin::{RapierConfiguration, TimestepMode};
+use derivative::Derivative;
 
 struct IconButton {
     icon: egui::widgets::Image,
-    selected: bool
+    selected: bool,
 }
 
 impl IconButton {
     fn new(icon: TextureId, size: f32) -> Self {
         Self {
             icon: egui::widgets::Image::new(icon, Vec2::splat(size).to_array()),
-            selected: false
+            selected: false,
         }
     }
 
@@ -28,13 +33,9 @@ impl IconButton {
     }
 }
 
-
 impl Widget for IconButton {
     fn ui(self, ui: &mut Ui) -> Response {
-        let Self {
-            icon,
-            selected
-        } = self;
+        let Self { icon, selected } = self;
         let mut desired_size = icon.size() + vec2(2.0, 2.0);
 
         let (rect, response) = ui.allocate_exact_size(desired_size, Sense::click());
@@ -61,17 +62,14 @@ impl Widget for IconButton {
                 );
             }
 
-            let image_rect = egui::Rect::from_min_size(
-                pos2(rect.min.x + 1.0, rect.min.y + 1.0),
-                icon.size(),
-            );
+            let image_rect =
+                egui::Rect::from_min_size(pos2(rect.min.x + 1.0, rect.min.y + 1.0), icon.size());
             icon.paint_at(ui, image_rect);
         }
 
         response
     }
 }
-
 
 pub struct MenuItem {
     icon: Option<egui::widgets::Image>,
@@ -196,14 +194,14 @@ pub fn show_subwindows(
 
 pub struct GravitySetting {
     value: Vec2,
-    enabled: bool
+    enabled: bool,
 }
 
 impl Default for GravitySetting {
     fn default() -> Self {
         Self {
             value: Vec2::new(0.0, -9.81),
-            enabled: true
+            enabled: true,
         }
     }
 }
@@ -253,8 +251,8 @@ impl Widget for SeparatorCustom {
             is_horizontal_line,
         } = self;
 
-        let is_horizontal_line = is_horizontal_line
-            .unwrap_or_else(|| !ui.layout().main_dir().is_horizontal());
+        let is_horizontal_line =
+            is_horizontal_line.unwrap_or_else(|| !ui.layout().main_dir().is_horizontal());
 
         let available_space = ui.min_size();
 
@@ -288,7 +286,6 @@ impl Widget for SeparatorCustom {
     }
 }
 
-
 pub fn ui_example(
     mut egui_ctx: ResMut<EguiContext>,
     mut ui_state: ResMut<UiState>,
@@ -319,7 +316,21 @@ pub fn ui_example(
     egui::Window::new("Debug").show(egui_ctx.clone().ctx_mut(), |ui| {
         ui.monospace(format!("{:#?}", ui_state));
     });
+}
 
+pub fn draw_ui() -> SystemSet {
+    SystemSet::new()
+        .with_system(ui_example)
+        .with_system(draw_toolbox)
+        .with_system(draw_bottom_toolbar)
+        .with_system(show_subwindows)
+}
+
+pub fn draw_toolbox(
+    mut egui_ctx: ResMut<EguiContext>,
+    mut ui_state: ResMut<UiState>,
+    tool_icons: Res<ToolIcons>,
+) {
     egui::Window::new("Tools")
         .anchor(Align2::LEFT_BOTTOM, [0.0, 0.0])
         .title_bar(false)
@@ -339,7 +350,7 @@ pub fn ui_example(
                                     .add(
                                         IconButton::new(
                                             egui_ctx.add_image(def.icon(&tool_icons)),
-                                            24.0
+                                            24.0,
                                         )
                                         .selected(ui_state.toolbox_selected.is_same(def)),
                                     )
@@ -353,7 +364,16 @@ pub fn ui_example(
                 }
             });
         });
+}
 
+pub fn draw_bottom_toolbar(
+    mut egui_ctx: ResMut<EguiContext>,
+    mut ui_state: ResMut<UiState>,
+    mut rapier: ResMut<RapierConfiguration>,
+    mut gravity_conf: Local<GravitySetting>,
+    tool_icons: Res<ToolIcons>,
+    gui_icons: Res<GuiIcons>,
+) {
     egui::Window::new("Tools2")
         .anchor(Align2::CENTER_BOTTOM, [0.0, 0.0])
         .title_bar(false)
@@ -364,11 +384,8 @@ pub fn ui_example(
                 for def in ui_state.toolbox_bottom.iter() {
                     if ui
                         .add(
-                            IconButton::new(
-                                egui_ctx.add_image(def.icon(&tool_icons)),
-                                32.0,
-                            )
-                            .selected(ui_state.toolbox_selected.is_same(def)),
+                            IconButton::new(egui_ctx.add_image(def.icon(&tool_icons)), 32.0)
+                                .selected(ui_state.toolbox_selected.is_same(def)),
                         )
                         .clicked()
                     {
@@ -413,7 +430,8 @@ pub fn ui_example(
 
                 ui.separator();
 
-                let gravity = ui.add(IconButton::new(gui_icons.gravity, 32.0).selected(gravity_conf.enabled));
+                let gravity =
+                    ui.add(IconButton::new(gui_icons.gravity, 32.0).selected(gravity_conf.enabled));
                 if gravity.clicked() {
                     gravity_conf.enabled = !gravity_conf.enabled;
                     if gravity_conf.enabled {
@@ -449,47 +467,50 @@ pub fn handle_context_menu(
         //let pos = [ev.screen_pos.x, egui]
         let entity = ui.selected_entity.map(|sel| sel.entity);
         ui.window_temp = Some(id);
-        ui.windows.insert(id, WindowData::new(entity, move |ui| {
-            egui::Window::new("context menu")
-                .id(id)
-                .default_pos(pos)
-                .default_size(vec2(0.0, 0.0))
-                .resizable(false)
-                .show(ui, |ui| {
-                    macro_rules! item {
-                        ($text:literal, $icon:ident) => {
-                            item(ui, $text, Some(icons.$icon))
-                        };
-                        ($text:literal) => {
-                            item(ui, $text, None)
-                        };
-                    }
+        ui.windows.insert(
+            id,
+            WindowData::new(entity, move |ui| {
+                egui::Window::new("context menu")
+                    .id(id)
+                    .default_pos(pos)
+                    .default_size(vec2(0.0, 0.0))
+                    .resizable(false)
+                    .show(ui, |ui| {
+                        macro_rules! item {
+                            ($text:literal, $icon:ident) => {
+                                item(ui, $text, Some(icons.$icon))
+                            };
+                            ($text:literal) => {
+                                item(ui, $text, None)
+                            };
+                        }
 
-                    match entity {
-                        Some(_) => {
-                            if item!("Erase", erase) {}
-                            if item!("Mirror", mirror) {}
-                            if item!("Show plot", plot) {}
-                            ui.add(Separator::default().horizontal());
-                            if item!("Selection") {}
-                            if item!("Appearance", color) {}
-                            if item!("Text", text) {}
-                            if item!("Material", material) {}
-                            if item!("Velocities", velocity) {}
-                            if item!("Information", info) {}
-                            if item!("Collision layers", collisions) {}
-                            if item!("Geometry actions") {}
-                            if item!("Combine shapes", csg) {}
-                            if item!("Controller", controller) {}
-                            if item!("Script menu") {}
+                        match entity {
+                            Some(_) => {
+                                if item!("Erase", erase) {}
+                                if item!("Mirror", mirror) {}
+                                if item!("Show plot", plot) {}
+                                ui.add(Separator::default().horizontal());
+                                if item!("Selection") {}
+                                if item!("Appearance", color) {}
+                                if item!("Text", text) {}
+                                if item!("Material", material) {}
+                                if item!("Velocities", velocity) {}
+                                if item!("Information", info) {}
+                                if item!("Collision layers", collisions) {}
+                                if item!("Geometry actions") {}
+                                if item!("Combine shapes", csg) {}
+                                if item!("Controller", controller) {}
+                                if item!("Script menu") {}
+                            }
+                            None => {
+                                if item!("Zoom to scene", zoom2scene) {}
+                                if item!("Default view") {}
+                                if item!("Background", color) {}
+                            }
                         }
-                        None => {
-                            if item!("Zoom to scene", zoom2scene) {}
-                            if item!("Default view") {}
-                            if item!("Background", color) {}
-                        }
-                    }
-                });
-        }));
+                    });
+            }),
+        );
     }
 }
