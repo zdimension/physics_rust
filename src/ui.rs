@@ -192,11 +192,11 @@ impl Widget for MenuItem {
 pub struct WindowData {
     entity: Option<Entity>,
     #[derivative(Debug = "ignore")]
-    handler: Box<dyn FnMut(&Context, &Time) + Sync + Send>,
+    handler: Box<dyn FnMut(&Context, &Time, &mut UiState) + Sync + Send>,
 }
 
 impl WindowData {
-    fn new(entity: Option<Entity>, handler: impl FnMut(&Context, &Time) + Sync + Send + 'static) -> Self {
+    fn new(entity: Option<Entity>, handler: impl FnMut(&Context, &Time, &mut UiState) + Sync + Send + 'static) -> Self {
         Self {
             entity,
             handler: Box::new(handler),
@@ -215,8 +215,13 @@ pub fn show_subwindows(
             .map_or(true, |ent| commands.get_entity(ent).is_some())
     });
 
-    for (_, wnd) in ui_state.windows.iter_mut() {
-        (wnd.handler)(egui_ctx.clone().ctx_mut(), &time);
+    let ids: Vec<Id> = ui_state.windows.keys().copied().collect();
+    for id in ids {
+        let val = ui_state.windows.remove(&id);
+        if let Some(mut wnd) = val {
+            (wnd.handler)(egui_ctx.clone().ctx_mut(), &time, &mut ui_state);
+            ui_state.windows.insert(id, wnd);
+        }
     }
 }
 
@@ -494,15 +499,16 @@ pub fn handle_context_menu(
         type MenuId = &'static str;
         let mut hovered_item: Option<(MenuId, Duration)> = None;
         let mut selected_item: Option<MenuId> = None;
+        let mut our_child_window: Option<Id> = None;
         ui.windows.insert(
             id,
-            WindowData::new(entity, move |ui, time| {
+            WindowData::new(entity, move |ctx, time, ui_state| {
                 egui::Window::new("context menu")
                     .id(id)
                     .default_pos(pos)
                     .default_size(vec2(0.0, 0.0))
                     .resizable(false)
-                    .show(ui, |ui| {
+                    .show(ctx, |ui| {
                         macro_rules! item {
                             ($text:literal, $icon:ident) => {
                                 item(ui, $text, Some(icons.$icon))
@@ -511,9 +517,13 @@ pub fn handle_context_menu(
                                 item(ui, $text, None)
                             };
                         }
-
+                        let child_id = Id::new(time.elapsed());
+                        let child_wnd = egui::Window::new("child window")
+                            .id(child_id)
+                            .default_size(vec2(0.0, 0.0))
+                            .resizable(false);
                         macro_rules! menu {
-                            (@ $text: literal, $icon: expr) => {
+                            (@ $text: literal, $icon: expr, $wnd: expr) => {
                                 let our_id = $text;
                                 let us_selected = matches!(selected_item, Some(id) if id == our_id);
                                 let menu = ui.add(MenuItem::menu($icon, $text.to_string(), icons.arrow_right).selected(us_selected));
@@ -527,6 +537,21 @@ pub fn handle_context_menu(
                                     if selected {
                                         info!("clicked: {}", $text);
                                         selected_item = Some(our_id);
+
+                                        let child_id = Id::new(time.elapsed());
+                                        ui_state.windows.insert(child_id, WindowData::new(entity, move |ctx, time, ui_state| {
+                                            egui::Window::new("child window")
+                                                .id(child_id)
+                                                .default_size(vec2(0.0, 0.0))
+                                                .resizable(false)
+                                                .show(ctx, $wnd);
+                                        }));
+
+                                        if let Some(id) = our_child_window {
+                                            ui_state.windows.remove(id);
+                                        }
+
+                                        our_child_window = Some(child_id);
                                     }
                                 }
 
@@ -537,11 +562,11 @@ pub fn handle_context_menu(
                                     hovered_item = None; // now we're not
                                 }
                             };
-                            ($text: literal, $icon: ident) => {
-                                menu!(@ $text, Some(icons.$icon));
+                            ($text: literal, $icon: ident, $wnd: expr) => {
+                                menu!(@ $text, Some(icons.$icon), $wnd);
                             };
-                            ($text: literal) => {
-                                menu!(@ $text, None);
+                            ($text: literal, /, $wnd: expr) => {
+                                menu!(@ $text, None, $wnd);
                             };
                         }
 
@@ -552,19 +577,17 @@ pub fn handle_context_menu(
                                 if item!("Show plot", plot) {}
                                 ui.add(Separator::default().horizontal());
 
-                                menu!("Selection");
-
-                                //if item!("Selection") {}
-                                if item!("Appearance", color) {}
-                                if item!("Text", text) {}
-                                if item!("Material", material) {}
-                                if item!("Velocities", velocity) {}
-                                if item!("Information", info) {}
-                                if item!("Collision layers", collisions) {}
-                                if item!("Geometry actions") {}
-                                if item!("Combine shapes", csg) {}
-                                if item!("Controller", controller) {}
-                                if item!("Script menu") {}
+                                menu!("Selection", /, |ui| { ui.label("Hello"); });
+                                menu!("Appearance", color, |ui| { ui.label("Hello"); });
+                                menu!("Text", text, |ui| { ui.label("Hello"); });
+                                menu!("Material", material, |ui| { ui.label("Hello"); });
+                                menu!("Velocities", velocity, |ui| { ui.label("Hello"); });
+                                menu!("Information", info, |ui| { ui.label("Hello"); });
+                                menu!("Collision layers", collisions, |ui| { ui.label("Hello"); });
+                                menu!("Geometry actions", /, |ui| { ui.label("Hello"); });
+                                menu!("Combine shapes", csg, |ui| { ui.label("Hello"); });
+                                menu!("Controller", controller, |ui| { ui.label("Hello"); });
+                                menu!("Script menu", /, |ui| { ui.label("Hello"); });
                             }
                             None => {
                                 if item!("Zoom to scene", zoom2scene) {}
