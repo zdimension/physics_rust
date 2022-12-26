@@ -1,5 +1,5 @@
 use crate::{GuiIcons, ToolIcons, UiState};
-use bevy::asset::AssetServer;
+
 use bevy::log::info;
 use bevy::math::{Vec2, Vec3};
 use bevy::prelude::{
@@ -36,7 +36,7 @@ impl IconButton {
 impl Widget for IconButton {
     fn ui(self, ui: &mut Ui) -> Response {
         let Self { icon, selected } = self;
-        let mut desired_size = icon.size() + vec2(2.0, 2.0);
+        let desired_size = icon.size() + vec2(2.0, 2.0);
 
         let (rect, response) = ui.allocate_exact_size(desired_size, Sense::click());
         response.widget_info(|| WidgetInfo::new(WidgetType::ImageButton));
@@ -107,11 +107,11 @@ impl Widget for MenuItem {
             text,
             icon_right,
         } = self;
-        let mut button_padding = ui.spacing().button_padding;
+        let button_padding = ui.spacing().button_padding;
         let icon_count = 1 + icon_right.is_some() as usize;
         let icon_width = Self::ICON_SIZE * ui.spacing().icon_spacing;
         let icon_width_total = icon_width * icon_count as f32;
-        let mut text_wrap_width = ui.available_width() - button_padding.x * 2.0 - icon_width_total;
+        let text_wrap_width = ui.available_width() - button_padding.x * 2.0 - icon_width_total;
 
         let text: WidgetText = text.into();
         let text = text.into_galley(ui, Some(false), text_wrap_width, TextStyle::Button);
@@ -180,7 +180,7 @@ impl WindowData {
 pub fn show_subwindows(
     mut ui_state: ResMut<UiState>,
     mut commands: Commands,
-    mut egui_ctx: ResMut<EguiContext>,
+    egui_ctx: ResMut<EguiContext>,
 ) {
     ui_state.windows.retain(|_, w| {
         w.entity
@@ -288,13 +288,9 @@ impl Widget for SeparatorCustom {
 
 pub fn ui_example(
     mut egui_ctx: ResMut<EguiContext>,
-    mut ui_state: ResMut<UiState>,
+    ui_state: ResMut<UiState>,
     mut is_initialized: Local<bool>,
-    mut rapier: ResMut<RapierConfiguration>,
-    mut gravity_conf: Local<GravitySetting>,
     mut cameras: Query<&mut Transform, With<MainCamera>>,
-    tool_icons: Res<ToolIcons>,
-    gui_icons: Res<GuiIcons>,
 ) {
     if !*is_initialized {
         let mut camera = cameras.single_mut();
@@ -452,7 +448,7 @@ pub fn handle_context_menu(
     mut ev: EventReader<ContextMenuEvent>,
     time: Res<Time>,
     mut ui: ResMut<UiState>,
-    mut icons: Res<GuiIcons>,
+    icons: Res<GuiIcons>,
 ) {
     fn item(ui: &mut Ui, text: &'static str, icon: Option<TextureId>) -> bool {
         ui.add(MenuItem::button(icon, text.to_string())).clicked()

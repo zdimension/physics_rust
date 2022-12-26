@@ -2,7 +2,7 @@ use crate::{HingeObject, PhysicalObject};
 use bevy::prelude::*;
 use bevy_rapier2d::prelude::*;
 
-pub fn init(mut commands: &mut Commands) {
+pub fn init(commands: &mut Commands) {
     let mut z = 1.0;
     let mut z = || {
         z += 0.1;

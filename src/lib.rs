@@ -5,11 +5,10 @@ use bevy::math::Vec3Swizzles;
 use bevy::{input::mouse::MouseWheel, prelude::*};
 use bevy_egui::egui::epaint::Hsva;
 use bevy_egui::egui::{
-    egui_assert, pos2, vec2, Color32, Context, Id, NumExt, Response, Sense, Separator, TextureId,
-    Ui, Visuals, Widget, WidgetInfo, WidgetText, WidgetType,
+    Id, TextureId,
 };
 use bevy_egui::{
-    egui::{self, Align2, TextStyle},
+    egui::{self},
     EguiContext, EguiPlugin,
 };
 use bevy_mouse_tracking_plugin::{prelude::*, MainCamera, MousePos, MousePosWorld};
@@ -29,7 +28,7 @@ use derivative::Derivative;
 use lyon_path::builder::Build;
 use palette::{Palette, PaletteList, PaletteLoader};
 use paste::paste;
-use ui::{ContextMenuEvent, MenuItem, WindowData};
+use ui::{ContextMenuEvent, WindowData};
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 
@@ -917,8 +916,8 @@ struct OverlayState {
 }
 
 fn process_draw_overlay(
-    mut cameras: Query<&mut Transform, With<MainCamera>>,
-    mut overlay: ResMut<OverlayState>,
+    cameras: Query<&mut Transform, With<MainCamera>>,
+    overlay: ResMut<OverlayState>,
     mut commands: Commands,
 ) {
     if let Some((draw_ent, shape, pos)) = overlay.draw_ent {
@@ -964,7 +963,7 @@ fn left_pressed(
         NotHandled,
     }
 
-    use HandleStatus::*;
+    
 
     let pos = mouse_pos.xy();
 
@@ -1059,7 +1058,7 @@ fn left_pressed(
     process_button!(
         UsedMouseButton::Left,
         match ui_state.mouse_right {
-            Some(x) => Pan(None),
+            Some(_x) => Pan(None),
             None => ui_state.toolbox_selected,
         },
         ui_state.mouse_left_pos,
@@ -1068,7 +1067,7 @@ fn left_pressed(
     process_button!(
         UsedMouseButton::Right,
         match ui_state.mouse_left {
-            Some(x) => Pan(None),
+            Some(_x) => Pan(None),
             None => Rotate(None),
         },
         ui_state.mouse_right_pos,
@@ -1076,7 +1075,7 @@ fn left_pressed(
     );
 }
 
-fn setup_graphics(mut commands: Commands, mut egui_ctx: ResMut<EguiContext>) {
+fn setup_graphics(mut commands: Commands, _egui_ctx: ResMut<EguiContext>) {
     // Add a camera so we can see the debug-render.
     commands
         .spawn((Camera2dBundle::new_with_far(CAMERA_FAR), MainCamera))
@@ -1479,7 +1478,7 @@ fn process_select_under_mouse(
 impl UiState {}
 
 impl FromWorld for UiState {
-    fn from_world(world: &mut World) -> Self {
+    fn from_world(_world: &mut World) -> Self {
         macro_rules! tool {
             ($ty:ident) => {
                 ToolEnum::$ty(Default::default())
