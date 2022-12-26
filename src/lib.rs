@@ -4,9 +4,12 @@ use std::time::Duration;
 use bevy::math::Vec3Swizzles;
 use bevy::{input::mouse::MouseWheel, prelude::*};
 use bevy_egui::egui::epaint::Hsva;
-use bevy_egui::egui::{Context, Id, TextureId, Ui};
+use bevy_egui::egui::{
+    egui_assert, pos2, vec2, Context, Id, NumExt, Response, Sense, Separator, TextureId, Ui,
+    Widget, WidgetInfo, WidgetText, WidgetType,
+};
 use bevy_egui::{
-    egui::{self, Align2},
+    egui::{self, Align2, TextStyle},
     EguiContext, EguiPlugin,
 };
 use bevy_mouse_tracking_plugin::{prelude::*, MainCamera, MousePos, MousePosWorld};
@@ -20,37 +23,116 @@ use bevy_rapier2d::prelude::*;
 mod palette;
 
 use bevy_turborand::{DelegatedRng, GlobalRng, RngComponent, RngPlugin};
+use derivative::Derivative;
 use lyon_path::builder::Build;
 use palette::{Palette, PaletteList, PaletteLoader};
 use paste::paste;
-use derivative::Derivative;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
-#[derive(Resource)]
-struct Images {
-    hinge_background: Handle<Image>,
-    hinge_balls: Handle<Image>,
-    hinge_inner: Handle<Image>,
-}
 
 const BORDER_THICKNESS: f32 = 0.03;
 const CAMERA_FAR: f32 = 1e6f32;
 const CAMERA_Z: f32 = CAMERA_FAR - 0.1;
 const FOREGROUND_Z: f32 = CAMERA_Z - 0.2;
 
-impl FromWorld for Images {
-    fn from_world(world: &mut World) -> Self {
-        let asset_server = world.get_resource_mut::<AssetServer>().unwrap();
+struct LoadedImage {
+    bevy: Handle<Image>,
+    egui: TextureId,
+}
 
-        Self {
-            hinge_background: asset_server.load("app/hinge_background.png"),
-            hinge_balls: asset_server.load("app/hinge_balls.png"),
-            hinge_inner: asset_server.load("app/hinge_inner.png"),
+impl LoadedImage {
+    fn clone(&self) -> Handle<Image> {
+        self.bevy.clone()
+    }
+}
+
+macro_rules! icon_set {
+    ($type:ident, $root:literal, [$($name:ident),*$(,)?]) => {
+        #[derive(Resource, Copy, Clone)]
+        struct $type {
+            $(
+                $name: TextureId,
+            )*
+        }
+
+        impl FromWorld for $type {
+            fn from_world(world: &mut World) -> Self {
+                let mut egui_ctx = unsafe { world.get_resource_unchecked_mut::<EguiContext>().unwrap() };
+                let asset_server = world.get_resource::<AssetServer>().unwrap();
+                Self {
+                    $(
+                        $name: {
+                            let handle = asset_server.load(concat!($root, stringify!($name), ".png"));
+                            let egui_id = egui_ctx.add_image(handle);
+                            egui_id
+                        },
+                    )*
+                }
+            }
         }
     }
 }
 
+macro_rules! image_set {
+    ($type:ident, $root:literal, [$($name:ident),*$(,)?]) => {
+        #[derive(Resource)]
+        struct $type {
+            $(
+                $name: LoadedImage,
+            )*
+        }
+
+        impl FromWorld for $type {
+            fn from_world(world: &mut World) -> Self {
+                let mut egui_ctx = unsafe { world.get_resource_unchecked_mut::<EguiContext>().unwrap() };
+                let asset_server = world.get_resource::<AssetServer>().unwrap();
+                Self {
+                    $(
+                        $name: {
+                            let handle = asset_server.load(concat!($root, stringify!($name), ".png"));
+                            let egui_id = egui_ctx.add_image(handle.clone());
+                            LoadedImage {
+                                bevy: handle,
+                                egui: egui_id,
+                            }
+                        },
+                    )*
+                }
+            }
+        }
+    }
+}
+
+icon_set!(
+    GuiIcons,
+    "gui/",
+    [
+        arrow_right,
+        collisions,
+        color,
+        controller,
+        csg,
+        erase,
+        info,
+        material,
+        mirror,
+        pause,
+        play,
+        plot,
+        text,
+        velocity,
+        zoom2scene
+    ]
+);
+
+image_set!(
+    Images,
+    "app/",
+    [hinge_background, hinge_balls, hinge_inner,]
+);
+
 struct CollideHooks;
+
 type CollideHookData<'a> = (&'a HingeObject, &'a MultibodyJoint);
 
 impl<'a> PhysicsHooksWithQuery<CollideHookData<'a>> for CollideHooks {
@@ -98,6 +180,7 @@ pub fn app_main() {
         .init_resource::<UiState>()
         .init_resource::<Images>()
         .init_resource::<ToolIcons>()
+        .init_resource::<GuiIcons>()
         .insert_resource(RapierConfiguration {
             gravity: Vect::Y * -9.81,
             physics_pipeline_active: false,
@@ -141,17 +224,22 @@ pub fn app_main() {
                 .with_system(left_release)
                 .with_system(process_add_object)
                 .with_system(mouse_long_or_moved)
-                .with_system(mouse_long_or_moved_writeback)
+                .with_system(mouse_long_or_moved_writeback),
         )
         .add_system(process_pan)
         .add_system(process_move)
         .add_system(process_unfreeze_entity)
         .add_system(process_rotate)
         .add_system(process_draw_overlay)
-        .add_system(process_select_under_mouse)
-        .add_system(handle_context_menu.after(process_select_under_mouse))
+        .add_system(process_select_under_mouse.before(process_select))
+        .add_system(
+            handle_context_menu
+                .after(process_select_under_mouse)
+                .after(process_select),
+        )
         .add_system(process_select)
         .add_system(show_current_tool_icon.after(mouse_wheel))
+        .add_system(show_subwindows)
         .run();
 }
 
@@ -208,7 +296,7 @@ fn set_selected(mut draw_mode: Mut<DrawMode>, selected: bool) {
 }
 
 struct MouseLongOrMovedWriteback {
-    event: MouseLongOrMoved
+    event: MouseLongOrMoved,
 }
 
 impl From<MouseLongOrMoved> for MouseLongOrMovedWriteback {
@@ -250,11 +338,12 @@ fn mouse_long_or_moved(
 
         if Some(button) == ui_state.mouse_button.as_ref() && other_button.is_some() {
             continue;
-        }*/ // todo: is this really needed?
+        }*/
+ // todo: is this really needed?
 
         let ui_button = match button {
             UsedMouseButton::Left => &mut ui_state.mouse_left,
-            UsedMouseButton::Right => &mut ui_state.mouse_right
+            UsedMouseButton::Right => &mut ui_state.mouse_right,
         };
 
         match hover_tool {
@@ -283,11 +372,7 @@ fn mouse_long_or_moved(
                     });
                 }
 
-                match (
-                    hover_tool,
-                    under_mouse,
-                    selected_entity.map(|s| s.entity),
-                ) {
+                match (hover_tool, under_mouse, selected_entity.map(|s| s.entity)) {
                     (Spring(None), _, _) => todo!(),
                     (Drag(None), Some(ent), _) => {
                         *ui_button = Some(Drag(Some(DragState {
@@ -304,11 +389,7 @@ fn mouse_long_or_moved(
                         *body = RigidBody::Fixed;
                     }
                     (Rotate(None), None, _) => {
-                        ev_writeback.send(MouseLongOrMoved(
-                            Pan(None),
-                            pos,
-                            *button,
-                        ).into());
+                        ev_writeback.send(MouseLongOrMoved(Pan(None), pos, *button).into());
                     }
                     (_, Some(under), Some(sel)) if under == sel => {
                         let (transform, mut body) = query.get_mut(under).unwrap();
@@ -347,6 +428,7 @@ fn left_release(
     mut select_mouse: EventWriter<SelectUnderMouseEvent>,
     mut context_menu: EventWriter<ContextMenuEvent>,
     mut overlay: ResMut<OverlayState>,
+    windows: Res<Windows>,
 ) {
     use ToolEnum::*;
     let screen_pos = **screen_pos;
@@ -411,43 +493,209 @@ fn left_release(
                     Pan(Some(_)) | Zoom(Some(_)) | Drag(Some(_)) => {
                         //
                     }
-                    _ => $click_act
+                    _ => $click_act,
                 }
             }
-        }
+        };
     }
 
-    process_button!(UsedMouseButton::Left, ui_state.mouse_left_pos, ui_state.mouse_left, {
-                        info!("selecting under mouse");
-                        select_mouse.send(SelectUnderMouseEvent { pos });
-                    });
-    process_button!(UsedMouseButton::Right, ui_state.mouse_right_pos, ui_state.mouse_right, {
-                        info!("selecting under mouse");
-                        select_mouse.send(SelectUnderMouseEvent { pos });
-                        context_menu.send(ContextMenuEvent { screen_pos });
-                    });
+    process_button!(
+        UsedMouseButton::Left,
+        ui_state.mouse_left_pos,
+        ui_state.mouse_left,
+        {
+            info!("selecting under mouse");
+            select_mouse.send(SelectUnderMouseEvent { pos });
+        }
+    );
+    process_button!(
+        UsedMouseButton::Right,
+        ui_state.mouse_right_pos,
+        ui_state.mouse_right,
+        {
+            info!("selecting under mouse");
+            select_mouse.send(SelectUnderMouseEvent { pos });
+
+            let screen_pos = Vec2::new(
+                screen_pos.x,
+                windows.get_primary().unwrap().height() - screen_pos.y,
+            );
+            context_menu.send(ContextMenuEvent { screen_pos });
+        }
+    );
 }
 
 struct ContextMenuEvent {
-    screen_pos: Vec2
+    screen_pos: Vec2,
+}
+
+struct MenuItem {
+    icon: Option<egui::widgets::Image>,
+    text: String,
+    icon_right: Option<egui::widgets::Image>,
+}
+
+impl MenuItem {
+    const ICON_SIZE: f32 = 16.0;
+
+    fn gen_image(icon: TextureId) -> egui::widgets::Image {
+        egui::widgets::Image::new(icon, Vec2::splat(Self::ICON_SIZE).to_array())
+    }
+
+    fn button(icon: Option<TextureId>, text: String) -> Self {
+        Self {
+            icon: icon.map(Self::gen_image),
+            text,
+            icon_right: None,
+        }
+    }
+
+    fn menu(icon: Option<TextureId>, text: String, icon_right: TextureId) -> Self {
+        Self {
+            icon_right: Some(Self::gen_image(icon_right)),
+            ..Self::button(icon, text)
+        }
+    }
+}
+
+impl Widget for MenuItem {
+    fn ui(self, ui: &mut Ui) -> Response {
+        let Self {
+            icon,
+            text,
+            icon_right,
+        } = self;
+        let mut button_padding = ui.spacing().button_padding;
+        let icon_count = 1 + icon_right.is_some() as usize;
+        let icon_width = Self::ICON_SIZE * ui.spacing().icon_spacing;
+        let icon_width_total = icon_width * icon_count as f32;
+        let mut text_wrap_width = ui.available_width() - button_padding.x * 2.0 - icon_width_total;
+
+        let text: WidgetText = text.into();
+        let text = text.into_galley(ui, Some(false), text_wrap_width, TextStyle::Button);
+        let mut desired_size = text.size();
+        desired_size.x += icon_width_total;
+        desired_size.y = desired_size.y.max(Self::ICON_SIZE);
+        desired_size.y = desired_size.y.at_least(ui.spacing().interact_size.y);
+        desired_size += button_padding * 2.0;
+
+        desired_size.x = desired_size.x.at_least(ui.available_width());
+
+        let (rect, response) = ui.allocate_at_least(desired_size, Sense::click());
+        response.widget_info(|| WidgetInfo::labeled(WidgetType::Button, text.text()));
+
+        if ui.is_rect_visible(rect) {
+            let visuals = ui.style().interact(&response);
+
+            if response.hovered() {
+                ui.painter().rect(
+                    rect.expand(visuals.expansion),
+                    visuals.rounding,
+                    visuals.bg_fill,
+                    visuals.bg_stroke,
+                );
+            }
+
+            let text_pos = {
+                let icon_spacing = ui.spacing().icon_spacing;
+                pos2(
+                    rect.min.x + button_padding.x + Self::ICON_SIZE + icon_spacing,
+                    rect.center().y - text.size().y / 2.0,
+                )
+            };
+            text.paint_with_visuals(ui.painter(), text_pos, visuals);
+
+            if let Some(icon) = icon {
+                let image_rect = egui::Rect::from_min_size(
+                    pos2(rect.min.x, rect.center().y - 0.5 - (Self::ICON_SIZE / 2.0)),
+                    vec2(Self::ICON_SIZE, Self::ICON_SIZE),
+                );
+                icon.paint_at(ui, image_rect);
+            }
+        }
+
+        response
+    }
 }
 
 fn handle_context_menu(
     mut ev: EventReader<ContextMenuEvent>,
     time: Res<Time>,
     mut ui: ResMut<UiState>,
+    mut icons: Res<GuiIcons>,
 ) {
+    fn item(ui: &mut Ui, text: &'static str, icon: Option<TextureId>) -> bool {
+        ui.add(MenuItem::button(icon, text.to_string())).clicked()
+    }
+
+    let icons = *icons;
     for ev in ev.iter() {
         info!("context menu at {:?}", ev.screen_pos);
 
         let id = Id::new(time.elapsed());
-        ui.windows.push(Box::new(move |ui| {
+        let pos = ev.screen_pos.to_array();
+        //let pos = [ev.screen_pos.x, egui]
+        let entity = ui.selected_entity.map(|sel| sel.entity);
+        ui.window_temp = Some(id);
+        ui.windows.insert(id, WindowData::new(entity, move |ui| {
             egui::Window::new("context menu")
                 .id(id)
+                .default_pos(pos)
+                .default_size(vec2(0.0, 0.0))
+                .resizable(false)
                 .show(ui, |ui| {
-                    ui.label("hello world");
+                    macro_rules! item {
+                        ($text:literal, $icon:ident) => {
+                            item(ui, $text, Some(icons.$icon))
+                        };
+                        ($text:literal) => {
+                            item(ui, $text, None)
+                        };
+                    }
+
+                    match entity {
+                        Some(_) => {
+                            if item!("Erase", erase) {}
+                            if item!("Mirror", mirror) {}
+                            if item!("Show plot", plot) {}
+                            ui.add(Separator::default().horizontal());
+                            if item!("Selection") {}
+                            if item!("Appearance", color) {}
+                            if item!("Text", text) {}
+                            if item!("Material", material) {}
+                            if item!("Velocities", velocity) {}
+                            if item!("Information", info) {}
+                            if item!("Collision layers", collisions) {}
+                            if item!("Geometry actions") {}
+                            if item!("Combine shapes", csg) {}
+                            if item!("Controller", controller) {}
+                            if item!("Script menu") {}
+                        }
+                        None => {
+                            if item!("Zoom to scene", zoom2scene) {}
+                            if item!("Default view") {}
+                            if item!("Background", color) {}
+                        }
+                    }
                 });
         }));
+    }
+}
+
+#[derive(Derivative)]
+#[derivative(Debug)]
+struct WindowData {
+    entity: Option<Entity>,
+    #[derivative(Debug = "ignore")]
+    handler: Box<dyn FnMut(&Context) + Sync + Send>,
+}
+
+impl WindowData {
+    fn new(entity: Option<Entity>, handler: impl FnMut(&Context) + Sync + Send + 'static) -> Self {
+        Self {
+            entity,
+            handler: Box::new(handler),
+        }
     }
 }
 
@@ -641,14 +889,14 @@ fn process_add_object(
                                 ),
                                 ActiveHooks::FILTER_CONTACT_PAIRS,
                             ))
-                            /*.add_children(|builder| {
-                                builder.spawn(SpriteBundle {
-                                    texture: images.hinge_background.clone(),
-                                    transform: Transform::from_scale(Vec3::new(scale, scale, 1.0))
-                                        .with_translation(anchor2.extend(0.1)),
-                                    ..Default::default()
-                                });
-                            })*/;
+                        /*.add_children(|builder| {
+                            builder.spawn(SpriteBundle {
+                                texture: images.hinge_background.clone(),
+                                transform: Transform::from_scale(Vec3::new(scale, scale, 1.0))
+                                    .with_translation(anchor2.extend(0.1)),
+                                ..Default::default()
+                            });
+                        })*/;
                     } else {
                         commands.spawn((
                             ImpulseJoint::new(
@@ -902,7 +1150,7 @@ fn left_pressed(
                     break 'thing;
                 }
                 if let Some((at, click_pos, click_pos_screen)) = $state_pos {
-                     match $state_button {
+                    match $state_button {
                         Some(Pan(Some(PanState { orig_camera_pos }))) => {
                             ev_pan.send(PanEvent {
                                 orig_camera_pos,
@@ -935,7 +1183,11 @@ fn left_pressed(
                         }
                         Some(Box(Some(draw_ent))) => {
                             *overlay = OverlayState {
-                                draw_ent: Some((draw_ent, Overlay::Rectangle(pos - click_pos), click_pos)),
+                                draw_ent: Some((
+                                    draw_ent,
+                                    Overlay::Rectangle(pos - click_pos),
+                                    click_pos,
+                                )),
                             };
                         }
                         Some(Circle(Some(draw_ent))) => {
@@ -956,8 +1208,15 @@ fn left_pressed(
                             }
                         }
                     }
-                } else if !egui_ctx.ctx_mut().is_pointer_over_area() {
+                } else if mouse_button_input.just_pressed(button.into())
+                    && !egui_ctx.ctx_mut().is_using_pointer()
+                    && !egui_ctx.ctx_mut().is_pointer_over_area()
+                {
                     info!("egui doesn't want pointer input");
+                    if let Some(id) = ui_state.window_temp {
+                        ui_state.windows.remove(&id);
+                        ui_state.window_temp = None;
+                    }
                     $state_button = Some(tool);
                     $state_pos = Some((time.elapsed(), pos, screen_pos));
                     if ui_state.mouse_button == None {
@@ -968,11 +1227,13 @@ fn left_pressed(
         };
     }
 
+
+
     process_button!(
         UsedMouseButton::Left,
         match ui_state.mouse_right {
             Some(x) => Pan(None),
-            None => ui_state.toolbox_selected
+            None => ui_state.toolbox_selected,
         },
         ui_state.mouse_left_pos,
         ui_state.mouse_left
@@ -981,7 +1242,7 @@ fn left_pressed(
         UsedMouseButton::Right,
         match ui_state.mouse_left {
             Some(x) => Pan(None),
-            None => Rotate(None)
+            None => Rotate(None),
         },
         ui_state.mouse_right_pos,
         ui_state.mouse_right
@@ -1003,23 +1264,29 @@ struct ToolCursor;
 fn show_current_tool_icon(
     ui_state: Res<UiState>,
     mouse_pos: Res<MousePosWorld>,
-    mut icon: Query<(&mut Handle<Image>, &mut Transform), With<ToolCursor>>,
+    mut icon: Query<(&mut Handle<Image>, &mut Transform, &mut Visibility), With<ToolCursor>>,
     camera: Query<&Transform, (With<MainCamera>, Without<ToolCursor>)>,
     tool_icons: Res<ToolIcons>,
+    mut egui_ctx: ResMut<EguiContext>,
 ) {
-    let current_tool = match ui_state.mouse_button {
-        Some(UsedMouseButton::Left) => ui_state.mouse_left,
-        Some(UsedMouseButton::Right) => ui_state.mouse_right,
-        None => None,
+    let (mut icon, mut transform, mut vis) = icon.single_mut();
+    if egui_ctx.ctx_mut().wants_pointer_input() {
+        *vis = Visibility::INVISIBLE;
+    } else {
+        *vis = Visibility::VISIBLE;
+        let current_tool = match ui_state.mouse_button {
+            Some(UsedMouseButton::Left) => ui_state.mouse_left,
+            Some(UsedMouseButton::Right) => ui_state.mouse_right,
+            None => None,
+        }
+        .unwrap_or(ui_state.toolbox_selected);
+        let icon_handle = current_tool.icon(tool_icons);
+        let cam_scale = camera.single().scale.xy();
+        *icon = icon_handle;
+        transform.translation =
+            (mouse_pos.xy() + cam_scale * 30.0 * Vec2::new(1.0, -1.0)).extend(FOREGROUND_Z);
+        transform.scale = (cam_scale * 0.26).extend(1.0);
     }
-    .unwrap_or(ui_state.toolbox_selected);
-    let icon_handle = current_tool.icon(tool_icons);
-    let cam_scale = camera.single().scale.xy();
-    let (mut icon, mut transform) = icon.single_mut();
-    *icon = icon_handle;
-    transform.translation =
-        (mouse_pos.xy() + cam_scale * 30.0 * Vec2::new(1.0, -1.0)).extend(FOREGROUND_Z);
-    transform.scale = (cam_scale * 0.26).extend(1.0);
 }
 
 #[derive(Bundle)]
@@ -1329,9 +1596,9 @@ impl From<UsedMouseButton> for MouseButton {
 #[derivative(Debug)]
 struct UiState {
     selected_entity: Option<EntitySelection>,
-    #[derivative(Debug="ignore")]
+    #[derivative(Debug = "ignore")]
     toolbox: Vec<Vec<ToolEnum>>,
-    #[derivative(Debug="ignore")]
+    #[derivative(Debug = "ignore")]
     toolbox_bottom: Vec<ToolEnum>,
     toolbox_selected: ToolEnum,
     mouse_left: Option<ToolEnum>,
@@ -1339,8 +1606,8 @@ struct UiState {
     mouse_right: Option<ToolEnum>,
     mouse_right_pos: Option<(Duration, Vec2, Vec2)>,
     mouse_button: Option<UsedMouseButton>,
-    #[derivative(Debug="ignore")]
-    windows: Vec<Box<dyn FnMut(&Context)+ Send + Sync>>
+    windows: HashMap<Id, WindowData>,
+    window_temp: Option<Id>
 }
 
 #[derive(Resource, Default)]
@@ -1469,7 +1736,8 @@ impl FromWorld for UiState {
             mouse_right: None,
             mouse_right_pos: None,
             mouse_button: None,
-            windows: vec![]
+            windows: Default::default(),
+            window_temp: None,
         }
     }
 }
@@ -1489,6 +1757,21 @@ struct ToolDef(TextureId, ToolEnum);
 impl PartialEq for ToolDef {
     fn eq(&self, other: &Self) -> bool {
         self.0 == other.0
+    }
+}
+
+fn show_subwindows(
+    mut ui_state: ResMut<UiState>,
+    mut commands: Commands,
+    mut egui_ctx: ResMut<EguiContext>,
+) {
+    ui_state.windows.retain(|_, w| {
+        w.entity
+            .map_or(true, |ent| commands.get_entity(ent).is_some())
+    });
+
+    for (_, wnd) in ui_state.windows.iter_mut() {
+        (wnd.handler)(egui_ctx.clone().ctx_mut());
     }
 }
 
@@ -1518,10 +1801,9 @@ fn ui_example(
         });
     });
 
-    egui::Window::new("Debug")
-        .show(egui_ctx.clone().ctx_mut(), |ui| {
-            ui.monospace(format!("{:#?}", ui_state));
-        });
+    egui::Window::new("Debug").show(egui_ctx.clone().ctx_mut(), |ui| {
+        ui.monospace(format!("{:#?}", ui_state));
+    });
 
     egui::Window::new("Tools")
         .anchor(Align2::LEFT_BOTTOM, [0.0, 0.0])
@@ -1617,8 +1899,4 @@ fn ui_example(
                 });
             })
         });
-
-    for wnd in ui_state.windows.iter_mut() {
-        wnd(egui_ctx.clone().ctx_mut());
-    }
 }
