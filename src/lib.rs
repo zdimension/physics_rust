@@ -4,12 +4,12 @@ use std::time::Duration;
 use bevy::math::Vec3Swizzles;
 use bevy::{input::mouse::MouseWheel, prelude::*};
 use bevy_egui::egui::epaint::Hsva;
-use bevy_egui::egui::{egui_assert, pos2, vec2, Context, Id, NumExt, Response, Sense, Separator, TextureId, Ui, Widget, WidgetInfo, WidgetText, WidgetType, Visuals, Color32};
+use bevy_egui::egui::{Color32, Context, egui_assert, Id, NumExt, pos2, Response, Sense, Separator, TextureId, Ui, vec2, Visuals, Widget, WidgetInfo, WidgetText, WidgetType};
 use bevy_egui::{
     egui::{self, Align2, TextStyle},
     EguiContext, EguiPlugin,
 };
-use bevy_mouse_tracking_plugin::{prelude::*, MainCamera, MousePos, MousePosWorld};
+use bevy_mouse_tracking_plugin::{MainCamera, MousePos, MousePosWorld, prelude::*};
 use bevy_prototype_lyon::prelude::*;
 use bevy_prototype_lyon::{
     entity::ShapeBundle,
@@ -18,12 +18,14 @@ use bevy_prototype_lyon::{
 use bevy_rapier2d::prelude::*;
 
 mod palette;
+mod ui;
 
 use bevy_turborand::{DelegatedRng, GlobalRng, RngComponent, RngPlugin};
 use derivative::Derivative;
 use lyon_path::builder::Build;
 use palette::{Palette, PaletteList, PaletteLoader};
 use paste::paste;
+use ui::{ContextMenuEvent, MenuItem, WindowData};
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 
@@ -46,7 +48,7 @@ impl LoadedImage {
 macro_rules! icon_set {
     ($type:ident, $root:literal, [$($name:ident),*$(,)?]) => {
         #[derive(Resource, Copy, Clone)]
-        struct $type {
+        pub struct $type {
             $(
                 $name: TextureId,
             )*
@@ -73,7 +75,7 @@ macro_rules! icon_set {
 macro_rules! image_set {
     ($type:ident, $root:literal, [$($name:ident),*$(,)?]) => {
         #[derive(Resource)]
-        struct $type {
+        pub struct $type {
             $(
                 $name: LoadedImage,
             )*
@@ -214,7 +216,7 @@ pub fn app_main() {
         .add_startup_system(setup_physics)
         .add_startup_system(setup_palettes)
         .add_startup_system(setup_rng)
-        .add_system(ui_example)
+        .add_system(ui::ui_example)
         .add_system_set(
             SystemSet::new()
                 .with_system(mouse_wheel)
@@ -231,13 +233,13 @@ pub fn app_main() {
         .add_system(process_draw_overlay.after(left_release))
         .add_system(process_select_under_mouse.before(process_select))
         .add_system(
-            handle_context_menu
+            ui::handle_context_menu
                 .after(process_select_under_mouse)
                 .after(process_select),
         )
         .add_system(process_select)
         .add_system(show_current_tool_icon.after(mouse_wheel))
-        .add_system(show_subwindows)
+        .add_system(ui::show_subwindows)
         .run();
 }
 
@@ -521,244 +523,6 @@ fn left_release(
             context_menu.send(ContextMenuEvent { screen_pos });
         }
     );
-}
-
-struct ContextMenuEvent {
-    screen_pos: Vec2,
-}
-
-struct IconButton {
-    icon: egui::widgets::Image,
-    selected: bool
-}
-
-impl IconButton {
-    fn new(icon: TextureId, size: f32) -> Self {
-        Self {
-            icon: egui::widgets::Image::new(icon, Vec2::splat(size).to_array()),
-            selected: false
-        }
-    }
-
-    fn selected(mut self, selected: bool) -> Self {
-        self.selected = selected;
-        self
-    }
-}
-
-
-impl Widget for IconButton {
-    fn ui(self, ui: &mut Ui) -> Response {
-        let Self {
-            icon,
-            selected
-        } = self;
-        let mut desired_size = icon.size() + vec2(2.0, 2.0);
-
-        let (rect, response) = ui.allocate_exact_size(desired_size, Sense::click());
-        response.widget_info(|| WidgetInfo::new(WidgetType::ImageButton));
-
-        if ui.is_rect_visible(rect) {
-            let visuals = ui.style().interact(&response);
-
-            if response.hovered() {
-                ui.painter().rect(
-                    rect.expand(visuals.expansion),
-                    visuals.rounding,
-                    visuals.bg_fill,
-                    visuals.bg_stroke,
-                );
-            }
-            if selected {
-                let selection = ui.visuals().selection;
-                ui.painter().rect(
-                    rect.expand(visuals.expansion),
-                    visuals.rounding,
-                    selection.bg_fill,
-                    selection.stroke,
-                );
-            }
-
-            let image_rect = egui::Rect::from_min_size(
-                pos2(rect.min.x + 1.0, rect.min.y + 1.0),
-                icon.size(),
-            );
-            icon.paint_at(ui, image_rect);
-        }
-
-        response
-    }
-}
-
-
-struct MenuItem {
-    icon: Option<egui::widgets::Image>,
-    text: String,
-    icon_right: Option<egui::widgets::Image>,
-}
-
-impl MenuItem {
-    const ICON_SIZE: f32 = 16.0;
-
-    fn gen_image(icon: TextureId) -> egui::widgets::Image {
-        egui::widgets::Image::new(icon, Vec2::splat(Self::ICON_SIZE).to_array())
-    }
-
-    fn button(icon: Option<TextureId>, text: String) -> Self {
-        Self {
-            icon: icon.map(Self::gen_image),
-            text,
-            icon_right: None,
-        }
-    }
-
-    fn menu(icon: Option<TextureId>, text: String, icon_right: TextureId) -> Self {
-        Self {
-            icon_right: Some(Self::gen_image(icon_right)),
-            ..Self::button(icon, text)
-        }
-    }
-}
-
-impl Widget for MenuItem {
-    fn ui(self, ui: &mut Ui) -> Response {
-        let Self {
-            icon,
-            text,
-            icon_right,
-        } = self;
-        let mut button_padding = ui.spacing().button_padding;
-        let icon_count = 1 + icon_right.is_some() as usize;
-        let icon_width = Self::ICON_SIZE * ui.spacing().icon_spacing;
-        let icon_width_total = icon_width * icon_count as f32;
-        let mut text_wrap_width = ui.available_width() - button_padding.x * 2.0 - icon_width_total;
-
-        let text: WidgetText = text.into();
-        let text = text.into_galley(ui, Some(false), text_wrap_width, TextStyle::Button);
-        let mut desired_size = text.size();
-        desired_size.x += icon_width_total;
-        desired_size.y = desired_size.y.max(Self::ICON_SIZE);
-        desired_size.y = desired_size.y.at_least(ui.spacing().interact_size.y);
-        desired_size += button_padding * 2.0;
-
-        desired_size.x = desired_size.x.at_least(ui.available_width());
-
-        let (rect, response) = ui.allocate_at_least(desired_size, Sense::click());
-        response.widget_info(|| WidgetInfo::labeled(WidgetType::Button, text.text()));
-
-        if ui.is_rect_visible(rect) {
-            let visuals = ui.style().interact(&response);
-
-            if response.hovered() {
-                ui.painter().rect(
-                    rect.expand(visuals.expansion),
-                    visuals.rounding,
-                    visuals.bg_fill,
-                    visuals.bg_stroke,
-                );
-            }
-
-            let text_pos = {
-                let icon_spacing = ui.spacing().icon_spacing;
-                pos2(
-                    rect.min.x + button_padding.x + Self::ICON_SIZE + icon_spacing,
-                    rect.center().y - text.size().y / 2.0,
-                )
-            };
-            text.paint_with_visuals(ui.painter(), text_pos, visuals);
-
-            if let Some(icon) = icon {
-                let image_rect = egui::Rect::from_min_size(
-                    pos2(rect.min.x, rect.center().y - 0.5 - (Self::ICON_SIZE / 2.0)),
-                    vec2(Self::ICON_SIZE, Self::ICON_SIZE),
-                );
-                icon.paint_at(ui, image_rect);
-            }
-        }
-
-        response
-    }
-}
-
-fn handle_context_menu(
-    mut ev: EventReader<ContextMenuEvent>,
-    time: Res<Time>,
-    mut ui: ResMut<UiState>,
-    mut icons: Res<GuiIcons>,
-) {
-    fn item(ui: &mut Ui, text: &'static str, icon: Option<TextureId>) -> bool {
-        ui.add(MenuItem::button(icon, text.to_string())).clicked()
-    }
-
-    let icons = *icons;
-    for ev in ev.iter() {
-        info!("context menu at {:?}", ev.screen_pos);
-
-        let id = Id::new(time.elapsed());
-        let pos = ev.screen_pos.to_array();
-        //let pos = [ev.screen_pos.x, egui]
-        let entity = ui.selected_entity.map(|sel| sel.entity);
-        ui.window_temp = Some(id);
-        ui.windows.insert(id, WindowData::new(entity, move |ui| {
-            egui::Window::new("context menu")
-                .id(id)
-                .default_pos(pos)
-                .default_size(vec2(0.0, 0.0))
-                .resizable(false)
-                .show(ui, |ui| {
-                    macro_rules! item {
-                        ($text:literal, $icon:ident) => {
-                            item(ui, $text, Some(icons.$icon))
-                        };
-                        ($text:literal) => {
-                            item(ui, $text, None)
-                        };
-                    }
-
-                    match entity {
-                        Some(_) => {
-                            if item!("Erase", erase) {}
-                            if item!("Mirror", mirror) {}
-                            if item!("Show plot", plot) {}
-                            ui.add(Separator::default().horizontal());
-                            if item!("Selection") {}
-                            if item!("Appearance", color) {}
-                            if item!("Text", text) {}
-                            if item!("Material", material) {}
-                            if item!("Velocities", velocity) {}
-                            if item!("Information", info) {}
-                            if item!("Collision layers", collisions) {}
-                            if item!("Geometry actions") {}
-                            if item!("Combine shapes", csg) {}
-                            if item!("Controller", controller) {}
-                            if item!("Script menu") {}
-                        }
-                        None => {
-                            if item!("Zoom to scene", zoom2scene) {}
-                            if item!("Default view") {}
-                            if item!("Background", color) {}
-                        }
-                    }
-                });
-        }));
-    }
-}
-
-#[derive(Derivative)]
-#[derivative(Debug)]
-struct WindowData {
-    entity: Option<Entity>,
-    #[derivative(Debug = "ignore")]
-    handler: Box<dyn FnMut(&Context) + Sync + Send>,
-}
-
-impl WindowData {
-    fn new(entity: Option<Entity>, handler: impl FnMut(&Context) + Sync + Send + 'static) -> Self {
-        Self {
-            entity,
-            handler: Box::new(handler),
-        }
-    }
 }
 
 enum AddObjectEvent {
@@ -1567,7 +1331,7 @@ macro_rules! tools_enum {
 
         paste! {
             #[derive(Resource)]
-            struct ToolIcons {
+            pub struct ToolIcons {
                 $(
                     [<icon_ $pic>]: Handle<Image>
                 ),*
@@ -1663,7 +1427,7 @@ impl From<UsedMouseButton> for MouseButton {
 
 #[derive(Resource, Derivative)]
 #[derivative(Debug)]
-struct UiState {
+pub struct UiState {
     selected_entity: Option<EntitySelection>,
     #[derivative(Debug = "ignore")]
     toolbox: Vec<Vec<ToolEnum>>,
@@ -1829,252 +1593,4 @@ impl PartialEq for ToolDef {
     fn eq(&self, other: &Self) -> bool {
         self.0 == other.0
     }
-}
-
-fn show_subwindows(
-    mut ui_state: ResMut<UiState>,
-    mut commands: Commands,
-    mut egui_ctx: ResMut<EguiContext>,
-) {
-    ui_state.windows.retain(|_, w| {
-        w.entity
-            .map_or(true, |ent| commands.get_entity(ent).is_some())
-    });
-
-    for (_, wnd) in ui_state.windows.iter_mut() {
-        (wnd.handler)(egui_ctx.clone().ctx_mut());
-    }
-}
-
-struct GravitySetting {
-    value: Vec2,
-    enabled: bool
-}
-
-impl Default for GravitySetting {
-    fn default() -> Self {
-        Self {
-            value: Vec2::new(0.0, -9.81),
-            enabled: true
-        }
-    }
-}
-
-pub struct SeparatorCustom {
-    spacing: f32,
-    is_horizontal_line: Option<bool>,
-}
-
-impl Default for SeparatorCustom {
-    fn default() -> Self {
-        Self {
-            spacing: 6.0,
-            is_horizontal_line: None,
-        }
-    }
-}
-
-impl SeparatorCustom {
-    /// How much space we take up. The line is painted in the middle of this.
-    pub fn spacing(mut self, spacing: f32) -> Self {
-        self.spacing = spacing;
-        self
-    }
-
-    /// Explicitly ask for a horizontal line.
-    /// By default you will get a horizontal line in vertical layouts,
-    /// and a vertical line in horizontal layouts.
-    pub fn horizontal(mut self) -> Self {
-        self.is_horizontal_line = Some(true);
-        self
-    }
-
-    /// Explicitly ask for a vertical line.
-    /// By default you will get a horizontal line in vertical layouts,
-    /// and a vertical line in horizontal layouts.
-    pub fn vertical(mut self) -> Self {
-        self.is_horizontal_line = Some(false);
-        self
-    }
-}
-
-impl Widget for SeparatorCustom {
-    fn ui(self, ui: &mut Ui) -> Response {
-        let Self {
-            spacing,
-            is_horizontal_line,
-        } = self;
-
-        let is_horizontal_line = is_horizontal_line
-            .unwrap_or_else(|| !ui.layout().main_dir().is_horizontal());
-
-        let available_space = ui.min_size();
-
-        let size = if is_horizontal_line {
-            vec2(available_space.x, spacing)
-        } else {
-            vec2(spacing, available_space.y)
-        };
-
-        let (rect, response) = ui.allocate_exact_size(size, Sense::hover());
-
-        if ui.is_rect_visible(response.rect) {
-            let stroke = ui.visuals().widgets.noninteractive.bg_stroke;
-            let painter = ui.painter();
-            if is_horizontal_line {
-                painter.hline(
-                    rect.x_range(),
-                    painter.round_to_pixel(rect.center().y),
-                    stroke,
-                );
-            } else {
-                painter.vline(
-                    painter.round_to_pixel(rect.center().x),
-                    rect.y_range(),
-                    stroke,
-                );
-            }
-        }
-
-        response
-    }
-}
-
-
-fn ui_example(
-    mut egui_ctx: ResMut<EguiContext>,
-    mut ui_state: ResMut<UiState>,
-    mut is_initialized: Local<bool>,
-    mut rapier: ResMut<RapierConfiguration>,
-    mut gravity_conf: Local<GravitySetting>,
-    mut cameras: Query<&mut Transform, With<MainCamera>>,
-    tool_icons: Res<ToolIcons>,
-    gui_icons: Res<GuiIcons>,
-    assets: Res<AssetServer>,
-) {
-    if !*is_initialized {
-        let mut camera = cameras.single_mut();
-        camera.scale = Vec3::new(0.01, 0.01, 1.0);
-        *is_initialized = true;
-    }
-
-    egui::TopBottomPanel::top("top_panel").show(egui_ctx.ctx_mut(), |ui| {
-        // The top panel is often a good place for a menu bar:
-        egui::menu::bar(ui, |ui| {
-            egui::menu::menu_button(ui, "File", |ui| {
-                if ui.button("Quit").clicked() {
-                    std::process::exit(0);
-                }
-            });
-        });
-    });
-
-    egui::Window::new("Debug").show(egui_ctx.clone().ctx_mut(), |ui| {
-        ui.monospace(format!("{:#?}", ui_state));
-    });
-
-    egui::Window::new("Tools")
-        .anchor(Align2::LEFT_BOTTOM, [0.0, 0.0])
-        .title_bar(false)
-        .resizable(false)
-        .default_size(egui::Vec2::ZERO)
-        .show(egui_ctx.clone().ctx_mut(), |ui| {
-            ui.vertical(|ui| {
-                let ui_state = &mut *ui_state;
-                for (i, category) in ui_state.toolbox.iter().enumerate() {
-                    if i > 0 {
-                        ui.add(SeparatorCustom::default().horizontal());
-                    }
-                    for chunk in category.chunks(2) {
-                        ui.horizontal(|ui| {
-                            for def in chunk {
-                                if ui
-                                    .add(
-                                        IconButton::new(
-                                            egui_ctx.add_image(def.icon(&tool_icons)),
-                                            24.0
-                                        )
-                                        .selected(ui_state.toolbox_selected.is_same(def)),
-                                    )
-                                    .clicked()
-                                {
-                                    ui_state.toolbox_selected = *def;
-                                }
-                            }
-                        });
-                    }
-                }
-            });
-        });
-
-    egui::Window::new("Tools2")
-        .anchor(Align2::CENTER_BOTTOM, [0.0, 0.0])
-        .title_bar(false)
-        .resizable(false)
-        .show(egui_ctx.clone().ctx_mut(), |ui| {
-            ui.horizontal(|ui| {
-                let ui_state = &mut *ui_state;
-                for def in ui_state.toolbox_bottom.iter() {
-                    if ui
-                        .add(
-                            IconButton::new(
-                                egui_ctx.add_image(def.icon(&tool_icons)),
-                                32.0,
-                            )
-                            .selected(ui_state.toolbox_selected.is_same(def)),
-                        )
-                        .clicked()
-                    {
-                        ui_state.toolbox_selected = *def;
-                    }
-                }
-
-                ui.separator();
-
-                let playpause = ui.add(IconButton::new(
-                    if rapier.physics_pipeline_active {
-                        gui_icons.pause
-                    } else {
-                        gui_icons.play
-                    },
-                    32.0,
-                ));
-
-                if playpause.clicked() {
-                    rapier.physics_pipeline_active = !rapier.physics_pipeline_active;
-                }
-                playpause.context_menu(|ui| {
-                    let (max_dt, mut time_scale, substeps) = match rapier.timestep_mode {
-                        TimestepMode::Variable {
-                            max_dt,
-                            time_scale,
-                            substeps,
-                        } => (max_dt, time_scale, substeps),
-                        _ => unreachable!("Shouldn't happen"),
-                    };
-                    ui.add(
-                        egui::Slider::new(&mut time_scale, 0.1..=10.0)
-                            .logarithmic(true)
-                            .text("Simulation speed"),
-                    );
-                    rapier.timestep_mode = TimestepMode::Variable {
-                        max_dt,
-                        time_scale,
-                        substeps,
-                    };
-                });
-
-                ui.separator();
-
-                let gravity = ui.add(IconButton::new(gui_icons.gravity, 32.0).selected(gravity_conf.enabled));
-                if gravity.clicked() {
-                    gravity_conf.enabled = !gravity_conf.enabled;
-                    if gravity_conf.enabled {
-                        rapier.gravity = gravity_conf.value;
-                    } else {
-                        rapier.gravity = Vec2::ZERO;
-                    }
-                }
-            })
-        });
 }
