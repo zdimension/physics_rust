@@ -1,3 +1,4 @@
+use std::time::Duration;
 use crate::{GuiIcons, ToolIcons, UiState};
 
 use bevy::log::info;
@@ -75,6 +76,7 @@ pub struct MenuItem {
     icon: Option<egui::widgets::Image>,
     text: String,
     icon_right: Option<egui::widgets::Image>,
+    selected: bool
 }
 
 impl MenuItem {
@@ -89,6 +91,7 @@ impl MenuItem {
             icon: icon.map(Self::gen_image),
             text,
             icon_right: None,
+            selected: false
         }
     }
 
@@ -98,6 +101,11 @@ impl MenuItem {
             ..Self::button(icon, text)
         }
     }
+
+    fn selected(mut self, selected: bool) -> Self {
+        self.selected = selected;
+        self
+    }
 }
 
 impl Widget for MenuItem {
@@ -106,6 +114,7 @@ impl Widget for MenuItem {
             icon,
             text,
             icon_right,
+            selected
         } = self;
         let button_padding = ui.spacing().button_padding;
         let icon_count = 1 + icon_right.is_some() as usize;
@@ -137,6 +146,15 @@ impl Widget for MenuItem {
                     visuals.bg_stroke,
                 );
             }
+            if selected {
+                let selection = ui.visuals().selection;
+                ui.painter().rect(
+                    rect.expand(visuals.expansion),
+                    visuals.rounding,
+                    selection.bg_fill,
+                    selection.stroke,
+                );
+            }
 
             let text_pos = {
                 let icon_spacing = ui.spacing().icon_spacing;
@@ -154,22 +172,31 @@ impl Widget for MenuItem {
                 );
                 icon.paint_at(ui, image_rect);
             }
+
+            if let Some(icon) = icon_right {
+                let image_rect = egui::Rect::from_min_size(
+                    pos2(rect.max.x - Self::ICON_SIZE, rect.center().y - 0.5 - (Self::ICON_SIZE / 2.0)),
+                    vec2(Self::ICON_SIZE, Self::ICON_SIZE),
+                );
+                icon.paint_at(ui, image_rect);
+            }
         }
 
         response
     }
 }
 
+
 #[derive(Derivative)]
 #[derivative(Debug)]
 pub struct WindowData {
     entity: Option<Entity>,
     #[derivative(Debug = "ignore")]
-    handler: Box<dyn FnMut(&Context) + Sync + Send>,
+    handler: Box<dyn FnMut(&Context, &Time) + Sync + Send>,
 }
 
 impl WindowData {
-    fn new(entity: Option<Entity>, handler: impl FnMut(&Context) + Sync + Send + 'static) -> Self {
+    fn new(entity: Option<Entity>, handler: impl FnMut(&Context, &Time) + Sync + Send + 'static) -> Self {
         Self {
             entity,
             handler: Box::new(handler),
@@ -181,6 +208,7 @@ pub fn show_subwindows(
     mut ui_state: ResMut<UiState>,
     mut commands: Commands,
     egui_ctx: ResMut<EguiContext>,
+    time: Res<Time>
 ) {
     ui_state.windows.retain(|_, w| {
         w.entity
@@ -188,7 +216,7 @@ pub fn show_subwindows(
     });
 
     for (_, wnd) in ui_state.windows.iter_mut() {
-        (wnd.handler)(egui_ctx.clone().ctx_mut());
+        (wnd.handler)(egui_ctx.clone().ctx_mut(), &time);
     }
 }
 
@@ -463,9 +491,12 @@ pub fn handle_context_menu(
         //let pos = [ev.screen_pos.x, egui]
         let entity = ui.selected_entity.map(|sel| sel.entity);
         ui.window_temp = Some(id);
+        type MenuId = &'static str;
+        let mut hovered_item: Option<(MenuId, Duration)> = None;
+        let mut selected_item: Option<MenuId> = None;
         ui.windows.insert(
             id,
-            WindowData::new(entity, move |ui| {
+            WindowData::new(entity, move |ui, time| {
                 egui::Window::new("context menu")
                     .id(id)
                     .default_pos(pos)
@@ -481,13 +512,49 @@ pub fn handle_context_menu(
                             };
                         }
 
+                        macro_rules! menu {
+                            (@ $text: literal, $icon: expr) => {
+                                let our_id = $text;
+                                let us_selected = matches!(selected_item, Some(id) if id == our_id);
+                                let menu = ui.add(MenuItem::menu($icon, $text.to_string(), icons.arrow_right).selected(us_selected));
+
+                                if !us_selected {
+                                    let selected = match hovered_item {
+                                        Some((id, at)) if id == our_id && (time.elapsed() - at) > Duration::from_millis(500) => true,
+                                        _ => menu.clicked()
+                                    };
+
+                                    if selected {
+                                        info!("clicked: {}", $text);
+                                        selected_item = Some(our_id);
+                                    }
+                                }
+
+                                let us = matches!(hovered_item, Some((id, _)) if id == our_id);
+                                if menu.hovered() && !us { // we're hovering but someone else was
+                                    hovered_item = Some((our_id, time.elapsed())); // we're the new hoverer
+                                } else if !menu.hovered() && us { // not hovering and we were
+                                    hovered_item = None; // now we're not
+                                }
+                            };
+                            ($text: literal, $icon: ident) => {
+                                menu!(@ $text, Some(icons.$icon));
+                            };
+                            ($text: literal) => {
+                                menu!(@ $text, None);
+                            };
+                        }
+
                         match entity {
                             Some(_) => {
                                 if item!("Erase", erase) {}
                                 if item!("Mirror", mirror) {}
                                 if item!("Show plot", plot) {}
                                 ui.add(Separator::default().horizontal());
-                                if item!("Selection") {}
+
+                                menu!("Selection");
+
+                                //if item!("Selection") {}
                                 if item!("Appearance", color) {}
                                 if item!("Text", text) {}
                                 if item!("Material", material) {}
