@@ -4,10 +4,7 @@ use std::time::Duration;
 use bevy::math::Vec3Swizzles;
 use bevy::{input::mouse::MouseWheel, prelude::*};
 use bevy_egui::egui::epaint::Hsva;
-use bevy_egui::egui::{
-    egui_assert, pos2, vec2, Context, Id, NumExt, Response, Sense, Separator, TextureId, Ui,
-    Widget, WidgetInfo, WidgetText, WidgetType,
-};
+use bevy_egui::egui::{egui_assert, pos2, vec2, Context, Id, NumExt, Response, Sense, Separator, TextureId, Ui, Widget, WidgetInfo, WidgetText, WidgetType, Visuals, Color32};
 use bevy_egui::{
     egui::{self, Align2, TextStyle},
     EguiContext, EguiPlugin,
@@ -113,6 +110,7 @@ icon_set!(
         controller,
         csg,
         erase,
+        gravity,
         info,
         material,
         mirror,
@@ -230,7 +228,7 @@ pub fn app_main() {
         .add_system(process_move)
         .add_system(process_unfreeze_entity)
         .add_system(process_rotate)
-        .add_system(process_draw_overlay)
+        .add_system(process_draw_overlay.after(left_release))
         .add_system(process_select_under_mouse.before(process_select))
         .add_system(
             handle_context_menu
@@ -528,6 +526,70 @@ fn left_release(
 struct ContextMenuEvent {
     screen_pos: Vec2,
 }
+
+struct IconButton {
+    icon: egui::widgets::Image,
+    selected: bool
+}
+
+impl IconButton {
+    fn new(icon: TextureId, size: f32) -> Self {
+        Self {
+            icon: egui::widgets::Image::new(icon, Vec2::splat(size).to_array()),
+            selected: false
+        }
+    }
+
+    fn selected(mut self, selected: bool) -> Self {
+        self.selected = selected;
+        self
+    }
+}
+
+
+impl Widget for IconButton {
+    fn ui(self, ui: &mut Ui) -> Response {
+        let Self {
+            icon,
+            selected
+        } = self;
+        let mut desired_size = icon.size() + vec2(2.0, 2.0);
+
+        let (rect, response) = ui.allocate_exact_size(desired_size, Sense::click());
+        response.widget_info(|| WidgetInfo::new(WidgetType::ImageButton));
+
+        if ui.is_rect_visible(rect) {
+            let visuals = ui.style().interact(&response);
+
+            if response.hovered() {
+                ui.painter().rect(
+                    rect.expand(visuals.expansion),
+                    visuals.rounding,
+                    visuals.bg_fill,
+                    visuals.bg_stroke,
+                );
+            }
+            if selected {
+                let selection = ui.visuals().selection;
+                ui.painter().rect(
+                    rect.expand(visuals.expansion),
+                    visuals.rounding,
+                    selection.bg_fill,
+                    selection.stroke,
+                );
+            }
+
+            let image_rect = egui::Rect::from_min_size(
+                pos2(rect.min.x + 1.0, rect.min.y + 1.0),
+                icon.size(),
+            );
+            icon.paint_at(ui, image_rect);
+        }
+
+        response
+    }
+}
+
 
 struct MenuItem {
     icon: Option<egui::widgets::Image>,
@@ -1249,13 +1311,14 @@ fn left_pressed(
     );
 }
 
-fn setup_graphics(mut commands: Commands) {
+fn setup_graphics(mut commands: Commands, mut egui_ctx: ResMut<EguiContext>) {
     // Add a camera so we can see the debug-render.
     commands
         .spawn((Camera2dBundle::new_with_far(CAMERA_FAR), MainCamera))
         .add_world_tracking();
 
     commands.spawn((ToolCursor, SpriteBundle::default()));
+
 }
 
 #[derive(Component)]
@@ -1401,15 +1464,20 @@ struct HingeObject;
 
 fn setup_physics(mut commands: Commands) {
     /* Create the ground. */
-    let ground = PhysicalObject::rect(Vec2::new(8.0, 0.5), Vec3::new(-4.0, -3.0, 0.0));
+    let mut z = 1.0;
+    let mut z = || {
+        z += 0.1;
+        z
+    };
+    let ground = PhysicalObject::rect(Vec2::new(8.0, 0.5), Vec3::new(-4.0, -3.0, z()));
     commands.spawn(ground).insert(RigidBody::Fixed);
 
     for i in 0..5 {
         let stick = PhysicalObject::rect(
             Vec2::new(0.4, 2.4),
-            Vec3::new(-1.0 + i as f32 * 0.8, 1.8, 0.0),
+            Vec3::new(-1.0 + i as f32 * 0.8, 1.8, z()),
         );
-        let ball = PhysicalObject::ball(0.4, Vec3::new(-1.0 + i as f32 * 0.8 + 0.2, 2.0, 0.0));
+        let ball = PhysicalObject::ball(0.4, Vec3::new(-1.0 + i as f32 * 0.8 + 0.2, 2.0, z()));
         let stick_id = commands.spawn(stick).id();
         commands.spawn(ball).insert((
             HingeObject,
@@ -1433,8 +1501,8 @@ fn setup_physics(mut commands: Commands) {
         ));
     }
 
-    let stick = PhysicalObject::rect(Vec2::new(2.4, 0.4), Vec3::new(-3.8, 3.8, 0.0));
-    let ball = PhysicalObject::ball(0.4, Vec3::new(-3.6, 4.0, 0.0));
+    let stick = PhysicalObject::rect(Vec2::new(2.4, 0.4), Vec3::new(-3.8, 3.8, z()));
+    let ball = PhysicalObject::ball(0.4, Vec3::new(-3.6, 4.0, z()));
     let stick_id = commands.spawn(stick).id();
     commands.spawn(ball).insert((
         HingeObject,
@@ -1540,6 +1608,7 @@ tools_enum! {
     thruster => Thruster(Option<()>),
     fixjoint => Fix(()),
     hinge => Hinge(()),
+    laserpen => Laser(()),
     tracer => Tracer(()),
     pan => Pan(Option<PanState>),
     zoom => Zoom(Option<()>),
@@ -1726,6 +1795,7 @@ impl FromWorld for UiState {
                     tool!(Fix),
                     tool!(Hinge),
                     tool!(Thruster),
+                    tool!(Laser),
                     tool!(Tracer),
                 ],
             ],
@@ -1742,11 +1812,12 @@ impl FromWorld for UiState {
     }
 }
 
-fn configure_visuals(mut egui_ctx: ResMut<EguiContext>) {
+fn configure_visuals(mut egui_ctx: ResMut<EguiContext>, palette: Res<PaletteConfig>, mut clear_color: ResMut<ClearColor>) {
     egui_ctx.ctx_mut().set_visuals(egui::Visuals {
         window_rounding: 0.0.into(),
         ..Default::default()
     });
+    clear_color.0 = palette.current_palette.sky_color;
 }
 
 fn configure_ui_state(_ui_state: ResMut<UiState>) {}
@@ -1775,13 +1846,110 @@ fn show_subwindows(
     }
 }
 
+struct GravitySetting {
+    value: Vec2,
+    enabled: bool
+}
+
+impl Default for GravitySetting {
+    fn default() -> Self {
+        Self {
+            value: Vec2::new(0.0, -9.81),
+            enabled: true
+        }
+    }
+}
+
+pub struct SeparatorCustom {
+    spacing: f32,
+    is_horizontal_line: Option<bool>,
+}
+
+impl Default for SeparatorCustom {
+    fn default() -> Self {
+        Self {
+            spacing: 6.0,
+            is_horizontal_line: None,
+        }
+    }
+}
+
+impl SeparatorCustom {
+    /// How much space we take up. The line is painted in the middle of this.
+    pub fn spacing(mut self, spacing: f32) -> Self {
+        self.spacing = spacing;
+        self
+    }
+
+    /// Explicitly ask for a horizontal line.
+    /// By default you will get a horizontal line in vertical layouts,
+    /// and a vertical line in horizontal layouts.
+    pub fn horizontal(mut self) -> Self {
+        self.is_horizontal_line = Some(true);
+        self
+    }
+
+    /// Explicitly ask for a vertical line.
+    /// By default you will get a horizontal line in vertical layouts,
+    /// and a vertical line in horizontal layouts.
+    pub fn vertical(mut self) -> Self {
+        self.is_horizontal_line = Some(false);
+        self
+    }
+}
+
+impl Widget for SeparatorCustom {
+    fn ui(self, ui: &mut Ui) -> Response {
+        let Self {
+            spacing,
+            is_horizontal_line,
+        } = self;
+
+        let is_horizontal_line = is_horizontal_line
+            .unwrap_or_else(|| !ui.layout().main_dir().is_horizontal());
+
+        let available_space = ui.min_size();
+
+        let size = if is_horizontal_line {
+            vec2(available_space.x, spacing)
+        } else {
+            vec2(spacing, available_space.y)
+        };
+
+        let (rect, response) = ui.allocate_exact_size(size, Sense::hover());
+
+        if ui.is_rect_visible(response.rect) {
+            let stroke = ui.visuals().widgets.noninteractive.bg_stroke;
+            let painter = ui.painter();
+            if is_horizontal_line {
+                painter.hline(
+                    rect.x_range(),
+                    painter.round_to_pixel(rect.center().y),
+                    stroke,
+                );
+            } else {
+                painter.vline(
+                    painter.round_to_pixel(rect.center().x),
+                    rect.y_range(),
+                    stroke,
+                );
+            }
+        }
+
+        response
+    }
+}
+
+
 fn ui_example(
     mut egui_ctx: ResMut<EguiContext>,
     mut ui_state: ResMut<UiState>,
     mut is_initialized: Local<bool>,
     mut rapier: ResMut<RapierConfiguration>,
+    mut gravity_conf: Local<GravitySetting>,
     mut cameras: Query<&mut Transform, With<MainCamera>>,
     tool_icons: Res<ToolIcons>,
+    gui_icons: Res<GuiIcons>,
     assets: Res<AssetServer>,
 ) {
     if !*is_initialized {
@@ -1809,23 +1977,22 @@ fn ui_example(
         .anchor(Align2::LEFT_BOTTOM, [0.0, 0.0])
         .title_bar(false)
         .resizable(false)
-        //.resize(|r| r.default_width(0.0))
+        .default_size(egui::Vec2::ZERO)
         .show(egui_ctx.clone().ctx_mut(), |ui| {
             ui.vertical(|ui| {
                 let ui_state = &mut *ui_state;
                 for (i, category) in ui_state.toolbox.iter().enumerate() {
                     if i > 0 {
-                        // todo size
-                        //ui.separator();
+                        ui.add(SeparatorCustom::default().horizontal());
                     }
                     for chunk in category.chunks(2) {
                         ui.horizontal(|ui| {
                             for def in chunk {
                                 if ui
                                     .add(
-                                        egui::ImageButton::new(
+                                        IconButton::new(
                                             egui_ctx.add_image(def.icon(&tool_icons)),
-                                            [24.0, 24.0],
+                                            24.0
                                         )
                                         .selected(ui_state.toolbox_selected.is_same(def)),
                                     )
@@ -1850,9 +2017,9 @@ fn ui_example(
                 for def in ui_state.toolbox_bottom.iter() {
                     if ui
                         .add(
-                            egui::ImageButton::new(
+                            IconButton::new(
                                 egui_ctx.add_image(def.icon(&tool_icons)),
-                                [32.0, 32.0],
+                                32.0,
                             )
                             .selected(ui_state.toolbox_selected.is_same(def)),
                         )
@@ -1862,16 +2029,15 @@ fn ui_example(
                     }
                 }
 
-                let pause = egui_ctx.add_image(assets.load("gui/pause.png"));
-                let play = egui_ctx.add_image(assets.load("gui/play.png"));
+                ui.separator();
 
-                let playpause = ui.add(egui::ImageButton::new(
+                let playpause = ui.add(IconButton::new(
                     if rapier.physics_pipeline_active {
-                        pause
+                        gui_icons.pause
                     } else {
-                        play
+                        gui_icons.play
                     },
-                    [32.0, 32.0],
+                    32.0,
                 ));
 
                 if playpause.clicked() {
@@ -1897,6 +2063,18 @@ fn ui_example(
                         substeps,
                     };
                 });
+
+                ui.separator();
+
+                let gravity = ui.add(IconButton::new(gui_icons.gravity, 32.0).selected(gravity_conf.enabled));
+                if gravity.clicked() {
+                    gravity_conf.enabled = !gravity_conf.enabled;
+                    if gravity_conf.enabled {
+                        rapier.gravity = gravity_conf.value;
+                    } else {
+                        rapier.gravity = Vec2::ZERO;
+                    }
+                }
             })
         });
 }
