@@ -236,12 +236,12 @@ pub fn app_main() {
         .add_system(process_rotate)
         .add_system(process_draw_overlay.after(left_release))
         .add_system(process_select_under_mouse.before(process_select))
+        .add_system(process_select.before(ui::handle_context_menu).after(left_release))
         .add_system(
             ui::handle_context_menu
                 .after(process_select_under_mouse)
                 .after(process_select),
         )
-        .add_system(process_select)
         .add_system(show_current_tool_icon.after(mouse_wheel))
         .run();
 }
@@ -371,6 +371,7 @@ fn mouse_long_or_moved(
                 ) {
                     select_mouse.send(SelectEvent {
                         entity: under_mouse,
+                        open_menu: false
                     });
                 }
 
@@ -507,7 +508,7 @@ fn left_release(
         ui_state.mouse_left,
         {
             info!("selecting under mouse");
-            select_mouse.send(SelectUnderMouseEvent { pos });
+            select_mouse.send(SelectUnderMouseEvent { pos, open_menu: false });
         }
     );
     process_button!(
@@ -516,13 +517,7 @@ fn left_release(
         ui_state.mouse_right,
         {
             info!("selecting under mouse");
-            select_mouse.send(SelectUnderMouseEvent { pos });
-
-            let screen_pos = Vec2::new(
-                screen_pos.x,
-                windows.get_primary().unwrap().height() - screen_pos.y,
-            );
-            context_menu.send(ContextMenuEvent { screen_pos });
+            select_mouse.send(SelectUnderMouseEvent { pos, open_menu: true });
         }
     );
 }
@@ -620,7 +615,7 @@ fn process_add_object(
 
                 if let Some(entity1) = entity1 {
                     if sensor.get(entity1).is_ok() {
-                        select_mouse.send(SelectUnderMouseEvent { pos });
+                        select_mouse.send(SelectUnderMouseEvent { pos, open_menu: false });
                         return;
                     }
 
@@ -668,7 +663,7 @@ fn process_add_object(
 
                 if let Some(entity1) = entity1 {
                     if sensor.get(entity1).is_ok() {
-                        select_mouse.send(SelectUnderMouseEvent { pos });
+                        select_mouse.send(SelectUnderMouseEvent { pos, open_menu: false });
                         return;
                     }
 
@@ -1387,6 +1382,7 @@ fn setup_palettes(mut palette_config: ResMut<PaletteConfig>, asset_server: Res<A
 
 struct SelectEvent {
     entity: Option<Entity>,
+    open_menu: bool
 }
 
 #[derive(Component)]
@@ -1400,6 +1396,9 @@ fn process_select(
     mut query: Query<&mut DrawMode>,
     query_backup: Query<&UnselectedDrawMode>,
     mut commands: Commands,
+    mut menu_event: EventWriter<ContextMenuEvent>,
+    screen_pos: Res<MousePos>,
+    windows: Res<Windows>,
 ) {
     let mut set_selected = move |entity, selected| {
         let Ok(mut current) = query.get_mut(entity) else { return };
@@ -1429,7 +1428,12 @@ fn process_select(
         }
     };
 
-    for SelectEvent { entity } in events.iter() {
+    let screen_pos = Vec2::new(
+        screen_pos.x,
+        windows.get_primary().unwrap().height() - screen_pos.y,
+    );
+
+    for SelectEvent { entity, open_menu } in events.iter() {
         if let Some(EntitySelection { entity }) = state.selected_entity {
             set_selected(entity, false);
         }
@@ -1444,6 +1448,10 @@ fn process_select(
             set_selected(entity, true);
             EntitySelection { entity }
         });
+
+        if *open_menu {
+            menu_event.send(ContextMenuEvent { screen_pos });
+        }
     }
 }
 
@@ -1477,6 +1485,7 @@ fn find_under_mouse(
 #[derive(Copy, Clone)]
 struct SelectUnderMouseEvent {
     pos: Vec2,
+    open_menu: bool
 }
 
 fn process_select_under_mouse(
@@ -1485,12 +1494,12 @@ fn process_select_under_mouse(
     mut select: EventWriter<SelectEvent>,
     query: Query<&Transform, With<RigidBody>>
 ) {
-    for SelectUnderMouseEvent { pos } in events.iter().copied() {
+    for SelectUnderMouseEvent { pos, open_menu } in events.iter().copied() {
         let selected = find_under_mouse(&rapier, pos, QueryFilter::default(), |ent| {
             let transform = query.get(ent).unwrap();
             transform.translation.z
         }).next();
-        select.send(SelectEvent { entity: selected });
+        select.send(SelectEvent { entity: selected, open_menu });
     }
 }
 

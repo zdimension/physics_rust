@@ -3,14 +3,12 @@ use crate::{GuiIcons, ToolIcons, UiState};
 
 use bevy::log::info;
 use bevy::math::{Vec2, Vec3};
-use bevy::prelude::{Commands, DespawnRecursiveExt, Entity, EventReader, Local, Query, Res, ResMut, SystemSet, Time, Transform, With};
-use bevy_egui::egui::{
-    pos2, vec2, Align2, Context, Id, NumExt, Response, Sense, Separator, TextStyle, TextureId, Ui,
-    Widget, WidgetInfo, WidgetText, WidgetType,
-};
+use bevy::prelude::*;
+use bevy_egui::egui::{pos2, vec2, Align2, Context, Id, NumExt, Response, Sense, Separator, TextStyle, TextureId, Ui, Widget, WidgetInfo, WidgetText, WidgetType, Pos2};
 use bevy_egui::{egui, EguiContext};
 use bevy_mouse_tracking_plugin::MainCamera;
 use bevy_rapier2d::plugin::{RapierConfiguration, TimestepMode};
+use bevy_rapier2d::prelude::*;
 use derivative::Derivative;
 
 struct IconButton {
@@ -202,27 +200,6 @@ impl WindowData {
     }
 }
 
-pub fn show_subwindows(
-    mut ui_state: ResMut<UiState>,
-    mut commands: Commands,
-    egui_ctx: ResMut<EguiContext>,
-    time: Res<Time>
-) {
-    ui_state.windows.retain(|_, w| {
-        w.entity
-            .map_or(true, |ent| commands.get_entity(ent).is_some())
-    });
-
-    let ids: Vec<Id> = ui_state.windows.keys().copied().collect();
-    for id in ids {
-        let val = ui_state.windows.remove(&id);
-        if let Some(mut wnd) = val {
-            (wnd.handler)(egui_ctx.clone().ctx_mut(), &time, &mut ui_state, &mut commands);
-            ui_state.windows.insert(id, wnd);
-        }
-    }
-}
-
 pub struct GravitySetting {
     value: Vec2,
     enabled: bool,
@@ -350,7 +327,8 @@ pub fn draw_ui() -> SystemSet {
         .with_system(ui_example)
         .with_system(draw_toolbox)
         .with_system(draw_bottom_toolbar)
-        .with_system(show_subwindows)
+        .with_system(MenuWindow::show)
+        .with_system(InformationWindow::show)
 }
 
 pub fn draw_toolbox(
@@ -471,132 +449,258 @@ pub fn draw_bottom_toolbar(
         });
 }
 
+#[derive(Component)]
+struct InitialPos(Pos2);
+
+impl From<Vec2> for InitialPos {
+    fn from(v: Vec2) -> Self {
+        Self(pos2(v.x, v.y))
+    }
+}
+
 pub struct ContextMenuEvent {
     pub screen_pos: Vec2,
 }
 
 pub fn handle_context_menu(
     mut ev: EventReader<ContextMenuEvent>,
-    time: Res<Time>,
     mut ui: ResMut<UiState>,
-    icons: Res<GuiIcons>,
+    mut commands: Commands
 ) {
-    fn item(ui: &mut Ui, text: &'static str, icon: Option<TextureId>) -> bool {
-        ui.add(MenuItem::button(icon, text.to_string())).clicked()
-    }
-
-    let icons = *icons;
     for ev in ev.iter() {
-        info!("context menu at {:?}", ev.screen_pos);
-
-        let id = Id::new(time.elapsed());
-        let pos = ev.screen_pos.to_array();
-        //let pos = [ev.screen_pos.x, egui]
         let entity = ui.selected_entity.map(|sel| sel.entity);
-        ui.window_temp = Some(id);
-        type MenuId = &'static str;
-        let mut hovered_item: Option<(MenuId, Duration)> = None;
-        let mut selected_item: Option<MenuId> = None;
-        let mut our_child_window: Option<Id> = None;
-        ui.windows.insert(
-            id,
-            WindowData::new(entity, move |ctx, time, ui_state, commands| {
-                egui::Window::new("context menu")
-                    .id(id)
-                    .default_pos(pos)
-                    .default_size(vec2(0.0, 0.0))
-                    .resizable(false)
-                    .show(ctx, |ui| {
-                        macro_rules! item {
+        info!("context menu at {:?} for {:?}", ev.screen_pos, entity);
+        let wnd = commands.spawn((MenuWindow::default(), InitialPos::from(ev.screen_pos))).id();
+
+        if let Some(id) = entity {
+            commands.entity(id).push_children(&[wnd]);
+        }
+    }
+}
+/*
+#[derive(Component)]
+struct EntityWindow {
+    entity: Option<Entity>
+}
+*/
+trait BevyIdThing {
+    fn id_bevy(self, id: Entity) -> Self;
+}
+
+impl<'a> BevyIdThing for egui::Window<'a> {
+    fn id_bevy(mut self, id: Entity) -> Self {
+        self.id(Id::new(id))
+    }
+}
+
+#[derive(Default, Component)]
+struct MenuWindow {
+    hovered_item: Option<(MenuId, Duration)>,
+    selected_item: Option<MenuId>,
+    our_child_window: Option<Entity>,
+}
+
+impl Into<Pos2> for &InitialPos {
+    fn into(self) -> Pos2 {
+        self.0
+    }
+}
+
+impl MenuWindow {
+    fn show(
+        mut wnds: Query<(Entity, Option<&Parent>, &mut MenuWindow, &InitialPos)>,
+        time: Res<Time>,
+        mut egui_ctx: ResMut<EguiContext>,
+        icons: Res<GuiIcons>,
+        mut commands: Commands
+    ) {
+        let ctx = egui_ctx.ctx_mut();
+        for (id, entity, mut info_wnd, initial_pos) in wnds.iter_mut() {
+            let entity = entity.map(Parent::get);
+            egui::Window::new("context menu")
+                .id_bevy(id)
+                .default_pos(initial_pos)
+                .default_size(vec2(0.0, 0.0))
+                .resizable(false)
+                .show(ctx, |ui| {
+                    macro_rules! item {
+                            (@ $text:literal, $icon:expr) => {
+                                ui.add(MenuItem::button($icon, $text.to_string())).clicked()
+                            };
                             ($text:literal, $icon:ident) => {
-                                item(ui, $text, Some(icons.$icon))
+                                item!(@ $text, Some(icons.$icon))
                             };
                             ($text:literal) => {
-                                item(ui, $text, None)
+                                item!(@ $text, None)
                             };
                         }
-                        let child_id = Id::new(time.elapsed());
-                        let child_wnd = egui::Window::new("child window")
-                            .id(child_id)
-                            .default_size(vec2(0.0, 0.0))
-                            .resizable(false);
-                        macro_rules! menu {
-                            (@ $text: literal, $icon: expr, $wnd: expr) => {
+                    macro_rules! menu {
+                            (@ $text: literal, $icon: expr, $wnd:ty) => {
                                 let our_id = $text;
-                                let us_selected = matches!(selected_item, Some(id) if id == our_id);
+                                let us_selected = matches!(info_wnd.selected_item, Some(id) if id == our_id);
                                 let menu = ui.add(MenuItem::menu($icon, $text.to_string(), icons.arrow_right).selected(us_selected));
 
                                 if !us_selected {
-                                    let selected = match hovered_item {
+                                    let selected = match info_wnd.hovered_item {
                                         Some((id, at)) if id == our_id && (time.elapsed() - at) > Duration::from_millis(500) => true,
                                         _ => menu.clicked()
                                     };
 
                                     if selected {
                                         info!("clicked: {}", $text);
-                                        selected_item = Some(our_id);
+                                        info_wnd.selected_item = Some(our_id);
 
-                                        let child_id = Id::new(time.elapsed());
-                                        ui_state.windows.insert(child_id, WindowData::new(entity, move |ctx, time, ui_state, commands| {
-                                            egui::Window::new("child window")
-                                                .id(child_id)
-                                                .default_size(vec2(0.0, 0.0))
-                                                .resizable(false)
-                                                .show(ctx, $wnd);
-                                        }));
-
-                                        if let Some(id) = our_child_window {
-                                            ui_state.windows.remove(&id);
+                                        if let Some(id) = info_wnd.our_child_window {
+                                            commands.entity(id).despawn_recursive();
                                         }
 
-                                        our_child_window = Some(child_id);
+                                        info!("rect: {:?}", menu.rect);
+
+                                        let new_wnd = commands.spawn((
+                                            <$wnd as Default>::default(),
+                                            InitialPos(menu.rect.right_top())
+                                        )).id();
+
+                                        if let Some(id) = entity {
+                                            commands.entity(id).push_children(&[new_wnd]);
+                                        }
+
+                                        info_wnd.our_child_window = Some(new_wnd);
                                     }
                                 }
 
-                                let us = matches!(hovered_item, Some((id, _)) if id == our_id);
+                                let us = matches!(info_wnd.hovered_item, Some((id, _)) if id == our_id);
                                 if menu.hovered() && !us { // we're hovering but someone else was
-                                    hovered_item = Some((our_id, time.elapsed())); // we're the new hoverer
+                                    info_wnd.hovered_item = Some((our_id, time.elapsed())); // we're the new hoverer
                                 } else if !menu.hovered() && us { // not hovering and we were
-                                    hovered_item = None; // now we're not
+                                    info_wnd.hovered_item = None; // now we're not
                                 }
                             };
-                            ($text: literal, $icon: ident, $wnd: expr) => {
+                            ($text:literal, $icon:ident, $wnd:ty) => {
                                 menu!(@ $text, Some(icons.$icon), $wnd);
                             };
-                            ($text: literal, /, $wnd: expr) => {
+                            ($text:literal, /, $wnd:ty) => {
                                 menu!(@ $text, None, $wnd);
                             };
                         }
 
-                        match entity {
-                            Some(id) => {
-                                if item!("Erase", erase) {
-                                    commands.entity(id).despawn_recursive();
-                                }
-                                if item!("Mirror", mirror) {}
-                                if item!("Show plot", plot) {}
-                                ui.add(Separator::default().horizontal());
+                    match entity {
+                        Some(id) => {
+                            if item!("Erase", erase) {
+                                commands.entity(id).despawn_recursive();
+                            }
+                            if item!("Mirror", mirror) {}
+                            if item!("Show plot", plot) {}
+                            ui.add(Separator::default().horizontal());
 
-                                menu!("Selection", /, |ui| { ui.label("Hello"); });
-                                menu!("Appearance", color, |ui| { ui.label("Hello"); });
-                                menu!("Text", text, |ui| { ui.label("Hello"); });
-                                menu!("Material", material, |ui| { ui.label("Hello"); });
-                                menu!("Velocities", velocity, |ui| { ui.label("Hello"); });
-                                menu!("Information", info, |ui| { ui.label("Hello"); });
-                                menu!("Collision layers", collisions, |ui| { ui.label("Hello"); });
-                                menu!("Geometry actions", /, |ui| { ui.label("Hello"); });
-                                menu!("Combine shapes", csg, |ui| { ui.label("Hello"); });
-                                menu!("Controller", controller, |ui| { ui.label("Hello"); });
-                                menu!("Script menu", /, |ui| { ui.label("Hello"); });
-                            }
-                            None => {
-                                if item!("Zoom to scene", zoom2scene) {}
-                                if item!("Default view") {}
-                                if item!("Background", color) {}
-                            }
+                            menu!("Selection", /, SelectionWindow);
+                            menu!("Appearance", color, AppearanceWindow);
+                            menu!("Text", text, TextWindow);
+                            menu!("Material", material, MaterialWindow);
+                            menu!("Velocities", velocity, VelocitiesWindow);
+                            menu!("Information", info, InformationWindow);
+                            menu!("Collision layers", collisions, CollisionsWindow);
+                            menu!("Geometry actions", /, GeometryActionsWindow);
+                            menu!("Combine shapes", csg, CombineShapesWindow);
+                            menu!("Controller", controller, ControllerWindow);
+                            menu!("Script menu", /, ScriptMenuWindow);
                         }
-                    });
-            }),
-        );
+                        None => {
+                            if item!("Zoom to scene", zoom2scene) {}
+                            if item!("Default view") {}
+                            if item!("Background", color) {}
+                        }
+                    }
+                });
+        }
     }
 }
+
+type MenuId = &'static str;
+
+#[derive(Default, Component)]
+struct SelectionWindow;
+
+#[derive(Default, Component)]
+struct AppearanceWindow;
+
+#[derive(Default, Component)]
+struct TextWindow;
+
+#[derive(Default, Component)]
+struct MaterialWindow;
+
+#[derive(Default, Component)]
+struct VelocitiesWindow;
+
+#[derive(Default, Component)]
+struct InformationWindow;
+
+impl InformationWindow {
+    fn show(
+        wnds: Query<(Entity, &Parent, &InitialPos), With<InformationWindow>>,
+        ents: Query<(Option<&Transform>, Option<&ReadMassProperties>, Option<&Velocity>)>,
+        mut egui_ctx: ResMut<EguiContext>,
+    ) {
+        let ctx = egui_ctx.ctx_mut();
+        for (id, parent, initial_pos) in wnds.iter() {
+            let (xform, mass, vel) = ents.get(parent.get()).unwrap();
+            egui::Window::new("info")
+                .id_bevy(id)
+                .default_pos(initial_pos)
+                .show(ctx, |ui| {
+                    egui::Grid::new("info grid")
+                        .striped(true)
+                        .show(ui, |ui| {
+                            macro_rules! line {
+                                ($label:literal, $val:expr) => {
+                                    ui.label($label);
+                                    ui.label($val);
+                                    ui.end_row();
+                                }
+                            }
+                            if let Some(ReadMassProperties(mass)) = mass {
+                                ui.label("Mass");
+                                ui.label(format!("{:.3} kg", mass.mass));
+                                ui.end_row();
+
+                                ui.label("Moment of inertia");
+                                ui.label(format!("{:.3} kgm²", mass.principal_inertia));
+                                ui.end_row();
+                            }
+
+                            if let Some(xform) = xform {
+                                ui.label("Position");
+                                ui.label(format!("[x={:.3}, y={:.3}] m", xform.translation.x, xform.translation.y));
+                                ui.end_row();
+                            }
+
+                            if let Some(vel) = vel {
+                                ui.label("Velocity");
+                                ui.label(format!("[x={:.3}, y={:.3}] m/s", vel.linvel.x, vel.linvel.y));
+                                ui.end_row();
+
+                                ui.label("Angular velocity");
+                                ui.label(format!("{:.3} rad/s", vel.angvel));
+                                ui.end_row();
+                            }
+                        });
+                });
+        }
+    }
+}
+
+#[derive(Default, Component)]
+struct CollisionsWindow;
+
+#[derive(Default, Component)]
+struct GeometryActionsWindow;
+
+#[derive(Default, Component)]
+struct CombineShapesWindow;
+
+#[derive(Default, Component)]
+struct ControllerWindow;
+
+#[derive(Default, Component)]
+struct ScriptMenuWindow;
