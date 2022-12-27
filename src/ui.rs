@@ -1,3 +1,4 @@
+use std::marker::PhantomData;
 use crate::{GuiIcons, ToolIcons, UiState};
 use std::time::Duration;
 
@@ -6,6 +7,7 @@ use bevy::math::{Vec2, Vec3};
 use bevy::prelude::*;
 use bevy_egui::egui::{Align2, Context, Id, InnerResponse, NumExt, pos2, Pos2, Separator, Ui, vec2, Widget};
 use bevy_egui::{egui, EguiContext};
+use bevy_egui::egui::plot::{Line, Plot, PlotPoint, PlotPoints};
 use bevy_mouse_tracking_plugin::MainCamera;
 use bevy_rapier2d::plugin::{RapierConfiguration, TimestepMode};
 use bevy_rapier2d::prelude::*;
@@ -93,6 +95,7 @@ pub fn draw_ui() -> SystemSet {
         .with_system(remove_temporary_windows)
         .with_system(MenuWindow::show)
         .with_system(InformationWindow::show)
+        .with_system(PlotWindow::show)
 }
 
 pub fn draw_toolbox(
@@ -415,7 +418,11 @@ impl MenuWindow {
                                 commands.entity(id).despawn_recursive();
                             }
                             if item!("Mirror", mirror) {}
-                            if item!("Show plot", plot) {}
+                            if item!("Show plot", plot) {
+                                commands.entity(id).with_children(|parent| {
+                                    parent.spawn((PlotWindow::default(), InitialPos::initial(pos2(100.0, 100.0))));
+                                });
+                            }
                             ui.add(Separator::default().horizontal());
 
                             menu!("Selection", /, SelectionWindow);
@@ -562,6 +569,59 @@ fn remove_temporary_windows(
     for _ in events.iter() {
         for id in wnds.iter() {
             commands.entity(id).despawn_recursive();
+        }
+    }
+}
+
+#[derive(Default, Component)]
+struct PlotWindow {
+    values: Vec<PlotPoint>,
+    time: f32
+}
+
+impl PlotWindow {
+    fn show(
+        mut wnds: Query<(Entity, &Parent, &mut InitialPos, &mut PlotWindow)>,
+        ents: Query<&Velocity>,
+        mut egui_ctx: ResMut<EguiContext>,
+        mut commands: Commands,
+        rapier_conf: Res<RapierConfiguration>,
+        time: Res<Time>,
+    ) {
+        let ctx = egui_ctx.ctx_mut();
+        for (id, parent, mut initial_pos, mut plot) in wnds.iter_mut() {
+            if rapier_conf.physics_pipeline_active {
+                let vel = ents.get(parent.get()).unwrap();
+                let pos_x = plot.time;
+                plot.time += time.delta_seconds();
+                plot.values.push(PlotPoint::new(pos_x, vel.linvel.length()));
+            }
+            egui::Window::new("plot")
+                .id_bevy(id)
+                .subwindow(id, ctx, &mut initial_pos, &mut commands, |ui, commands| {
+                    struct Hack<'a, T: Fn(&str, &PlotPoint) -> String + 'a>(T, PhantomData<&'a T>);
+                    let values = unsafe { &*(&plot.values as *const Vec<PlotPoint>) };
+                    let mut fmt = |name: &str, value: &PlotPoint| {
+                        let mut base = format!("x = {:.2}\ny = {:.2}", value.x, value.y);
+                        let idx = values.binary_search_by(|probe| probe.x.total_cmp(&value.x));
+                        if let Ok(idx) = idx {
+                            if idx > 5 {
+                                let prev = &values[idx - 5];
+                                let slope = (value.y - prev.y) / (value.x - prev.x);
+                                base += &format!("\ndy/dx = {:.2}", slope);
+                            }
+
+                            let integ = values.windows(2).take(idx).map(|w| (w[0].y + w[1].y) * (w[1].x - w[0].x) / 2.0).sum::<f64>();
+                            base += &format!("\n∫dt = {:.2}", integ);
+                        }
+                        base
+                    };
+                    Plot::new("plot")
+                        .label_formatter(fmt)
+                        .show(ui, |plot_ui| {
+                            plot_ui.line(Line::new(PlotPoints::Owned(plot.values.clone())))
+                        });
+                });
         }
     }
 }
