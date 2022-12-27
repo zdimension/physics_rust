@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::time::Duration;
 
 use bevy::math::Vec3Swizzles;
@@ -11,6 +11,7 @@ use bevy_egui::{
     egui::{self},
     EguiContext, EguiPlugin,
 };
+use bevy_egui::egui::epaint::util::{FloatOrd, OrderedFloat};
 use bevy_mouse_tracking_plugin::{prelude::*, MainCamera, MousePos, MousePosWorld};
 use bevy_prototype_lyon::prelude::*;
 use bevy_prototype_lyon::{
@@ -359,11 +360,10 @@ fn mouse_long_or_moved(
                 todo!()
             }
             _ => {
-                let mut under_mouse = None;
-                rapier.intersections_with_point(pos, QueryFilter::default(), |ent| {
-                    under_mouse = Some(ent);
-                    false
-                });
+                let under_mouse = find_under_mouse(&rapier, pos, QueryFilter::default(), |ent| {
+                    let (transform, _) = query.get(ent).unwrap();
+                    transform.translation.z
+                }).next();
 
                 if matches!(
                     hover_tool,
@@ -610,17 +610,14 @@ fn process_add_object(
                     .log_components();
             }
             Fix(pos) => {
-                let mut entity1 = None;
-                let mut entity2 = None;
-                rapier.intersections_with_point(pos, QueryFilter::only_dynamic(), |ent| {
-                    if entity1.is_none() {
-                        entity1 = Some(ent);
-                        true
-                    } else {
-                        entity2 = Some(ent);
-                        false
-                    }
-                });
+                let (entity1, entity2) = {
+                    let mut entities = find_under_mouse(&rapier, pos, QueryFilter::only_dynamic(), |ent| {
+                        let (transform, _) = query.get(ent).unwrap();
+                        transform.translation.z
+                    });
+                    (entities.next(), entities.next())
+                };
+
                 if let Some(entity1) = entity1 {
                     if sensor.get(entity1).is_ok() {
                         select_mouse.send(SelectUnderMouseEvent { pos });
@@ -661,19 +658,14 @@ fn process_add_object(
                 }
             }
             Hinge(pos) => {
-                let mut entity1 = None;
-                let mut entity2 = None;
-                rapier.intersections_with_point(pos, QueryFilter::default(), |ent| {
-                    info!("found entity: {:?}", ent);
-                    commands.entity(ent).log_components();
-                    if entity1.is_none() {
-                        entity1 = Some(ent);
-                        true
-                    } else {
-                        entity2 = Some(ent);
-                        false
-                    }
-                });
+                let (entity1, entity2) = {
+                    let mut entities = find_under_mouse(&rapier, pos, QueryFilter::only_dynamic(), |ent| {
+                        let (transform, _) = query.get(ent).unwrap();
+                        transform.translation.z
+                    });
+                    (entities.next(), entities.next())
+                };
+
                 if let Some(entity1) = entity1 {
                     if sensor.get(entity1).is_ok() {
                         select_mouse.send(SelectUnderMouseEvent { pos });
@@ -1410,7 +1402,7 @@ fn process_select(
     mut commands: Commands,
 ) {
     let mut set_selected = move |entity, selected| {
-        let mut current = query.get_mut(entity).unwrap();
+        let Ok(mut current) = query.get_mut(entity) else { return };
         if selected {
             commands.entity(entity).insert(UnselectedDrawMode {
                 draw_mode: current.clone(),
@@ -1455,6 +1447,33 @@ fn process_select(
     }
 }
 
+fn find_under_mouse(
+    rapier: &RapierContext,
+    pos: Vec2,
+    filter: QueryFilter,
+    z: impl Fn(Entity) -> f32,
+) -> impl Iterator<Item = Entity> {
+    #[derive(Derivative)]
+    #[derivative(PartialEq, PartialOrd, Eq, Ord)]
+    struct EntityZ {
+        #[derivative(PartialEq="ignore", PartialOrd="ignore")]
+        entity: Entity,
+        z: OrderedFloat<f32>,
+    }
+
+    let mut set = BTreeSet::new();
+
+    rapier.intersections_with_point(pos, filter, |ent| {
+        set.insert(EntityZ {
+            entity: ent,
+            z: z(ent).ord(),
+        });
+        true
+    });
+
+    set.into_iter().rev().map(|EntityZ { entity, .. }| entity)
+}
+
 #[derive(Copy, Clone)]
 struct SelectUnderMouseEvent {
     pos: Vec2,
@@ -1464,13 +1483,13 @@ fn process_select_under_mouse(
     mut events: EventReader<SelectUnderMouseEvent>,
     rapier: Res<RapierContext>,
     mut select: EventWriter<SelectEvent>,
+    query: Query<&Transform, With<RigidBody>>
 ) {
     for SelectUnderMouseEvent { pos } in events.iter().copied() {
-        let mut selected = None;
-        rapier.intersections_with_point(pos, QueryFilter::default(), |ent| {
-            selected = Some(ent);
-            false
-        });
+        let selected = find_under_mouse(&rapier, pos, QueryFilter::default(), |ent| {
+            let transform = query.get(ent).unwrap();
+            transform.translation.z
+        }).next();
         select.send(SelectEvent { entity: selected });
     }
 }

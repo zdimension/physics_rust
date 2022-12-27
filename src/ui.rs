@@ -3,9 +3,7 @@ use crate::{GuiIcons, ToolIcons, UiState};
 
 use bevy::log::info;
 use bevy::math::{Vec2, Vec3};
-use bevy::prelude::{
-    Commands, Entity, EventReader, Local, Query, Res, ResMut, SystemSet, Time, Transform, With,
-};
+use bevy::prelude::{Commands, DespawnRecursiveExt, Entity, EventReader, Local, Query, Res, ResMut, SystemSet, Time, Transform, With};
 use bevy_egui::egui::{
     pos2, vec2, Align2, Context, Id, NumExt, Response, Sense, Separator, TextStyle, TextureId, Ui,
     Widget, WidgetInfo, WidgetText, WidgetType,
@@ -192,11 +190,11 @@ impl Widget for MenuItem {
 pub struct WindowData {
     entity: Option<Entity>,
     #[derivative(Debug = "ignore")]
-    handler: Box<dyn FnMut(&Context, &Time, &mut UiState) + Sync + Send>,
+    handler: Box<dyn FnMut(&Context, &Time, &mut UiState, &mut Commands) + Sync + Send>,
 }
 
 impl WindowData {
-    fn new(entity: Option<Entity>, handler: impl FnMut(&Context, &Time, &mut UiState) + Sync + Send + 'static) -> Self {
+    fn new(entity: Option<Entity>, handler: impl FnMut(&Context, &Time, &mut UiState, &mut Commands) + Sync + Send + 'static) -> Self {
         Self {
             entity,
             handler: Box::new(handler),
@@ -219,7 +217,7 @@ pub fn show_subwindows(
     for id in ids {
         let val = ui_state.windows.remove(&id);
         if let Some(mut wnd) = val {
-            (wnd.handler)(egui_ctx.clone().ctx_mut(), &time, &mut ui_state);
+            (wnd.handler)(egui_ctx.clone().ctx_mut(), &time, &mut ui_state, &mut commands);
             ui_state.windows.insert(id, wnd);
         }
     }
@@ -502,7 +500,7 @@ pub fn handle_context_menu(
         let mut our_child_window: Option<Id> = None;
         ui.windows.insert(
             id,
-            WindowData::new(entity, move |ctx, time, ui_state| {
+            WindowData::new(entity, move |ctx, time, ui_state, commands| {
                 egui::Window::new("context menu")
                     .id(id)
                     .default_pos(pos)
@@ -539,7 +537,7 @@ pub fn handle_context_menu(
                                         selected_item = Some(our_id);
 
                                         let child_id = Id::new(time.elapsed());
-                                        ui_state.windows.insert(child_id, WindowData::new(entity, move |ctx, time, ui_state| {
+                                        ui_state.windows.insert(child_id, WindowData::new(entity, move |ctx, time, ui_state, commands| {
                                             egui::Window::new("child window")
                                                 .id(child_id)
                                                 .default_size(vec2(0.0, 0.0))
@@ -548,7 +546,7 @@ pub fn handle_context_menu(
                                         }));
 
                                         if let Some(id) = our_child_window {
-                                            ui_state.windows.remove(id);
+                                            ui_state.windows.remove(&id);
                                         }
 
                                         our_child_window = Some(child_id);
@@ -571,8 +569,10 @@ pub fn handle_context_menu(
                         }
 
                         match entity {
-                            Some(_) => {
-                                if item!("Erase", erase) {}
+                            Some(id) => {
+                                if item!("Erase", erase) {
+                                    commands.entity(id).despawn_recursive();
+                                }
                                 if item!("Mirror", mirror) {}
                                 if item!("Show plot", plot) {}
                                 ui.add(Separator::default().horizontal());
