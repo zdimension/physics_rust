@@ -1,187 +1,26 @@
-use std::time::Duration;
 use crate::{GuiIcons, ToolIcons, UiState};
+use std::time::Duration;
 
 use bevy::log::info;
 use bevy::math::{Vec2, Vec3};
 use bevy::prelude::*;
-use bevy_egui::egui::{pos2, vec2, Align2, Context, Id, NumExt, Response, Sense, Separator, TextStyle, TextureId, Ui, Widget, WidgetInfo, WidgetText, WidgetType, Pos2};
+use bevy_egui::egui::{Align2, Context, Id, InnerResponse, NumExt, pos2, Pos2, Separator, Ui, vec2, Widget};
 use bevy_egui::{egui, EguiContext};
 use bevy_mouse_tracking_plugin::MainCamera;
 use bevy_rapier2d::plugin::{RapierConfiguration, TimestepMode};
 use bevy_rapier2d::prelude::*;
 use derivative::Derivative;
+use lyon_path::commands::CommandsPathSlice;
+use icon_button::IconButton;
+use separator_custom::SeparatorCustom;
 
-struct IconButton {
-    icon: egui::widgets::Image,
-    selected: bool,
-}
 
-impl IconButton {
-    fn new(icon: TextureId, size: f32) -> Self {
-        Self {
-            icon: egui::widgets::Image::new(icon, Vec2::splat(size).to_array()),
-            selected: false,
-        }
-    }
+mod icon_button;
+mod menu_item;
+mod separator_custom;
 
-    fn selected(mut self, selected: bool) -> Self {
-        self.selected = selected;
-        self
-    }
-}
-
-impl Widget for IconButton {
-    fn ui(self, ui: &mut Ui) -> Response {
-        let Self { icon, selected } = self;
-        let desired_size = icon.size() + vec2(2.0, 2.0);
-
-        let (rect, response) = ui.allocate_exact_size(desired_size, Sense::click());
-        response.widget_info(|| WidgetInfo::new(WidgetType::ImageButton));
-
-        if ui.is_rect_visible(rect) {
-            let visuals = ui.style().interact(&response);
-
-            if response.hovered() {
-                ui.painter().rect(
-                    rect.expand(visuals.expansion),
-                    visuals.rounding,
-                    visuals.bg_fill,
-                    visuals.bg_stroke,
-                );
-            }
-            if selected {
-                let selection = ui.visuals().selection;
-                ui.painter().rect(
-                    rect.expand(visuals.expansion),
-                    visuals.rounding,
-                    selection.bg_fill,
-                    selection.stroke,
-                );
-            }
-
-            let image_rect =
-                egui::Rect::from_min_size(pos2(rect.min.x + 1.0, rect.min.y + 1.0), icon.size());
-            icon.paint_at(ui, image_rect);
-        }
-
-        response
-    }
-}
-
-pub struct MenuItem {
-    icon: Option<egui::widgets::Image>,
-    text: String,
-    icon_right: Option<egui::widgets::Image>,
-    selected: bool
-}
-
-impl MenuItem {
-    const ICON_SIZE: f32 = 16.0;
-
-    fn gen_image(icon: TextureId) -> egui::widgets::Image {
-        egui::widgets::Image::new(icon, Vec2::splat(Self::ICON_SIZE).to_array())
-    }
-
-    fn button(icon: Option<TextureId>, text: String) -> Self {
-        Self {
-            icon: icon.map(Self::gen_image),
-            text,
-            icon_right: None,
-            selected: false
-        }
-    }
-
-    fn menu(icon: Option<TextureId>, text: String, icon_right: TextureId) -> Self {
-        Self {
-            icon_right: Some(Self::gen_image(icon_right)),
-            ..Self::button(icon, text)
-        }
-    }
-
-    fn selected(mut self, selected: bool) -> Self {
-        self.selected = selected;
-        self
-    }
-}
-
-impl Widget for MenuItem {
-    fn ui(self, ui: &mut Ui) -> Response {
-        let Self {
-            icon,
-            text,
-            icon_right,
-            selected
-        } = self;
-        let button_padding = ui.spacing().button_padding;
-        let icon_count = 1 + icon_right.is_some() as usize;
-        let icon_width = Self::ICON_SIZE * ui.spacing().icon_spacing;
-        let icon_width_total = icon_width * icon_count as f32;
-        let text_wrap_width = ui.available_width() - button_padding.x * 2.0 - icon_width_total;
-
-        let text: WidgetText = text.into();
-        let text = text.into_galley(ui, Some(false), text_wrap_width, TextStyle::Button);
-        let mut desired_size = text.size();
-        desired_size.x += icon_width_total;
-        desired_size.y = desired_size.y.max(Self::ICON_SIZE);
-        desired_size.y = desired_size.y.at_least(ui.spacing().interact_size.y);
-        desired_size += button_padding * 2.0;
-
-        desired_size.x = desired_size.x.at_least(ui.available_width());
-
-        let (rect, response) = ui.allocate_at_least(desired_size, Sense::click());
-        response.widget_info(|| WidgetInfo::labeled(WidgetType::Button, text.text()));
-
-        if ui.is_rect_visible(rect) {
-            let visuals = ui.style().interact(&response);
-
-            if response.hovered() {
-                ui.painter().rect(
-                    rect.expand(visuals.expansion),
-                    visuals.rounding,
-                    visuals.bg_fill,
-                    visuals.bg_stroke,
-                );
-            }
-            if selected {
-                let selection = ui.visuals().selection;
-                ui.painter().rect(
-                    rect.expand(visuals.expansion),
-                    visuals.rounding,
-                    selection.bg_fill,
-                    selection.stroke,
-                );
-            }
-
-            let text_pos = {
-                let icon_spacing = ui.spacing().icon_spacing;
-                pos2(
-                    rect.min.x + button_padding.x + Self::ICON_SIZE + icon_spacing,
-                    rect.center().y - text.size().y / 2.0,
-                )
-            };
-            text.paint_with_visuals(ui.painter(), text_pos, visuals);
-
-            if let Some(icon) = icon {
-                let image_rect = egui::Rect::from_min_size(
-                    pos2(rect.min.x, rect.center().y - 0.5 - (Self::ICON_SIZE / 2.0)),
-                    vec2(Self::ICON_SIZE, Self::ICON_SIZE),
-                );
-                icon.paint_at(ui, image_rect);
-            }
-
-            if let Some(icon) = icon_right {
-                let image_rect = egui::Rect::from_min_size(
-                    pos2(rect.max.x - Self::ICON_SIZE, rect.center().y - 0.5 - (Self::ICON_SIZE / 2.0)),
-                    vec2(Self::ICON_SIZE, Self::ICON_SIZE),
-                );
-                icon.paint_at(ui, image_rect);
-            }
-        }
-
-        response
-    }
-}
-
+use menu_item::MenuItem;
+use crate::measures::KineticEnergy;
 
 #[derive(Derivative)]
 #[derivative(Debug)]
@@ -192,7 +31,10 @@ pub struct WindowData {
 }
 
 impl WindowData {
-    fn new(entity: Option<Entity>, handler: impl FnMut(&Context, &Time, &mut UiState, &mut Commands) + Sync + Send + 'static) -> Self {
+    fn new(
+        entity: Option<Entity>,
+        handler: impl FnMut(&Context, &Time, &mut UiState, &mut Commands) + Sync + Send + 'static,
+    ) -> Self {
         Self {
             entity,
             handler: Box::new(handler),
@@ -211,86 +53,6 @@ impl Default for GravitySetting {
             value: Vec2::new(0.0, -9.81),
             enabled: true,
         }
-    }
-}
-
-pub struct SeparatorCustom {
-    spacing: f32,
-    is_horizontal_line: Option<bool>,
-}
-
-impl Default for SeparatorCustom {
-    fn default() -> Self {
-        Self {
-            spacing: 6.0,
-            is_horizontal_line: None,
-        }
-    }
-}
-
-impl SeparatorCustom {
-    /// How much space we take up. The line is painted in the middle of this.
-    pub fn spacing(mut self, spacing: f32) -> Self {
-        self.spacing = spacing;
-        self
-    }
-
-    /// Explicitly ask for a horizontal line.
-    /// By default you will get a horizontal line in vertical layouts,
-    /// and a vertical line in horizontal layouts.
-    pub fn horizontal(mut self) -> Self {
-        self.is_horizontal_line = Some(true);
-        self
-    }
-
-    /// Explicitly ask for a vertical line.
-    /// By default you will get a horizontal line in vertical layouts,
-    /// and a vertical line in horizontal layouts.
-    pub fn vertical(mut self) -> Self {
-        self.is_horizontal_line = Some(false);
-        self
-    }
-}
-
-impl Widget for SeparatorCustom {
-    fn ui(self, ui: &mut Ui) -> Response {
-        let Self {
-            spacing,
-            is_horizontal_line,
-        } = self;
-
-        let is_horizontal_line =
-            is_horizontal_line.unwrap_or_else(|| !ui.layout().main_dir().is_horizontal());
-
-        let available_space = ui.min_size();
-
-        let size = if is_horizontal_line {
-            vec2(available_space.x, spacing)
-        } else {
-            vec2(spacing, available_space.y)
-        };
-
-        let (rect, response) = ui.allocate_exact_size(size, Sense::hover());
-
-        if ui.is_rect_visible(response.rect) {
-            let stroke = ui.visuals().widgets.noninteractive.bg_stroke;
-            let painter = ui.painter();
-            if is_horizontal_line {
-                painter.hline(
-                    rect.x_range(),
-                    painter.round_to_pixel(rect.center().y),
-                    stroke,
-                );
-            } else {
-                painter.vline(
-                    painter.round_to_pixel(rect.center().x),
-                    rect.y_range(),
-                    stroke,
-                );
-            }
-        }
-
-        response
     }
 }
 
@@ -327,6 +89,8 @@ pub fn draw_ui() -> SystemSet {
         .with_system(ui_example)
         .with_system(draw_toolbox)
         .with_system(draw_bottom_toolbar)
+        .with_system(process_temporary_windows)
+        .with_system(remove_temporary_windows)
         .with_system(MenuWindow::show)
         .with_system(InformationWindow::show)
 }
@@ -335,6 +99,7 @@ pub fn draw_toolbox(
     mut egui_ctx: ResMut<EguiContext>,
     mut ui_state: ResMut<UiState>,
     tool_icons: Res<ToolIcons>,
+    mut clear_tmp: EventWriter<RemoveTemporaryWindowsEvent>
 ) {
     egui::Window::new("Tools")
         .anchor(Align2::LEFT_BOTTOM, [0.0, 0.0])
@@ -362,6 +127,7 @@ pub fn draw_toolbox(
                                     .clicked()
                                 {
                                     ui_state.toolbox_selected = *def;
+                                    clear_tmp.send(RemoveTemporaryWindowsEvent);
                                 }
                             }
                         });
@@ -378,6 +144,7 @@ pub fn draw_bottom_toolbar(
     mut gravity_conf: Local<GravitySetting>,
     tool_icons: Res<ToolIcons>,
     gui_icons: Res<GuiIcons>,
+    mut clear_tmp: EventWriter<RemoveTemporaryWindowsEvent>
 ) {
     egui::Window::new("Tools2")
         .anchor(Align2::CENTER_BOTTOM, [0.0, 0.0])
@@ -395,6 +162,7 @@ pub fn draw_bottom_toolbar(
                         .clicked()
                     {
                         ui_state.toolbox_selected = *def;
+                        clear_tmp.send(RemoveTemporaryWindowsEvent);
                     }
                 }
 
@@ -449,14 +217,38 @@ pub fn draw_bottom_toolbar(
         });
 }
 
-#[derive(Component)]
-struct InitialPos(Pos2);
+trait AsPos2 {
+    fn as_pos2(&self) -> egui::Pos2;
+}
 
-impl From<Vec2> for InitialPos {
-    fn from(v: Vec2) -> Self {
-        Self(pos2(v.x, v.y))
+impl AsPos2 for Vec2 {
+    fn as_pos2(&self) -> egui::Pos2 {
+        pos2(self.x, self.y)
     }
 }
+
+impl AsPos2 for Pos2 {
+    fn as_pos2(&self) -> egui::Pos2 {
+        *self
+    }
+}
+
+#[derive(Component)]
+struct InitialPos(Pos2, Pos2);
+
+impl InitialPos {
+    fn initial(pos: impl AsPos2) -> impl Bundle {
+        let pos = pos.as_pos2();
+        (Self(pos, pos), TemporaryWindow)
+    }
+
+    fn update<T>(&mut self, resp: InnerResponse<T>) {
+        self.1 = resp.response.rect.left_top();
+    }
+}
+
+#[derive(Component)]
+pub struct TemporaryWindow;
 
 pub struct ContextMenuEvent {
     pub screen_pos: Vec2,
@@ -465,18 +257,32 @@ pub struct ContextMenuEvent {
 pub fn handle_context_menu(
     mut ev: EventReader<ContextMenuEvent>,
     mut ui: ResMut<UiState>,
-    mut commands: Commands
+    mut commands: Commands,
 ) {
     for ev in ev.iter() {
         let entity = ui.selected_entity.map(|sel| sel.entity);
         info!("context menu at {:?} for {:?}", ev.screen_pos, entity);
-        let wnd = commands.spawn((MenuWindow::default(), InitialPos::from(ev.screen_pos))).id();
+        let wnd = commands
+            .spawn((MenuWindow::default(), InitialPos::initial(ev.screen_pos)))
+            .id();
 
         if let Some(id) = entity {
             commands.entity(id).push_children(&[wnd]);
         }
     }
 }
+
+fn process_temporary_windows(
+    wnds: Query<(Entity, &InitialPos, &TemporaryWindow)>,
+    mut commands: Commands,
+) {
+    for (wnd, pos, _) in wnds.iter() {
+        if pos.0 != pos.1 {
+            commands.entity(wnd).remove::<TemporaryWindow>();
+        }
+    }
+}
+
 /*
 #[derive(Component)]
 struct EntityWindow {
@@ -506,23 +312,42 @@ impl Into<Pos2> for &InitialPos {
     }
 }
 
+trait Subwindow {
+    fn subwindow(self, id: Entity, ctx: &Context, initial_pos: &mut InitialPos, commands: &mut Commands, contents: impl FnOnce(&mut Ui, &mut Commands));
+}
+
+impl<'a> Subwindow for egui::Window<'a> {
+    fn subwindow(mut self, id: Entity, ctx: &Context, initial_pos: &mut InitialPos, commands: &mut Commands, contents: impl FnOnce(&mut Ui, &mut Commands)) {
+        let mut open = true;
+        self
+            .id_bevy(id)
+            .default_pos(&*initial_pos)
+            .open(&mut open)
+            .show(ctx, |ui| {
+                contents(ui, commands)
+            })
+            .map(|resp| initial_pos.1 = resp.response.rect.left_top());
+        if !open {
+            commands.entity(id).despawn_recursive();
+        }
+    }
+}
+
 impl MenuWindow {
     fn show(
-        mut wnds: Query<(Entity, Option<&Parent>, &mut MenuWindow, &InitialPos)>,
+        mut wnds: Query<(Entity, Option<&Parent>, &mut MenuWindow, &mut InitialPos)>,
         time: Res<Time>,
         mut egui_ctx: ResMut<EguiContext>,
         icons: Res<GuiIcons>,
-        mut commands: Commands
+        mut commands: Commands,
     ) {
         let ctx = egui_ctx.ctx_mut();
-        for (id, entity, mut info_wnd, initial_pos) in wnds.iter_mut() {
+        for (id, entity, mut info_wnd, mut initial_pos) in wnds.iter_mut() {
             let entity = entity.map(Parent::get);
             egui::Window::new("context menu")
-                .id_bevy(id)
-                .default_pos(initial_pos)
                 .default_size(vec2(0.0, 0.0))
                 .resizable(false)
-                .show(ctx, |ui| {
+                .subwindow(id, ctx, &mut initial_pos, &mut commands, |ui, commands| {
                     macro_rules! item {
                             (@ $text:literal, $icon:expr) => {
                                 ui.add(MenuItem::button($icon, $text.to_string())).clicked()
@@ -558,7 +383,7 @@ impl MenuWindow {
 
                                         let new_wnd = commands.spawn((
                                             <$wnd as Default>::default(),
-                                            InitialPos(menu.rect.right_top())
+                                            InitialPos::initial(menu.rect.right_top())
                                         )).id();
 
                                         if let Some(id) = entity {
@@ -638,53 +463,74 @@ struct InformationWindow;
 
 impl InformationWindow {
     fn show(
-        wnds: Query<(Entity, &Parent, &InitialPos), With<InformationWindow>>,
-        ents: Query<(Option<&Transform>, Option<&ReadMassProperties>, Option<&Velocity>)>,
+        mut wnds: Query<(Entity, &Parent, &mut InitialPos), With<InformationWindow>>,
+        ents: Query<(
+            Option<&Transform>,
+            Option<&ReadMassProperties>,
+            Option<&Velocity>,
+            Option<&ColliderMassProperties>,
+            Option<&KineticEnergy>
+        )>,
+        rapier_conf: Res<RapierConfiguration>,
         mut egui_ctx: ResMut<EguiContext>,
+        mut commands: Commands,
     ) {
         let ctx = egui_ctx.ctx_mut();
-        for (id, parent, initial_pos) in wnds.iter() {
-            let (xform, mass, vel) = ents.get(parent.get()).unwrap();
+        for (id, parent, mut initial_pos) in wnds.iter_mut() {
+            let (
+                xform,
+                mass,
+                vel,
+                coll_mass,
+                kine
+            ) = ents.get(parent.get()).unwrap();
             egui::Window::new("info")
                 .id_bevy(id)
-                .default_pos(initial_pos)
-                .show(ctx, |ui| {
-                    egui::Grid::new("info grid")
-                        .striped(true)
-                        .show(ui, |ui| {
-                            macro_rules! line {
-                                ($label:literal, $val:expr) => {
-                                    ui.label($label);
-                                    ui.label($val);
-                                    ui.end_row();
-                                }
-                            }
-                            if let Some(ReadMassProperties(mass)) = mass {
-                                ui.label("Mass");
-                                ui.label(format!("{:.3} kg", mass.mass));
-                                ui.end_row();
+                .subwindow(id, ctx, &mut initial_pos, &mut commands, |ui, commands| {
+                    fn line(ui: &mut Ui, label: &'static str, val: String) {
+                        ui.label(label);
+                        ui.label(val);
+                        ui.end_row();
+                    }
+                    egui::Grid::new("info grid").striped(true).show(ui, |ui| {
+                        if let Some(ReadMassProperties(mass)) = mass {
+                            line(ui, "Mass", format!("{:.3} kg", mass.mass));
 
-                                ui.label("Moment of inertia");
-                                ui.label(format!("{:.3} kgm²", mass.principal_inertia));
-                                ui.end_row();
-                            }
+                            line(ui, "Moment of inertia", format!("{:.3} kgm²", mass.principal_inertia));
+                        }
 
-                            if let Some(xform) = xform {
-                                ui.label("Position");
-                                ui.label(format!("[x={:.3}, y={:.3}] m", xform.translation.x, xform.translation.y));
-                                ui.end_row();
-                            }
+                        if let Some(props) = coll_mass {
+                            line(ui, "Collider mass", format!("{:?}", props));
+                        }
 
-                            if let Some(vel) = vel {
-                                ui.label("Velocity");
-                                ui.label(format!("[x={:.3}, y={:.3}] m/s", vel.linvel.x, vel.linvel.y));
-                                ui.end_row();
+                        if let Some(xform) = xform {
+                            line(ui, "Position", format!("[x={:.3}, y={:.3}] m", xform.translation.x, xform.translation.y));
+                        }
 
-                                ui.label("Angular velocity");
-                                ui.label(format!("{:.3} rad/s", vel.angvel));
-                                ui.end_row();
-                            }
-                        });
+                        if let Some(vel) = vel {
+                            line(ui, "Velocity", format!("[x={:.3}, y={:.3}] m/s", vel.linvel.x, vel.linvel.y));
+
+                            line(ui, "Angular velocity", format!("{:.3} rad/s", vel.angvel));
+                        }
+                    });
+                    ui.separator();
+                    egui::Grid::new("info grid 2").striped(true).show(ui, |ui| {
+                        let mut total = 0.0;
+
+                        if let Some(KineticEnergy { linear, angular }) = kine {
+                            line(ui, "Kinetic linear energy", format!("{:.3} J", linear));
+                            line(ui, "Kinetic angular energy", format!("{:.3} J", angular));
+                            total += linear + angular;
+                        }
+
+                        if let Some(ReadMassProperties(mass)) = mass {
+                            let pot = mass.mass * -rapier_conf.gravity.y * xform.unwrap().translation.y;
+                            line(ui, "Potential energy (gravity)", format!("{:.3} J", pot)); // todo: nonvertical gravity
+                            total += pot;
+                        }
+
+                        line(ui, "Energy (total)", format!("{:.3} J", total));
+                    });
                 });
         }
     }
@@ -704,3 +550,18 @@ struct ControllerWindow;
 
 #[derive(Default, Component)]
 struct ScriptMenuWindow;
+
+
+pub struct RemoveTemporaryWindowsEvent;
+
+fn remove_temporary_windows(
+    mut commands: Commands,
+    mut events: EventReader<RemoveTemporaryWindowsEvent>,
+    wnds: Query<Entity, With<TemporaryWindow>>,
+) {
+    for _ in events.iter() {
+        for id in wnds.iter() {
+            commands.entity(id).despawn_recursive();
+        }
+    }
+}

@@ -3,15 +3,13 @@ use std::time::Duration;
 
 use bevy::math::Vec3Swizzles;
 use bevy::{input::mouse::MouseWheel, prelude::*};
+use bevy_egui::egui::epaint::util::{FloatOrd, OrderedFloat};
 use bevy_egui::egui::epaint::Hsva;
-use bevy_egui::egui::{
-    Id, TextureId,
-};
+use bevy_egui::egui::{Id, TextureId};
 use bevy_egui::{
     egui::{self},
     EguiContext, EguiPlugin,
 };
-use bevy_egui::egui::epaint::util::{FloatOrd, OrderedFloat};
 use bevy_mouse_tracking_plugin::{prelude::*, MainCamera, MousePos, MousePosWorld};
 use bevy_prototype_lyon::prelude::*;
 use bevy_prototype_lyon::{
@@ -23,6 +21,7 @@ use bevy_rapier2d::prelude::*;
 mod demo;
 mod palette;
 mod ui;
+mod measures;
 
 use bevy_turborand::{DelegatedRng, GlobalRng, RngComponent, RngPlugin};
 use derivative::Derivative;
@@ -32,6 +31,7 @@ use paste::paste;
 use ui::{ContextMenuEvent, WindowData};
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
+use crate::ui::{RemoveTemporaryWindowsEvent, TemporaryWindow};
 
 const BORDER_THICKNESS: f32 = 0.03;
 const CAMERA_FAR: f32 = 1e6f32;
@@ -214,6 +214,7 @@ pub fn app_main() {
         .add_event::<SelectUnderMouseEvent>()
         .add_event::<SelectEvent>()
         .add_event::<ContextMenuEvent>()
+        .add_event::<RemoveTemporaryWindowsEvent>()
         .add_startup_system(configure_visuals)
         .add_startup_system(configure_ui_state)
         .add_startup_system(setup_graphics)
@@ -221,6 +222,7 @@ pub fn app_main() {
         .add_startup_system(setup_palettes)
         .add_startup_system(setup_rng)
         .add_system_set(ui::draw_ui())
+        .add_system_set(measures::compute_measures())
         .add_system_set(
             SystemSet::new()
                 .with_system(mouse_wheel)
@@ -236,7 +238,11 @@ pub fn app_main() {
         .add_system(process_rotate)
         .add_system(process_draw_overlay.after(left_release))
         .add_system(process_select_under_mouse.before(process_select))
-        .add_system(process_select.before(ui::handle_context_menu).after(left_release))
+        .add_system(
+            process_select
+                .before(ui::handle_context_menu)
+                .after(left_release),
+        )
         .add_system(
             ui::handle_context_menu
                 .after(process_select_under_mouse)
@@ -363,7 +369,8 @@ fn mouse_long_or_moved(
                 let under_mouse = find_under_mouse(&rapier, pos, QueryFilter::default(), |ent| {
                     let (transform, _) = query.get(ent).unwrap();
                     transform.translation.z
-                }).next();
+                })
+                .next();
 
                 if matches!(
                     hover_tool,
@@ -371,7 +378,7 @@ fn mouse_long_or_moved(
                 ) {
                     select_mouse.send(SelectEvent {
                         entity: under_mouse,
-                        open_menu: false
+                        open_menu: false,
                     });
                 }
 
@@ -508,7 +515,10 @@ fn left_release(
         ui_state.mouse_left,
         {
             info!("selecting under mouse");
-            select_mouse.send(SelectUnderMouseEvent { pos, open_menu: false });
+            select_mouse.send(SelectUnderMouseEvent {
+                pos,
+                open_menu: false,
+            });
         }
     );
     process_button!(
@@ -517,7 +527,10 @@ fn left_release(
         ui_state.mouse_right,
         {
             info!("selecting under mouse");
-            select_mouse.send(SelectUnderMouseEvent { pos, open_menu: true });
+            select_mouse.send(SelectUnderMouseEvent {
+                pos,
+                open_menu: true,
+            });
         }
     );
 }
@@ -606,16 +619,20 @@ fn process_add_object(
             }
             Fix(pos) => {
                 let (entity1, entity2) = {
-                    let mut entities = find_under_mouse(&rapier, pos, QueryFilter::only_dynamic(), |ent| {
-                        let (transform, _) = query.get(ent).unwrap();
-                        transform.translation.z
-                    });
+                    let mut entities =
+                        find_under_mouse(&rapier, pos, QueryFilter::only_dynamic(), |ent| {
+                            let (transform, _) = query.get(ent).unwrap();
+                            transform.translation.z
+                        });
                     (entities.next(), entities.next())
                 };
 
                 if let Some(entity1) = entity1 {
                     if sensor.get(entity1).is_ok() {
-                        select_mouse.send(SelectUnderMouseEvent { pos, open_menu: false });
+                        select_mouse.send(SelectUnderMouseEvent {
+                            pos,
+                            open_menu: false,
+                        });
                         return;
                     }
 
@@ -654,16 +671,20 @@ fn process_add_object(
             }
             Hinge(pos) => {
                 let (entity1, entity2) = {
-                    let mut entities = find_under_mouse(&rapier, pos, QueryFilter::only_dynamic(), |ent| {
-                        let (transform, _) = query.get(ent).unwrap();
-                        transform.translation.z
-                    });
+                    let mut entities =
+                        find_under_mouse(&rapier, pos, QueryFilter::only_dynamic(), |ent| {
+                            let (transform, _) = query.get(ent).unwrap();
+                            transform.translation.z
+                        });
                     (entities.next(), entities.next())
                 };
 
                 if let Some(entity1) = entity1 {
                     if sensor.get(entity1).is_ok() {
-                        select_mouse.send(SelectUnderMouseEvent { pos, open_menu: false });
+                        select_mouse.send(SelectUnderMouseEvent {
+                            pos,
+                            open_menu: false,
+                        });
                         return;
                     }
 
@@ -950,8 +971,6 @@ fn left_pressed(
         NotHandled,
     }
 
-    
-
     let pos = mouse_pos.xy();
 
     macro_rules! process_button {
@@ -1111,6 +1130,7 @@ struct PhysicalObject {
     restitution: Restitution,
     mass_props: ColliderMassProperties,
     shape: ShapeBundle,
+    read_props: ReadMassProperties
 }
 
 fn hsva_to_rgba(hsva: Hsva) -> Color {
@@ -1175,6 +1195,7 @@ impl PhysicalObject {
                 },
                 Transform::from_translation(pos),
             ),
+            read_props: ReadMassProperties::default(),
         }
     }
 
@@ -1205,6 +1226,7 @@ impl PhysicalObject {
                 },
                 Transform::from_translation(pos + (size / 2.0).extend(0.0)),
             ),
+            read_props: ReadMassProperties::default(),
         }
     }
 }
@@ -1382,7 +1404,7 @@ fn setup_palettes(mut palette_config: ResMut<PaletteConfig>, asset_server: Res<A
 
 struct SelectEvent {
     entity: Option<Entity>,
-    open_menu: bool
+    open_menu: bool,
 }
 
 #[derive(Component)]
@@ -1400,34 +1422,6 @@ fn process_select(
     screen_pos: Res<MousePos>,
     windows: Res<Windows>,
 ) {
-    let mut set_selected = move |entity, selected| {
-        let Ok(mut current) = query.get_mut(entity) else { return };
-        if selected {
-            commands.entity(entity).insert(UnselectedDrawMode {
-                draw_mode: current.clone(),
-            });
-            let stroke = make_stroke(Color::WHITE, BORDER_THICKNESS);
-            *current = match *current {
-                DrawMode::Outlined {
-                    fill_mode,
-                    outline_mode: _,
-                } => DrawMode::Outlined {
-                    fill_mode,
-                    outline_mode: stroke,
-                },
-                DrawMode::Fill(fill_mode) => DrawMode::Outlined {
-                    fill_mode,
-                    outline_mode: stroke,
-                },
-                DrawMode::Stroke(_) => DrawMode::Stroke(stroke),
-            };
-        } else {
-            let backup = query_backup.get(entity).unwrap();
-            *current = backup.draw_mode;
-            commands.entity(entity).remove::<UnselectedDrawMode>();
-        }
-    };
-
     let screen_pos = Vec2::new(
         screen_pos.x,
         windows.get_primary().unwrap().height() - screen_pos.y,
@@ -1435,20 +1429,43 @@ fn process_select(
 
     for SelectEvent { entity, open_menu } in events.iter() {
         if let Some(EntitySelection { entity }) = state.selected_entity {
-            set_selected(entity, false);
+            if let Ok(mut current) = query.get_mut(entity) {
+                let backup = query_backup.get(entity).unwrap();
+                *current = backup.draw_mode;
+                commands.entity(entity).remove::<UnselectedDrawMode>();
+            }
         }
 
         if let Some(entity) = entity {
             info!("Selecting entity: {:?}", entity);
+            commands.entity(*entity).log_components();
         } else {
             info!("Deselecting entity");
         }
 
         state.selected_entity = entity.map(|entity| {
-            set_selected(entity, true);
+            if let Ok(mut current) = query.get_mut(entity) {
+                commands.entity(entity).insert(UnselectedDrawMode {
+                    draw_mode: current.clone(),
+                });
+                let stroke = make_stroke(Color::WHITE, BORDER_THICKNESS);
+                *current = match *current {
+                    DrawMode::Outlined {
+                        fill_mode,
+                        outline_mode: _,
+                    } => DrawMode::Outlined {
+                        fill_mode,
+                        outline_mode: stroke,
+                    },
+                    DrawMode::Fill(fill_mode) => DrawMode::Outlined {
+                        fill_mode,
+                        outline_mode: stroke,
+                    },
+                    DrawMode::Stroke(_) => DrawMode::Stroke(stroke),
+                };
+            }
             EntitySelection { entity }
         });
-
         if *open_menu {
             menu_event.send(ContextMenuEvent { screen_pos });
         }
@@ -1464,7 +1481,7 @@ fn find_under_mouse(
     #[derive(Derivative)]
     #[derivative(PartialEq, PartialOrd, Eq, Ord)]
     struct EntityZ {
-        #[derivative(PartialEq="ignore", PartialOrd="ignore")]
+        #[derivative(PartialEq = "ignore", PartialOrd = "ignore")]
         entity: Entity,
         z: OrderedFloat<f32>,
     }
@@ -1485,21 +1502,30 @@ fn find_under_mouse(
 #[derive(Copy, Clone)]
 struct SelectUnderMouseEvent {
     pos: Vec2,
-    open_menu: bool
+    open_menu: bool,
 }
 
 fn process_select_under_mouse(
     mut events: EventReader<SelectUnderMouseEvent>,
     rapier: Res<RapierContext>,
     mut select: EventWriter<SelectEvent>,
-    query: Query<&Transform, With<RigidBody>>
+    query: Query<&Transform, With<RigidBody>>,
+    mut commands: Commands,
+    wnds: Query<Entity, With<TemporaryWindow>>,
 ) {
     for SelectUnderMouseEvent { pos, open_menu } in events.iter().copied() {
+        for id in wnds.iter() {
+            commands.entity(id).despawn_recursive();
+        }
         let selected = find_under_mouse(&rapier, pos, QueryFilter::default(), |ent| {
             let transform = query.get(ent).unwrap();
             transform.translation.z
-        }).next();
-        select.send(SelectEvent { entity: selected, open_menu });
+        })
+        .next();
+        select.send(SelectEvent {
+            entity: selected,
+            open_menu,
+        });
     }
 }
 
