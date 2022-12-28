@@ -104,84 +104,42 @@ impl Display for PlotQuantity {
 
 type PlotQuantityCategory = &'static [PlotQuantity];
 
-fn quantity(name: &'static str, measure: QuantityFn) -> PlotQuantity {
+const fn quantity(name: &'static str, measure: QuantityFn) -> PlotQuantity {
     PlotQuantity { name, measure }
 }
 
 static PLOT_QUANTITIES: &[&[PlotQuantity]] = &[
-    &[PlotQuantity {
-        name: "Time",
-        measure: |time, _| time,
-    }],
     &[
-        PlotQuantity {
-            name: "Position (x)",
-            measure: |_, query| query.0.translation.x,
-        },
-        PlotQuantity {
-            name: "Position (y)",
-            measure: |_, query| query.0.translation.y,
-        },
+        quantity("Time", |time, _| time),
     ],
     &[
-        PlotQuantity {
-            name: "Speed",
-            measure: |_, query| query.1.linvel.length(),
-        },
-        PlotQuantity {
-            name: "Velocity (x)",
-            measure: |_, query| query.1.linvel.x,
-        },
-        PlotQuantity {
-            name: "Velocity (y)",
-            measure: |_, query| query.1.linvel.y,
-        },
+        quantity("Position (x)", |_, query| query.0.translation.x),
+        quantity("Position (y)", |_, query| query.0.translation.y),
     ],
-    &[PlotQuantity {
-        name: "Angular velocity",
-        measure: |_, query| query.1.angvel,
-    }],
+    &[
+        quantity("Speed", |_, query| query.1.linvel.length()),
+        quantity("Velocity (x)", |_, query| query.1.linvel.x),
+        quantity("Velocity (y)", |_, query| query.1.linvel.y),
+    ],
+    &[
+        quantity("Angular velocity", |_, query| query.1.angvel),
+    ],
     // todo: acceleration
     // todo: force
     &[
-        PlotQuantity {
-            name: "Momentum (x)",
-            measure: |_, query| query.4.linear.x,
-        },
-        PlotQuantity {
-            name: "Momentum (y)",
-            measure: |_, query| query.4.linear.y,
-        },
+        quantity("Momentum (x)", |_, query| query.4.linear.x),
+        quantity("Momentum (y)", |_, query| query.4.linear.y),
     ],
-    &[PlotQuantity {
-        name: "Angular momentum",
-        measure: |_, query| query.4.angular,
-    }],
     &[
-        PlotQuantity {
-            name: "Linear kinetic energy",
-            measure: |_, query| query.2.linear,
-        },
-        PlotQuantity {
-            name: "Angular kinetic energy",
-            measure: |_, query| query.2.angular,
-        },
-        PlotQuantity {
-            name: "Kinetic energy (sum)",
-            measure: |_, query| query.2.total(),
-        },
-        PlotQuantity {
-            name: "Potential gravitational energy",
-            measure: |_, query| query.3.energy,
-        },
-        PlotQuantity {
-            name: "Potential energy (sum)",
-            measure: |_, query| query.3.energy,
-        },
-        PlotQuantity {
-            name: "Energy (sum)",
-            measure: |_, query| query.2.total() + query.3.energy,
-        },
+        quantity("Angular momentum", |_, query| query.4.angular),
+    ],
+    &[
+        quantity("Linear kinetic energy", |_, query| query.2.linear),
+        quantity("Angular kinetic energy", |_, query| query.2.angular),
+        quantity("Kinetic energy (sum)", |_, query| query.2.total()),
+        quantity("Potential gravitational energy", |_, query| query.3.energy),
+        quantity("Potential energy (sum)", |_, query| query.3.energy),
+        quantity("Energy (sum)", |_, query| query.2.total() + query.3.energy),
     ],
 ];
 
