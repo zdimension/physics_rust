@@ -1,6 +1,9 @@
-use bevy_egui::egui::{NumExt, pos2, Response, Sense, TextStyle, TextureId, Ui, vec2, Widget, WidgetInfo, WidgetText, WidgetType};
 use bevy::math::Vec2;
 use bevy_egui::egui;
+use bevy_egui::egui::{
+    pos2, vec2, NumExt, Response, Sense, TextStyle, TextureId, Ui, Widget, WidgetInfo, WidgetText,
+    WidgetType,
+};
 
 pub struct MenuItem {
     icon: Option<egui::widgets::Image>,

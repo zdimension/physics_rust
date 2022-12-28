@@ -15,14 +15,13 @@ pub struct KineticEnergy {
 }
 
 impl KineticEnergy {
-    fn compute(
-        bodies: Query<(Entity, &ReadMassProperties, &Velocity)>,
-        mut commands: Commands
-    ) {
+    fn compute(bodies: Query<(Entity, &ReadMassProperties, &Velocity)>, mut commands: Commands) {
         for (id, ReadMassProperties(mass), vel) in bodies.iter() {
             let linear = mass.mass * vel.linvel.length_squared() / 2.0;
             let angular = mass.principal_inertia * vel.angvel * vel.angvel / 2.0;
-            commands.entity(id).insert(KineticEnergy { linear, angular });
+            commands
+                .entity(id)
+                .insert(KineticEnergy { linear, angular });
         }
     }
 
@@ -33,14 +32,14 @@ impl KineticEnergy {
 
 #[derive(Component)]
 pub struct GravityEnergy {
-    pub energy: f32
+    pub energy: f32,
 }
 
 impl GravityEnergy {
     fn compute(
         bodies: Query<(Entity, &ReadMassProperties, &Transform)>,
         rapier_conf: Res<RapierConfiguration>,
-        mut commands: Commands
+        mut commands: Commands,
     ) {
         for (id, ReadMassProperties(mass), pos) in bodies.iter() {
             let energy = mass.mass * -rapier_conf.gravity.y * pos.translation.y;
@@ -56,10 +55,7 @@ pub struct Momentum {
 }
 
 impl Momentum {
-    fn compute(
-        bodies: Query<(Entity, &ReadMassProperties, &Velocity)>,
-        mut commands: Commands
-    ) {
+    fn compute(bodies: Query<(Entity, &ReadMassProperties, &Velocity)>, mut commands: Commands) {
         for (id, ReadMassProperties(mass), vel) in bodies.iter() {
             let linear = mass.mass * vel.linvel;
             let angular = mass.principal_inertia * vel.angvel;

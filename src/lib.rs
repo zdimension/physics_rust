@@ -19,10 +19,11 @@ use bevy_prototype_lyon::{
 use bevy_rapier2d::prelude::*;
 
 mod demo;
+mod measures;
 mod palette;
 mod ui;
-mod measures;
 
+use crate::ui::{RemoveTemporaryWindowsEvent, TemporaryWindow};
 use bevy_turborand::{DelegatedRng, GlobalRng, RngComponent, RngPlugin};
 use derivative::Derivative;
 use lyon_path::builder::Build;
@@ -31,7 +32,6 @@ use paste::paste;
 use ui::{ContextMenuEvent, WindowData};
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
-use crate::ui::{RemoveTemporaryWindowsEvent, TemporaryWindow};
 
 const BORDER_THICKNESS: f32 = 0.03;
 const CAMERA_FAR: f32 = 1e6f32;
@@ -1130,7 +1130,7 @@ struct PhysicalObject {
     restitution: Restitution,
     mass_props: ColliderMassProperties,
     shape: ShapeBundle,
-    read_props: ReadMassProperties
+    read_props: ReadMassProperties,
 }
 
 fn hsva_to_rgba(hsva: Hsva) -> Color {

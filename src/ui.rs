@@ -1,32 +1,31 @@
-use std::borrow::Borrow;
-use std::collections::{HashMap, HashSet};
-use std::fmt::{Debug, Formatter};
-use std::hash::{Hash, Hasher};
-use std::marker::PhantomData;
 use crate::{GuiIcons, ToolIcons, UiState};
-use std::time::Duration;
-use std::fmt::Display;
 use bevy::log::info;
 use bevy::math::{Vec2, Vec3};
 use bevy::prelude::*;
-use bevy_egui::egui::{Align2, Context, Id, InnerResponse, NumExt, pos2, Pos2, Separator, Ui, vec2, Widget};
+use bevy_egui::egui::{
+    pos2, vec2, Align2, Context, Id, InnerResponse, NumExt, Pos2, Separator, Ui, Widget,
+};
 use bevy_egui::{egui, EguiContext};
-use bevy_egui::egui::plot::{Line, Plot, PlotPoint, PlotPoints};
 use bevy_mouse_tracking_plugin::MainCamera;
 use bevy_rapier2d::plugin::{RapierConfiguration, TimestepMode};
 use bevy_rapier2d::prelude::*;
 use derivative::Derivative;
-use lyon_path::commands::CommandsPathSlice;
 use icon_button::IconButton;
-use separator_custom::SeparatorCustom;
-use paste::paste;
 use itertools::Itertools;
+use separator_custom::SeparatorCustom;
+use std::borrow::Borrow;
+use std::fmt::Debug;
+use std::fmt::Display;
+use std::hash::{Hash, Hasher};
+use std::time::Duration;
 mod icon_button;
 mod menu_item;
+mod plot;
 mod separator_custom;
 
+use crate::measures::KineticEnergy;
 use menu_item::MenuItem;
-use crate::measures::{GravityEnergy, KineticEnergy, Momentum};
+use plot::PlotWindow;
 
 #[derive(Derivative)]
 #[derivative(Debug)]
@@ -106,7 +105,7 @@ pub fn draw_toolbox(
     mut egui_ctx: ResMut<EguiContext>,
     mut ui_state: ResMut<UiState>,
     tool_icons: Res<ToolIcons>,
-    mut clear_tmp: EventWriter<RemoveTemporaryWindowsEvent>
+    mut clear_tmp: EventWriter<RemoveTemporaryWindowsEvent>,
 ) {
     egui::Window::new("Tools")
         .anchor(Align2::LEFT_BOTTOM, [0.0, 0.0])
@@ -151,7 +150,7 @@ pub fn draw_bottom_toolbar(
     mut gravity_conf: Local<GravitySetting>,
     tool_icons: Res<ToolIcons>,
     gui_icons: Res<GuiIcons>,
-    mut clear_tmp: EventWriter<RemoveTemporaryWindowsEvent>
+    mut clear_tmp: EventWriter<RemoveTemporaryWindowsEvent>,
 ) {
     egui::Window::new("Tools2")
         .anchor(Align2::CENTER_BOTTOM, [0.0, 0.0])
@@ -241,7 +240,7 @@ impl AsPos2 for Pos2 {
 }
 
 #[derive(Component)]
-struct InitialPos(Pos2, Pos2);
+pub(crate) struct InitialPos(Pos2, Pos2);
 
 impl InitialPos {
     fn initial(pos: impl AsPos2) -> impl Bundle {
@@ -324,19 +323,30 @@ impl Into<Pos2> for &InitialPos {
 }
 
 trait Subwindow {
-    fn subwindow(self, id: Entity, ctx: &Context, initial_pos: &mut InitialPos, commands: &mut Commands, contents: impl FnOnce(&mut Ui, &mut Commands));
+    fn subwindow(
+        self,
+        id: Entity,
+        ctx: &Context,
+        initial_pos: &mut InitialPos,
+        commands: &mut Commands,
+        contents: impl FnOnce(&mut Ui, &mut Commands),
+    );
 }
 
 impl<'a> Subwindow for egui::Window<'a> {
-    fn subwindow(mut self, id: Entity, ctx: &Context, initial_pos: &mut InitialPos, commands: &mut Commands, contents: impl FnOnce(&mut Ui, &mut Commands)) {
+    fn subwindow(
+        mut self,
+        id: Entity,
+        ctx: &Context,
+        initial_pos: &mut InitialPos,
+        commands: &mut Commands,
+        contents: impl FnOnce(&mut Ui, &mut Commands),
+    ) {
         let mut open = true;
-        self
-            .id_bevy(id)
+        self.id_bevy(id)
             .default_pos(&*initial_pos)
             .open(&mut open)
-            .show(ctx, |ui| {
-                contents(ui, commands)
-            })
+            .show(ctx, |ui| contents(ui, commands))
             .map(|resp| initial_pos.1 = resp.response.rect.left_top());
         if !open {
             commands.entity(id).despawn_recursive();
@@ -484,7 +494,7 @@ impl InformationWindow {
             Option<&ReadMassProperties>,
             Option<&Velocity>,
             Option<&ColliderMassProperties>,
-            Option<&KineticEnergy>
+            Option<&KineticEnergy>,
         )>,
         rapier_conf: Res<RapierConfiguration>,
         mut egui_ctx: ResMut<EguiContext>,
@@ -492,16 +502,13 @@ impl InformationWindow {
     ) {
         let ctx = egui_ctx.ctx_mut();
         for (id, parent, mut initial_pos) in wnds.iter_mut() {
-            let (
-                xform,
-                mass,
-                vel,
-                coll_mass,
-                kine
-            ) = ents.get(parent.get()).unwrap();
-            egui::Window::new("info")
-                .id_bevy(id)
-                .subwindow(id, ctx, &mut initial_pos, &mut commands, |ui, commands| {
+            let (xform, mass, vel, coll_mass, kine) = ents.get(parent.get()).unwrap();
+            egui::Window::new("info").id_bevy(id).subwindow(
+                id,
+                ctx,
+                &mut initial_pos,
+                &mut commands,
+                |ui, commands| {
                     fn line(ui: &mut Ui, label: &'static str, val: String) {
                         ui.label(label);
                         ui.label(val);
@@ -511,7 +518,11 @@ impl InformationWindow {
                         if let Some(ReadMassProperties(mass)) = mass {
                             line(ui, "Mass", format!("{:.3} kg", mass.mass));
 
-                            line(ui, "Moment of inertia", format!("{:.3} kgm²", mass.principal_inertia));
+                            line(
+                                ui,
+                                "Moment of inertia",
+                                format!("{:.3} kgm²", mass.principal_inertia),
+                            );
                         }
 
                         if let Some(props) = coll_mass {
@@ -519,11 +530,22 @@ impl InformationWindow {
                         }
 
                         if let Some(xform) = xform {
-                            line(ui, "Position", format!("[x={:.3}, y={:.3}] m", xform.translation.x, xform.translation.y));
+                            line(
+                                ui,
+                                "Position",
+                                format!(
+                                    "[x={:.3}, y={:.3}] m",
+                                    xform.translation.x, xform.translation.y
+                                ),
+                            );
                         }
 
                         if let Some(vel) = vel {
-                            line(ui, "Velocity", format!("[x={:.3}, y={:.3}] m/s", vel.linvel.x, vel.linvel.y));
+                            line(
+                                ui,
+                                "Velocity",
+                                format!("[x={:.3}, y={:.3}] m/s", vel.linvel.x, vel.linvel.y),
+                            );
 
                             line(ui, "Angular velocity", format!("{:.3} rad/s", vel.angvel));
                         }
@@ -539,14 +561,16 @@ impl InformationWindow {
                         }
 
                         if let Some(ReadMassProperties(mass)) = mass {
-                            let pot = mass.mass * -rapier_conf.gravity.y * xform.unwrap().translation.y;
+                            let pot =
+                                mass.mass * -rapier_conf.gravity.y * xform.unwrap().translation.y;
                             line(ui, "Potential energy (gravity)", format!("{:.3} J", pot)); // todo: nonvertical gravity
                             total += pot;
                         }
 
                         line(ui, "Energy (total)", format!("{:.3} J", total));
                     });
-                });
+                },
+            );
         }
     }
 }
@@ -566,7 +590,6 @@ struct ControllerWindow;
 #[derive(Default, Component)]
 struct ScriptMenuWindow;
 
-
 pub struct RemoveTemporaryWindowsEvent;
 
 fn remove_temporary_windows(
@@ -577,270 +600,6 @@ fn remove_temporary_windows(
     for _ in events.iter() {
         for id in wnds.iter() {
             commands.entity(id).despawn_recursive();
-        }
-    }
-}
-
-#[derive(Component)]
-struct PlotWindow {
-    series: HashMap<PlotSeriesId, PlotSeries>,
-    category_x: &'static [PlotQuantity],
-    measures_x: HashSet<&'static PlotQuantity>,
-    category_y: &'static [PlotQuantity],
-    measures_y: HashSet<&'static PlotQuantity>,
-    time: f32
-}
-
-struct PlotSeriesId {
-    name: String,
-    x: &'static PlotQuantity,
-    y: &'static PlotQuantity,
-}
-
-impl PlotSeriesId {
-    fn new(x: &'static PlotQuantity, y: &'static PlotQuantity) -> Self {
-        Self {
-            name: format!("{} / {}", y.name, x.name),
-            x,
-            y
-        }
-    }
-}
-
-impl Hash for PlotSeriesId {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.name.hash(state);
-    }
-}
-
-impl PartialEq for PlotSeriesId {
-    fn eq(&self, other: &Self) -> bool {
-        std::ptr::eq(self.x, other.x) && std::ptr::eq(self.y, other.y)
-    }
-}
-
-impl Eq for PlotSeriesId {}
-
-impl Display for PlotSeriesId {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.name)
-    }
-}
-
-impl Borrow<str> for PlotSeriesId {
-    fn borrow(&self) -> &str {
-        &self.name
-    }
-}
-
-impl Debug for PlotSeriesId {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.name)
-    }
-}
-
-struct PlotSeries {
-    values: Vec<PlotPoint>
-}
-
-impl PlotSeries {
-    fn new() -> Self {
-        Self { values: Vec::new() }
-    }
-}
-
-type PlotQuery<'a> = (&'a Transform, &'a Velocity, &'a KineticEnergy, &'a GravityEnergy, &'a Momentum);
-type QuantityFn = fn(f32, PlotQuery) -> f32;
-
-struct PlotQuantity {
-    name: &'static str,
-    measure: QuantityFn
-}
-
-impl Display for PlotQuantity {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.name)
-    }
-}
-
-type PlotQuantityCategory = &'static [PlotQuantity];
-
-fn quantity(name: &'static str, measure: QuantityFn) -> PlotQuantity {
-    PlotQuantity { name, measure }
-}
-
-static PLOT_QUANTITIES: &[&[PlotQuantity]] = &[
-    &[
-        PlotQuantity { name: "Time", measure: |time, _| time },
-    ],
-    &[
-        PlotQuantity { name: "Position (x)", measure: |_, query| query.0.translation.x },
-        PlotQuantity { name: "Position (y)", measure: |_, query| query.0.translation.y },
-    ],
-    &[
-        PlotQuantity { name: "Speed", measure: |_, query| query.1.linvel.length() },
-        PlotQuantity { name: "Velocity (x)", measure: |_, query| query.1.linvel.x },
-        PlotQuantity { name: "Velocity (y)", measure: |_, query| query.1.linvel.y },
-    ],
-    &[
-        PlotQuantity { name: "Angular velocity", measure: |_, query| query.1.angvel },
-    ],
-    // todo: acceleration
-    // todo: force
-    &[
-        PlotQuantity { name: "Momentum (x)", measure: |_, query| query.4.linear.x },
-        PlotQuantity { name: "Momentum (y)", measure: |_, query| query.4.linear.y },
-    ],
-    &[
-        PlotQuantity { name: "Angular momentum", measure: |_, query| query.4.angular },
-    ],
-    &[
-        PlotQuantity { name: "Linear kinetic energy", measure: |_, query| query.2.linear },
-        PlotQuantity { name: "Angular kinetic energy", measure: |_, query| query.2.angular },
-        PlotQuantity { name: "Kinetic energy (sum)", measure: |_, query| query.2.total() },
-        PlotQuantity { name: "Potential gravitational energy", measure: |_, query| query.3.energy },
-        PlotQuantity { name: "Potential energy (sum)", measure: |_, query| query.3.energy },
-        PlotQuantity { name: "Energy (sum)", measure: |_, query| query.2.total() + query.3.energy },
-    ],
-];
-
-impl Default for PlotWindow {
-    fn default() -> Self {
-        Self {
-            series: HashMap::from([(PlotSeriesId::new(&PLOT_QUANTITIES[0][0], &PLOT_QUANTITIES[2][0]), PlotSeries::new())]),
-            category_x: PLOT_QUANTITIES[0],
-            measures_x: HashSet::from([&PLOT_QUANTITIES[0][0]]),
-            category_y: PLOT_QUANTITIES[2],
-            measures_y: HashSet::from([&PLOT_QUANTITIES[2][0]]),
-            time: 0.0
-        }
-    }
-}
-
-impl Hash for &'static PlotQuantity {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        (*self as *const PlotQuantity).hash(state);
-    }
-}
-
-impl PartialEq for &'static PlotQuantity {
-    fn eq(&self, other: &Self) -> bool {
-        std::ptr::eq(*self, *other)
-    }
-}
-
-impl Eq for &'static PlotQuantity {}
-
-impl PlotWindow {
-    /*fn make_series(x: &'static PlotQuantity, y: &'static PlotQuantity) -> (PlotSeriesId, PlotSeries) {
-        (PlotSeriesId::new(x, y), PlotSeries::new())
-    }
-
-    fn add_series(&mut self, x_cat: PlotQuantityCategory, x: &'static PlotQuantity, y_cat: PlotQuantityCategory, y: &'static PlotQuantity) {
-        if !std::ptr::eq(x_cat, self.category_x) || !std::ptr::eq(y_cat, self.category_y) {
-            self.category_x = x_cat;
-            self.category_y = y_cat;
-            self.measures_x.clear();
-            self.measures_y.clear();
-            self.series.clear();
-        }
-        self.series.insert(PlotSeriesId::new(x, y), PlotSeries::new());
-        self.measures_x.insert(x);
-        self.measures_y.insert(y);
-    }*/
-
-    fn show(
-        mut wnds: Query<(Entity, &Parent, &mut InitialPos, &mut PlotWindow)>,
-        ents: Query<PlotQuery>,
-        mut egui_ctx: ResMut<EguiContext>,
-        mut commands: Commands,
-        rapier_conf: Res<RapierConfiguration>,
-        time: Res<Time>,
-    ) {
-        let ctx = egui_ctx.ctx_mut();
-        for (id, parent, mut initial_pos, mut plot) in wnds.iter_mut() {
-            if rapier_conf.physics_pipeline_active {
-                let data = ents.get(parent.get()).unwrap();
-                let cur_time = plot.time;
-                for (name, series) in plot.series.iter_mut() {
-                    let x = (name.x.measure)(cur_time, data);
-                    let y = (name.y.measure)(cur_time, data);
-                    series.values.push(PlotPoint::new(x, y));
-                }
-                plot.time += time.delta_seconds();
-            }
-            egui::Window::new("plot")
-                .id_bevy(id)
-                .resizable(true)
-                .subwindow(id, ctx, &mut initial_pos, &mut commands, |ui, commands| {
-                    let series = unsafe { &*(&plot.series as *const HashMap<PlotSeriesId, PlotSeries>) };
-                    let mut fmt = |name: &str, value: &PlotPoint| {
-                        if name.len() > 0 {
-                            let (id, series) = series.get_key_value(name).unwrap_or_else(|| panic!("series {} not found, available: {:?}", name, series.keys()));
-                            let mut base = format!("x = {:.2} ({})\ny = {:.2} ({})", value.x, id.x, value.y, id.y);
-                            let values = &series.values;
-                            let idx = values.binary_search_by(|probe| probe.x.total_cmp(&value.x));
-                            if let Ok(idx) = idx {
-                                if idx > 5 {
-                                    let prev = &values[idx - 5];
-                                    let slope = (value.y - prev.y) / (value.x - prev.x);
-                                    base += &format!("\ndy/dx = {:.2}", slope);
-                                }
-
-                                let integ = values.windows(2).take(idx).map(|w| (w[0].y + w[1].y) * (w[1].x - w[0].x) / 2.0).sum::<f64>();
-                                base += &format!("\n∫dt = {:.2}", integ);
-                            }
-                            base
-                        } else {
-                            String::from("")
-                        }
-                    };
-                    ui.horizontal(|ui| {
-                        macro_rules! axis {
-                            ($name:literal, $sym:ident, $other:ident) => {
-                                paste! {
-                                    ui.menu_button(format!("{}-axis: {}", $name, plot.[<measures_ $sym>].iter().join(", ")), |ui| {
-                                        for (i, &group) in PLOT_QUANTITIES.iter().enumerate() {
-                                            if i > 0 {
-                                                ui.separator();
-                                            }
-                                            for [<$sym _measure>] in group {
-                                                let mut existing = plot.[<measures_ $sym>].contains(&[<$sym _measure>]);
-                                                if ui.checkbox(&mut existing, [<$sym _measure>].name).changed() {
-                                                    if existing {
-                                                        if !std::ptr::eq(group, plot.[<category_ $sym>]) {
-                                                            plot.[<category_ $sym>] = group;
-                                                            plot.[<measures_ $sym>].clear();
-                                                            plot.series.clear();
-                                                        }
-                                                        let mut plot = &mut *plot;
-                                                        for [<$other _measure>] in plot.[<measures_ $other>].iter() {
-                                                            plot.series.insert(PlotSeriesId::new(x_measure, y_measure), PlotSeries::new());
-                                                        }
-                                                        plot.[<measures_ $sym>].insert([<$sym _measure>]);
-                                                    } else {
-                                                        plot.series.retain(|id, _| id.$sym != [<$sym _measure>]);
-                                                        plot.[<measures_ $sym>].remove(&[<$sym _measure>]);
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    });
-                                }
-                            }
-                        }
-
-                        axis!("X", x, y);
-                        axis!("Y", y, x);
-                    });
-                    Plot::new("plot")
-                        .label_formatter(fmt)
-                        .show(ui, |plot_ui| {
-                            for (name, series) in &plot.series {
-                                plot_ui.line(Line::new(PlotPoints::Owned(series.values.clone())).name(name));
-                            }
-                        });
-                });
         }
     }
 }
