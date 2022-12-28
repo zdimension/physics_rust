@@ -8,8 +8,6 @@ use bevy_mouse_tracking_plugin::MainCamera;
 
 use derivative::Derivative;
 
-use std::hash::Hasher;
-
 mod icon_button;
 mod menu_item;
 mod separator_custom;

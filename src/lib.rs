@@ -26,7 +26,6 @@ mod ui;
 use crate::ui::{RemoveTemporaryWindowsEvent, TemporaryWindow};
 use bevy_turborand::{DelegatedRng, GlobalRng, RngComponent, RngPlugin};
 use derivative::Derivative;
-use lyon_path::builder::Build;
 use palette::{Palette, PaletteList, PaletteLoader};
 use paste::paste;
 use ui::{ContextMenuEvent, WindowData};
