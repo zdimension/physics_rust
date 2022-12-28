@@ -161,7 +161,8 @@ fn process_temporary_windows(
     mut commands: Commands,
 ) {
     for (wnd, pos, _) in wnds.iter() {
-        if pos.0 != pos.1 {
+        if pos.0.distance(pos.1) > 1.0 {
+            info!("marking window {:?} as persistent (initial {:?} != current {:?})", wnd, pos.0, pos.1);
             commands.entity(wnd).remove::<TemporaryWindow>();
         }
     }
