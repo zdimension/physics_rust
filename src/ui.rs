@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::marker::PhantomData;
 use crate::{GuiIcons, ToolIcons, UiState};
 use std::time::Duration;
@@ -22,7 +23,7 @@ mod menu_item;
 mod separator_custom;
 
 use menu_item::MenuItem;
-use crate::measures::KineticEnergy;
+use crate::measures::{GravityEnergy, KineticEnergy, Momentum};
 
 #[derive(Derivative)]
 #[derivative(Debug)]
@@ -573,16 +574,86 @@ fn remove_temporary_windows(
     }
 }
 
-#[derive(Default, Component)]
+#[derive(Component)]
 struct PlotWindow {
-    values: Vec<PlotPoint>,
+    series: HashMap<String, PlotSeries>,
     time: f32
 }
 
+struct PlotSeries {
+    x: &'static PlotQuantity,
+    y: &'static PlotQuantity,
+    values: Vec<PlotPoint>
+}
+
+type PlotQuery<'a> = (&'a Transform, &'a Velocity, &'a KineticEnergy, &'a GravityEnergy, &'a Momentum);
+type QuantityFn = fn(f32, PlotQuery) -> f32;
+
+struct PlotQuantity {
+    name: &'static str,
+    measure: QuantityFn
+}
+
+const PLOT_QUANTITIES: &[&[PlotQuantity]] = &[
+    &[
+        PlotQuantity { name: "Time", measure: |time, _| time },
+    ],
+    &[
+        PlotQuantity { name: "Position (x)", measure: |_, query| query.0.translation.x },
+        PlotQuantity { name: "Position (y)", measure: |_, query| query.0.translation.y },
+    ],
+    &[
+        PlotQuantity { name: "Speed", measure: |_, query| query.1.linvel.length() },
+        PlotQuantity { name: "Velocity (x)", measure: |_, query| query.1.linvel.x },
+        PlotQuantity { name: "Velocity (y)", measure: |_, query| query.1.linvel.y },
+    ],
+    &[
+        PlotQuantity { name: "Angular velocity", measure: |_, query| query.1.angvel },
+    ],
+    // todo: acceleration
+    // todo: force
+    &[
+        PlotQuantity { name: "Momentum (x)", measure: |_, query| query.4.linear.x },
+        PlotQuantity { name: "Momentum (y)", measure: |_, query| query.4.linear.y },
+    ],
+    &[
+        PlotQuantity { name: "Angular momentum", measure: |_, query| query.4.angular },
+    ],
+    &[
+        PlotQuantity { name: "Linear kinetic energy", measure: |_, query| query.2.linear },
+        PlotQuantity { name: "Angular kinetic energy", measure: |_, query| query.2.angular },
+        PlotQuantity { name: "Kinetic energy (sum)", measure: |_, query| query.2.total() },
+        PlotQuantity { name: "Potential gravitational energy", measure: |_, query| query.3.energy },
+        PlotQuantity { name: "Potential energy (sum)", measure: |_, query| query.3.energy },
+        PlotQuantity { name: "Energy (sum)", measure: |_, query| query.2.total() + query.3.energy },
+    ],
+];
+
+impl Default for PlotWindow {
+    fn default() -> Self {
+        const TIME: &'static PlotQuantity = &PLOT_QUANTITIES[0][0];
+        const SPEED: &'static PlotQuantity = &PLOT_QUANTITIES[2][0];
+        Self {
+            series: HashMap::from([
+                Self::make_series(TIME, SPEED)
+            ]),
+            time: 0.0
+        }
+    }
+}
+
 impl PlotWindow {
+    fn make_series(x: &'static PlotQuantity, y: &'static PlotQuantity) -> (String, PlotSeries) {
+        (format!("{} / {}", y.name, x.name), PlotSeries {
+            x,
+            y,
+            values: Vec::new()
+        })
+    }
+
     fn show(
         mut wnds: Query<(Entity, &Parent, &mut InitialPos, &mut PlotWindow)>,
-        ents: Query<&Velocity>,
+        ents: Query<PlotQuery>,
         mut egui_ctx: ResMut<EguiContext>,
         mut commands: Commands,
         rapier_conf: Res<RapierConfiguration>,
@@ -591,35 +662,44 @@ impl PlotWindow {
         let ctx = egui_ctx.ctx_mut();
         for (id, parent, mut initial_pos, mut plot) in wnds.iter_mut() {
             if rapier_conf.physics_pipeline_active {
-                let vel = ents.get(parent.get()).unwrap();
-                let pos_x = plot.time;
+                let data = ents.get(parent.get()).unwrap();
+                let cur_time = plot.time;
+                for (name, series) in plot.series.iter_mut() {
+                    let x = (series.x.measure)(cur_time, data);
+                    let y = (series.y.measure)(cur_time, data);
+                    series.values.push(PlotPoint::new(x, y));
+                }
                 plot.time += time.delta_seconds();
-                plot.values.push(PlotPoint::new(pos_x, vel.linvel.length()));
             }
             egui::Window::new("plot")
                 .id_bevy(id)
                 .subwindow(id, ctx, &mut initial_pos, &mut commands, |ui, commands| {
-                    struct Hack<'a, T: Fn(&str, &PlotPoint) -> String + 'a>(T, PhantomData<&'a T>);
-                    let values = unsafe { &*(&plot.values as *const Vec<PlotPoint>) };
+                    let series = unsafe { &*(&plot.series as *const HashMap<String, PlotSeries>) };
                     let mut fmt = |name: &str, value: &PlotPoint| {
                         let mut base = format!("x = {:.2}\ny = {:.2}", value.x, value.y);
-                        let idx = values.binary_search_by(|probe| probe.x.total_cmp(&value.x));
-                        if let Ok(idx) = idx {
-                            if idx > 5 {
-                                let prev = &values[idx - 5];
-                                let slope = (value.y - prev.y) / (value.x - prev.x);
-                                base += &format!("\ndy/dx = {:.2}", slope);
-                            }
+                        if name.len() > 0 {
+                            let series = series.get(name).unwrap_or_else(|| panic!("series {} not found, available: {:?}", name, series.keys()));
+                            let values = &series.values;
+                            let idx = values.binary_search_by(|probe| probe.x.total_cmp(&value.x));
+                            if let Ok(idx) = idx {
+                                if idx > 5 {
+                                    let prev = &values[idx - 5];
+                                    let slope = (value.y - prev.y) / (value.x - prev.x);
+                                    base += &format!("\ndy/dx = {:.2}", slope);
+                                }
 
-                            let integ = values.windows(2).take(idx).map(|w| (w[0].y + w[1].y) * (w[1].x - w[0].x) / 2.0).sum::<f64>();
-                            base += &format!("\n∫dt = {:.2}", integ);
+                                let integ = values.windows(2).take(idx).map(|w| (w[0].y + w[1].y) * (w[1].x - w[0].x) / 2.0).sum::<f64>();
+                                base += &format!("\n∫dt = {:.2}", integ);
+                            }
                         }
                         base
                     };
                     Plot::new("plot")
                         .label_formatter(fmt)
                         .show(ui, |plot_ui| {
-                            plot_ui.line(Line::new(PlotPoints::Owned(plot.values.clone())))
+                            for (name, series) in &plot.series {
+                                plot_ui.line(Line::new(PlotPoints::Owned(series.values.clone())).name(name));
+                            }
                         });
                 });
         }
