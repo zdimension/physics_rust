@@ -274,7 +274,7 @@ impl PlotWindow {
                         macro_rules! axis {
                             ($name:literal, $sym:ident, $other:ident) => {
                                 paste! {
-                                    ui.menu_button(format!("{}-axis: {}", $name, plot.[<measures_ $sym>].iter().join(", ")), |ui| {
+                                    ui.menu_button(format!("{}-axis: {}", $name, plot.[<measures_ $sym>].iter().map(|m| m.name).sorted().join(", ")), |ui| {
                                         for (i, &group) in PLOT_QUANTITIES.iter().enumerate() {
                                             if i > 0 {
                                                 ui.separator();

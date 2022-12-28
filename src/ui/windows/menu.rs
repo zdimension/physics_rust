@@ -114,6 +114,7 @@ impl MenuWindow {
                                 commands.entity(id).with_children(|parent| {
                                     parent.spawn((PlotWindow::default(), InitialPos::persistent(pos2(100.0, 100.0))));
                                 });
+                                commands.entity(id).despawn_recursive();
                             }
                             ui.add(Separator::default().horizontal());
 
