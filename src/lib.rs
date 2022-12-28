@@ -110,7 +110,9 @@ icon_set!(
     GuiIcons,
     "gui/",
     [
+        arrow_down,
         arrow_right,
+        arrow_up,
         collisions,
         color,
         controller,
@@ -437,9 +439,9 @@ fn left_release(
     mut add_obj: EventWriter<AddObjectEvent>,
     mut unfreeze: EventWriter<UnfreezeEntityEvent>,
     mut select_mouse: EventWriter<SelectUnderMouseEvent>,
-    mut context_menu: EventWriter<ContextMenuEvent>,
+    _context_menu: EventWriter<ContextMenuEvent>,
     mut overlay: ResMut<OverlayState>,
-    windows: Res<Windows>,
+    _windows: Res<Windows>,
 ) {
     use ToolEnum::*;
     let screen_pos = **screen_pos;
@@ -1132,6 +1134,7 @@ struct PhysicalObject {
     mass_props: ColliderMassProperties,
     shape: ShapeBundle,
     read_props: ReadMassProperties,
+    groups: CollisionGroups,
 }
 
 fn hsva_to_rgba(hsva: Hsva) -> Color {
@@ -1176,16 +1179,25 @@ impl Palette {
 }
 
 impl PhysicalObject {
-    fn ball(radius: f32, pos: Vec3) -> Self {
-        let radius = radius.abs();
+    pub fn make(collider: Collider, shape: ShapeBundle) -> Self {
         Self {
             rigid_body: RigidBody::Dynamic,
             velocity: Velocity::default(),
-            collider: Collider::ball(radius),
+            collider,
             friction: Friction::default(),
             restitution: Restitution::coefficient(0.7),
             mass_props: ColliderMassProperties::Density(1.0),
-            shape: GeometryBuilder::build_as(
+            shape,
+            read_props: ReadMassProperties::default(),
+            groups: CollisionGroups::new(Group::GROUP_1, Group::GROUP_1),
+        }
+    }
+
+    pub fn ball(radius: f32, pos: Vec3) -> Self {
+        let radius = radius.abs();
+        Self::make(
+            Collider::ball(radius),
+            GeometryBuilder::build_as(
                 &shapes::Circle {
                     radius,
                     ..Default::default()
@@ -1196,11 +1208,10 @@ impl PhysicalObject {
                 },
                 Transform::from_translation(pos),
             ),
-            read_props: ReadMassProperties::default(),
-        }
+        )
     }
 
-    fn rect(mut size: Vec2, mut pos: Vec3) -> Self {
+    pub fn rect(mut size: Vec2, mut pos: Vec3) -> Self {
         if size.x < 0.0 {
             pos.x += size.x;
             size.x = -size.x;
@@ -1209,14 +1220,9 @@ impl PhysicalObject {
             pos.y += size.y;
             size.y = -size.y;
         }
-        Self {
-            rigid_body: RigidBody::Dynamic,
-            velocity: Velocity::default(),
-            collider: Collider::cuboid(size.x / 2.0, size.y / 2.0),
-            friction: Friction::default(),
-            restitution: Restitution::coefficient(0.7),
-            mass_props: ColliderMassProperties::Density(1.0),
-            shape: GeometryBuilder::build_as(
+        Self::make(
+            Collider::cuboid(size.x / 2.0, size.y / 2.0),
+            GeometryBuilder::build_as(
                 &shapes::Rectangle {
                     extents: size,
                     origin: RectangleOrigin::Center,
@@ -1227,8 +1233,7 @@ impl PhysicalObject {
                 },
                 Transform::from_translation(pos + (size / 2.0).extend(0.0)),
             ),
-            read_props: ReadMassProperties::default(),
-        }
+        )
     }
 }
 

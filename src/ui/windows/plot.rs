@@ -1,5 +1,6 @@
 use crate::measures::{GravityEnergy, KineticEnergy, Momentum};
 use crate::ui::{BevyIdThing, InitialPos, Subwindow};
+use crate::GuiIcons;
 use bevy::hierarchy::Parent;
 use bevy::prelude::{Commands, Component, Entity, Query, Res, ResMut, Time, Transform};
 use bevy_egui::egui::plot::{Line, Plot, PlotPoint, PlotPoints};
@@ -12,7 +13,6 @@ use std::borrow::Borrow;
 use std::collections::{HashMap, HashSet};
 use std::fmt::{Debug, Display, Formatter};
 use std::hash::{Hash, Hasher};
-use crate::GuiIcons;
 
 #[derive(Component)]
 pub struct PlotWindow {
@@ -240,9 +240,9 @@ impl PlotWindow {
             egui::Window::new("plot")
                 .id_bevy(id)
                 .resizable(true)
-                .subwindow(id, ctx, &mut initial_pos, &mut commands, |ui, commands| {
+                .subwindow(id, ctx, &mut initial_pos, &mut commands, |ui, _commands| {
                     let series = unsafe { &*(&plot.series as *const HashMap<PlotSeriesId, PlotSeries>) };
-                    let mut fmt = |name: &str, value: &PlotPoint| {
+                    let fmt = |name: &str, value: &PlotPoint| {
                         if name.len() > 0 {
                             let (id, series) = series.get_key_value(name).unwrap_or_else(|| panic!("series {} not found, available: {:?}", name, series.keys()));
                             let mut base = format!("x = {:.2} ({})\ny = {:.2} ({})", value.x, id.x, value.y, id.y);
@@ -288,7 +288,7 @@ impl PlotWindow {
                                                             plot.[<measures_ $sym>].clear();
                                                             plot.series.clear();
                                                         }
-                                                        let mut plot = &mut *plot;
+                                                        let plot = &mut *plot;
                                                         for [<$other _measure>] in plot.[<measures_ $other>].iter() {
                                                             plot.series.insert(PlotSeriesId::new(x_measure, y_measure), PlotSeries::new());
                                                         }

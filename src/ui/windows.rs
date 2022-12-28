@@ -1,0 +1,14 @@
+mod appearance;
+pub(crate) mod collisions;
+mod combine_shapes;
+mod controller;
+mod geom_actions;
+pub mod information;
+mod material;
+pub(crate) mod menu;
+pub mod plot;
+mod script;
+mod selection;
+mod text;
+pub(crate) mod toolbar;
+mod velocities;
