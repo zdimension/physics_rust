@@ -1,8 +1,11 @@
-use std::collections::HashMap;
+use std::borrow::Borrow;
+use std::collections::{HashMap, HashSet};
+use std::fmt::{Debug, Formatter};
+use std::hash::{Hash, Hasher};
 use std::marker::PhantomData;
 use crate::{GuiIcons, ToolIcons, UiState};
 use std::time::Duration;
-
+use std::fmt::Display;
 use bevy::log::info;
 use bevy::math::{Vec2, Vec3};
 use bevy::prelude::*;
@@ -16,8 +19,8 @@ use derivative::Derivative;
 use lyon_path::commands::CommandsPathSlice;
 use icon_button::IconButton;
 use separator_custom::SeparatorCustom;
-
-
+use paste::paste;
+use itertools::Itertools;
 mod icon_button;
 mod menu_item;
 mod separator_custom;
@@ -242,8 +245,12 @@ struct InitialPos(Pos2, Pos2);
 
 impl InitialPos {
     fn initial(pos: impl AsPos2) -> impl Bundle {
+        (Self::persistent(pos), TemporaryWindow)
+    }
+
+    fn persistent(pos: impl AsPos2) -> InitialPos {
         let pos = pos.as_pos2();
-        (Self(pos, pos), TemporaryWindow)
+        Self(pos, pos)
     }
 
     fn update<T>(&mut self, resp: InnerResponse<T>) {
@@ -421,7 +428,7 @@ impl MenuWindow {
                             if item!("Mirror", mirror) {}
                             if item!("Show plot", plot) {
                                 commands.entity(id).with_children(|parent| {
-                                    parent.spawn((PlotWindow::default(), InitialPos::initial(pos2(100.0, 100.0))));
+                                    parent.spawn((PlotWindow::default(), InitialPos::persistent(pos2(100.0, 100.0))));
                                 });
                             }
                             ui.add(Separator::default().horizontal());
@@ -576,14 +583,70 @@ fn remove_temporary_windows(
 
 #[derive(Component)]
 struct PlotWindow {
-    series: HashMap<String, PlotSeries>,
+    series: HashMap<PlotSeriesId, PlotSeries>,
+    category_x: &'static [PlotQuantity],
+    measures_x: HashSet<&'static PlotQuantity>,
+    category_y: &'static [PlotQuantity],
+    measures_y: HashSet<&'static PlotQuantity>,
     time: f32
 }
 
-struct PlotSeries {
+struct PlotSeriesId {
+    name: String,
     x: &'static PlotQuantity,
     y: &'static PlotQuantity,
+}
+
+impl PlotSeriesId {
+    fn new(x: &'static PlotQuantity, y: &'static PlotQuantity) -> Self {
+        Self {
+            name: format!("{} / {}", y.name, x.name),
+            x,
+            y
+        }
+    }
+}
+
+impl Hash for PlotSeriesId {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.name.hash(state);
+    }
+}
+
+impl PartialEq for PlotSeriesId {
+    fn eq(&self, other: &Self) -> bool {
+        std::ptr::eq(self.x, other.x) && std::ptr::eq(self.y, other.y)
+    }
+}
+
+impl Eq for PlotSeriesId {}
+
+impl Display for PlotSeriesId {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.name)
+    }
+}
+
+impl Borrow<str> for PlotSeriesId {
+    fn borrow(&self) -> &str {
+        &self.name
+    }
+}
+
+impl Debug for PlotSeriesId {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.name)
+    }
+}
+
+struct PlotSeries {
     values: Vec<PlotPoint>
+}
+
+impl PlotSeries {
+    fn new() -> Self {
+        Self { values: Vec::new() }
+    }
 }
 
 type PlotQuery<'a> = (&'a Transform, &'a Velocity, &'a KineticEnergy, &'a GravityEnergy, &'a Momentum);
@@ -594,7 +657,19 @@ struct PlotQuantity {
     measure: QuantityFn
 }
 
-const PLOT_QUANTITIES: &[&[PlotQuantity]] = &[
+impl Display for PlotQuantity {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.name)
+    }
+}
+
+type PlotQuantityCategory = &'static [PlotQuantity];
+
+fn quantity(name: &'static str, measure: QuantityFn) -> PlotQuantity {
+    PlotQuantity { name, measure }
+}
+
+static PLOT_QUANTITIES: &[&[PlotQuantity]] = &[
     &[
         PlotQuantity { name: "Time", measure: |time, _| time },
     ],
@@ -631,25 +706,48 @@ const PLOT_QUANTITIES: &[&[PlotQuantity]] = &[
 
 impl Default for PlotWindow {
     fn default() -> Self {
-        const TIME: &'static PlotQuantity = &PLOT_QUANTITIES[0][0];
-        const SPEED: &'static PlotQuantity = &PLOT_QUANTITIES[2][0];
         Self {
-            series: HashMap::from([
-                Self::make_series(TIME, SPEED)
-            ]),
+            series: HashMap::from([(PlotSeriesId::new(&PLOT_QUANTITIES[0][0], &PLOT_QUANTITIES[2][0]), PlotSeries::new())]),
+            category_x: PLOT_QUANTITIES[0],
+            measures_x: HashSet::from([&PLOT_QUANTITIES[0][0]]),
+            category_y: PLOT_QUANTITIES[2],
+            measures_y: HashSet::from([&PLOT_QUANTITIES[2][0]]),
             time: 0.0
         }
     }
 }
 
-impl PlotWindow {
-    fn make_series(x: &'static PlotQuantity, y: &'static PlotQuantity) -> (String, PlotSeries) {
-        (format!("{} / {}", y.name, x.name), PlotSeries {
-            x,
-            y,
-            values: Vec::new()
-        })
+impl Hash for &'static PlotQuantity {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        (*self as *const PlotQuantity).hash(state);
     }
+}
+
+impl PartialEq for &'static PlotQuantity {
+    fn eq(&self, other: &Self) -> bool {
+        std::ptr::eq(*self, *other)
+    }
+}
+
+impl Eq for &'static PlotQuantity {}
+
+impl PlotWindow {
+    /*fn make_series(x: &'static PlotQuantity, y: &'static PlotQuantity) -> (PlotSeriesId, PlotSeries) {
+        (PlotSeriesId::new(x, y), PlotSeries::new())
+    }
+
+    fn add_series(&mut self, x_cat: PlotQuantityCategory, x: &'static PlotQuantity, y_cat: PlotQuantityCategory, y: &'static PlotQuantity) {
+        if !std::ptr::eq(x_cat, self.category_x) || !std::ptr::eq(y_cat, self.category_y) {
+            self.category_x = x_cat;
+            self.category_y = y_cat;
+            self.measures_x.clear();
+            self.measures_y.clear();
+            self.series.clear();
+        }
+        self.series.insert(PlotSeriesId::new(x, y), PlotSeries::new());
+        self.measures_x.insert(x);
+        self.measures_y.insert(y);
+    }*/
 
     fn show(
         mut wnds: Query<(Entity, &Parent, &mut InitialPos, &mut PlotWindow)>,
@@ -665,20 +763,21 @@ impl PlotWindow {
                 let data = ents.get(parent.get()).unwrap();
                 let cur_time = plot.time;
                 for (name, series) in plot.series.iter_mut() {
-                    let x = (series.x.measure)(cur_time, data);
-                    let y = (series.y.measure)(cur_time, data);
+                    let x = (name.x.measure)(cur_time, data);
+                    let y = (name.y.measure)(cur_time, data);
                     series.values.push(PlotPoint::new(x, y));
                 }
                 plot.time += time.delta_seconds();
             }
             egui::Window::new("plot")
                 .id_bevy(id)
+                .resizable(true)
                 .subwindow(id, ctx, &mut initial_pos, &mut commands, |ui, commands| {
-                    let series = unsafe { &*(&plot.series as *const HashMap<String, PlotSeries>) };
+                    let series = unsafe { &*(&plot.series as *const HashMap<PlotSeriesId, PlotSeries>) };
                     let mut fmt = |name: &str, value: &PlotPoint| {
-                        let mut base = format!("x = {:.2}\ny = {:.2}", value.x, value.y);
                         if name.len() > 0 {
-                            let series = series.get(name).unwrap_or_else(|| panic!("series {} not found, available: {:?}", name, series.keys()));
+                            let (id, series) = series.get_key_value(name).unwrap_or_else(|| panic!("series {} not found, available: {:?}", name, series.keys()));
+                            let mut base = format!("x = {:.2} ({})\ny = {:.2} ({})", value.x, id.x, value.y, id.y);
                             let values = &series.values;
                             let idx = values.binary_search_by(|probe| probe.x.total_cmp(&value.x));
                             if let Ok(idx) = idx {
@@ -691,9 +790,49 @@ impl PlotWindow {
                                 let integ = values.windows(2).take(idx).map(|w| (w[0].y + w[1].y) * (w[1].x - w[0].x) / 2.0).sum::<f64>();
                                 base += &format!("\n∫dt = {:.2}", integ);
                             }
+                            base
+                        } else {
+                            String::from("")
                         }
-                        base
                     };
+                    ui.horizontal(|ui| {
+                        macro_rules! axis {
+                            ($name:literal, $sym:ident, $other:ident) => {
+                                paste! {
+                                    ui.menu_button(format!("{}-axis: {}", $name, plot.[<measures_ $sym>].iter().join(", ")), |ui| {
+                                        for (i, &group) in PLOT_QUANTITIES.iter().enumerate() {
+                                            if i > 0 {
+                                                ui.separator();
+                                            }
+                                            for [<$sym _measure>] in group {
+                                                let mut existing = plot.[<measures_ $sym>].contains(&[<$sym _measure>]);
+                                                if ui.checkbox(&mut existing, [<$sym _measure>].name).changed() {
+                                                    if existing {
+                                                        if !std::ptr::eq(group, plot.[<category_ $sym>]) {
+                                                            plot.[<category_ $sym>] = group;
+                                                            plot.[<measures_ $sym>].clear();
+                                                            plot.series.clear();
+                                                        }
+                                                        let mut plot = &mut *plot;
+                                                        for [<$other _measure>] in plot.[<measures_ $other>].iter() {
+                                                            plot.series.insert(PlotSeriesId::new(x_measure, y_measure), PlotSeries::new());
+                                                        }
+                                                        plot.[<measures_ $sym>].insert([<$sym _measure>]);
+                                                    } else {
+                                                        plot.series.retain(|id, _| id.$sym != [<$sym _measure>]);
+                                                        plot.[<measures_ $sym>].remove(&[<$sym _measure>]);
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    });
+                                }
+                            }
+                        }
+
+                        axis!("X", x, y);
+                        axis!("Y", y, x);
+                    });
                     Plot::new("plot")
                         .label_formatter(fmt)
                         .show(ui, |plot_ui| {
