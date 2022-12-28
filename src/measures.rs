@@ -13,7 +13,8 @@ pub struct KineticEnergy {
     pub linear: f32,
     pub angular: f32,
 }
-
+// todo sometimes it crashes it we delete an entity during a frame because
+// it tries to insert a component on a despawned entity
 impl KineticEnergy {
     fn compute(bodies: Query<(Entity, &ReadMassProperties, &Velocity)>, mut commands: Commands) {
         for (id, ReadMassProperties(mass), vel) in bodies.iter() {
