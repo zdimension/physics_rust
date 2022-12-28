@@ -37,12 +37,12 @@ impl MenuWindow {
         mut commands: Commands,
     ) {
         let ctx = egui_ctx.ctx_mut();
-        for (id, entity, mut info_wnd, mut initial_pos) in wnds.iter_mut() {
+        for (wnd_id, entity, mut info_wnd, mut initial_pos) in wnds.iter_mut() {
             let entity = entity.map(Parent::get);
             egui::Window::new("context menu")
                 .default_size(vec2(0.0, 0.0))
                 .resizable(false)
-                .subwindow(id, ctx, &mut initial_pos, &mut commands, |ui, commands| {
+                .subwindow(wnd_id, ctx, &mut initial_pos, &mut commands, |ui, commands| {
                     macro_rules! item {
                             (@ $text:literal, $icon:expr) => {
                                 ui.add(MenuItem::button($icon, $text.to_string())).clicked()
@@ -114,7 +114,7 @@ impl MenuWindow {
                                 commands.entity(id).with_children(|parent| {
                                     parent.spawn((PlotWindow::default(), InitialPos::persistent(pos2(100.0, 100.0))));
                                 });
-                                commands.entity(id).despawn_recursive();
+                                commands.entity(wnd_id).despawn_recursive();
                             }
                             ui.add(Separator::default().horizontal());
 
