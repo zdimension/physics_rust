@@ -12,6 +12,8 @@ use std::borrow::Borrow;
 use std::collections::{HashMap, HashSet};
 use std::fmt::{Debug, Display, Formatter};
 use std::hash::{Hash, Hasher};
+use crate::GuiIcons;
+
 #[derive(Component)]
 pub struct PlotWindow {
     series: HashMap<PlotSeriesId, PlotSeries>,
@@ -221,6 +223,7 @@ impl PlotWindow {
         mut commands: Commands,
         rapier_conf: Res<RapierConfiguration>,
         time: Res<Time>,
+        gui_icons: Res<GuiIcons>,
     ) {
         let ctx = egui_ctx.ctx_mut();
         for (id, parent, mut initial_pos, mut plot) in wnds.iter_mut() {
@@ -261,6 +264,13 @@ impl PlotWindow {
                         }
                     };
                     ui.horizontal(|ui| {
+                        if ui.add(egui::Button::image_and_text(gui_icons.plot_clear, [16.0, 16.0], "Clear"))
+                            .clicked() {
+                            for series in plot.series.values_mut() {
+                                series.values.clear();
+                            }
+                        }
+
                         macro_rules! axis {
                             ($name:literal, $sym:ident, $other:ident) => {
                                 paste! {

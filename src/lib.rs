@@ -123,6 +123,7 @@ icon_set!(
         pause,
         play,
         plot,
+        plot_clear,
         text,
         velocity,
         zoom2scene
