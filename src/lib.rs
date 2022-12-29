@@ -260,6 +260,7 @@ pub fn app_main() {
         .add_system(update_sprites_color)
         .add_system(update_draw_modes)
         .add_system(draw_lasers)
+        .add_system(update_size_scales)
         .run();
 }
 
@@ -838,6 +839,7 @@ fn process_add_object(
                         LaserBundle { fade_distance: 10.0 },
                         ColorComponent(palette.get_color_hsva(&mut *rng.single_mut())).update_from_this(),
                         Collider::cuboid(0.5, 0.25),
+                        SizeComponent(scale),
                         Sensor,
                     ))
                     .id();
@@ -850,15 +852,15 @@ fn process_add_object(
                 };
                 commands
                     .entity(laser)
-                    .insert(GeometryBuilder::build_as(
+                    .insert((GeometryBuilder::build_as(
                         &shapes::Rectangle {
                             extents: Vec2::new(1.0, 0.5) * 1.1, // make selection display a bit bigger
                             ..Default::default()
                         },
                         make_stroke(Color::rgba(0.0, 0.0, 0.0, 0.0), BORDER_THICKNESS).as_mode(),
-                        Transform::from_translation(z.pos(laser_pos))
-                            .with_scale(Vec3::new(scale, scale, 1.0)),
-                    ))
+                        Transform::from_translation(z.pos(laser_pos)),
+
+                    ), UpdateFrom::<SizeComponent>::This))
                     .with_children(|builder| {
                         builder.spawn((
                             SpriteBundle {
@@ -917,6 +919,17 @@ fn update_sprites_color(
             .find_component(entity, &parents)
             .1
             .to_rgba();
+    }
+}
+
+// set scale to (size, size, 1)
+fn update_size_scales(
+    mut scales: Query<(Entity, &mut Transform, &UpdateFrom<SizeComponent>)>,
+    parents: Query<(Option<&Parent>, Option<&SizeComponent>)>,
+) {
+    for (entity, mut scale, update_source) in scales.iter_mut() {
+        let (_, size) = update_source.find_component(entity, &parents);
+        scale.scale = Vec3::new(size, size, 1.0);
     }
 }
 
@@ -1070,6 +1083,17 @@ impl SettingComponent for ColorComponent {
     type Value = Hsva;
 
     fn get(&self) -> Hsva {
+        self.0
+    }
+}
+
+#[derive(Component)]
+pub struct SizeComponent(f32);
+
+impl SettingComponent for SizeComponent {
+    type Value = f32;
+
+    fn get(&self) -> f32 {
         self.0
     }
 }
