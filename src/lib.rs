@@ -482,13 +482,13 @@ fn left_release(
                         }
                     }
                     Box(Some(_ent)) if screen_pos.distance(click_pos_screen) > 6.0 => {
-                        add_obj.send(AddObjectEvent::Box(click_pos, pos - click_pos));
+                        add_obj.send(AddObjectEvent::Box { pos: click_pos, size: pos - click_pos });
                     }
                     Circle(Some(_ent)) if screen_pos.distance(click_pos_screen) > 6.0 => {
-                        add_obj.send(AddObjectEvent::Circle(
-                            click_pos,
-                            (pos - click_pos).length(),
-                        ));
+                        add_obj.send(AddObjectEvent::Circle {
+                            center: click_pos,
+                            radius: (pos - click_pos).length(),
+                        });
                     }
                     Spring(Some(_)) => {
                         todo!()
@@ -546,8 +546,8 @@ fn left_release(
 enum AddObjectEvent {
     Hinge(Vec2),
     Fix(Vec2),
-    Circle(Vec2, f32),
-    Box(Vec2, Vec2),
+    Circle { center: Vec2, radius: f32 },
+    Box { pos: Vec2, size: Vec2 },
     Laser(Vec2),
 }
 
@@ -614,7 +614,7 @@ fn process_add_object(
     use AddObjectEvent::*;
     for ev in events.iter() {
         match *ev {
-            Box(pos, size) => {
+            Box { pos: pos, size: size } => {
                 commands
                     .spawn(PhysicalObject::rect(size, z.pos(pos)))
                     .insert(ColorComponent(
@@ -623,7 +623,7 @@ fn process_add_object(
                     .insert(UpdateColorFrom::This)
                     .log_components();
             }
-            Circle(center, radius) => {
+            Circle { center: center, radius: radius } => {
                 commands
                     .spawn(PhysicalObject::ball(radius, z.pos(center)))
                     .insert(ColorComponent(
