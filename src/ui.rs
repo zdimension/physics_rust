@@ -2,7 +2,7 @@ use crate::UiState;
 use bevy::log::info;
 use bevy::math::{Vec2, Vec3};
 use bevy::prelude::*;
-use bevy_egui::egui::{pos2, Context, Id, InnerResponse, Pos2, Ui};
+use bevy_egui::egui::{Context, Id, InnerResponse, pos2, Pos2, Ui};
 use bevy_egui::{egui, EguiContext};
 use bevy_mouse_tracking_plugin::MainCamera;
 

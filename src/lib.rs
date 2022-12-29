@@ -1,11 +1,11 @@
 use std::borrow::BorrowMut;
-use std::collections::{BTreeSet, HashMap};
+use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::time::Duration;
 
 use bevy::math::Vec3Swizzles;
 use bevy::{input::mouse::MouseWheel, prelude::*};
-use bevy_egui::egui::epaint::util::{FloatOrd, OrderedFloat};
+use bevy_egui::egui::epaint::util::FloatOrd;
 use bevy_egui::egui::epaint::Hsva;
 use bevy_egui::egui::{Id, TextureId};
 use bevy_egui::{
@@ -25,15 +25,17 @@ mod measures;
 mod palette;
 mod ui;
 mod objects;
+mod mouse_select;
 
 pub use egui::egui_assert;
 
 use crate::palette::ToRgba;
-use crate::ui::{RemoveTemporaryWindowsEvent, TemporaryWindow};
+use crate::ui::RemoveTemporaryWindowsEvent;
 use bevy_turborand::{DelegatedRng, GlobalRng, RngComponent, RngPlugin};
 use derivative::Derivative;
 use palette::{Palette, PaletteList, PaletteLoader};
 use paste::paste;
+use mouse_select::{SelectEvent, SelectUnderMouseEvent};
 use objects::laser;
 use objects::laser::LaserRays;
 use ui::{ContextMenuEvent, WindowData};
@@ -248,16 +250,16 @@ pub fn app_main() {
         .add_system(process_unfreeze_entity)
         .add_system(process_rotate)
         .add_system(process_draw_overlay.after(left_release))
-        .add_system(process_select_under_mouse.before(process_select))
+        .add_system(mouse_select::process_select_under_mouse.before(mouse_select::process_select))
         .add_system(
-            process_select
+            mouse_select::process_select
                 .before(ui::handle_context_menu)
                 .after(left_release),
         )
         .add_system(
             ui::handle_context_menu
-                .after(process_select_under_mouse)
-                .after(process_select),
+                .after(mouse_select::process_select_under_mouse)
+                .after(mouse_select::process_select),
         )
         .add_system(show_current_tool_icon.after(mouse_wheel))
         .add_system(update_sprites_color)
@@ -383,7 +385,7 @@ fn mouse_long_or_moved(
                 todo!()
             }
             _ => {
-                let under_mouse = find_under_mouse(&rapier, clickpos, QueryFilter::default(), |ent| {
+                let under_mouse = mouse_select::find_under_mouse(&rapier, clickpos, QueryFilter::default(), |ent| {
                     let (transform, _) = query.get(ent).unwrap();
                     transform.translation.z
                 })
@@ -650,7 +652,7 @@ fn process_add_object(
             Fix(pos) => {
                 let (entity1, entity2) = {
                     let mut entities =
-                        find_under_mouse(&rapier, pos, QueryFilter::only_dynamic(), |ent| {
+                        mouse_select::find_under_mouse(&rapier, pos, QueryFilter::only_dynamic(), |ent| {
                             let (transform, _) = query.get(ent).unwrap();
                             transform.translation.z
                         });
@@ -702,7 +704,7 @@ fn process_add_object(
             Hinge(pos) => {
                 let (entity1, entity2) = {
                     let mut entities =
-                        find_under_mouse(&rapier, pos, QueryFilter::only_dynamic(), |ent| {
+                        mouse_select::find_under_mouse(&rapier, pos, QueryFilter::only_dynamic(), |ent| {
                             let (transform, _) = query.get(ent).unwrap();
                             transform.translation.z
                         });
@@ -832,7 +834,7 @@ fn process_add_object(
                 }
             }
             Laser(pos) => {
-                let entity = find_under_mouse(&rapier, pos, QueryFilter::only_dynamic(), |ent| {
+                let entity = mouse_select::find_under_mouse(&rapier, pos, QueryFilter::only_dynamic(), |ent| {
                     query.get(ent).unwrap().0.translation.z
                 })
                 .next();
@@ -1613,103 +1615,6 @@ struct PaletteConfig {
 
 fn setup_palettes(mut palette_config: ResMut<PaletteConfig>, asset_server: Res<AssetServer>) {
     palette_config.palettes = asset_server.load("palettes.ron");
-}
-
-struct SelectEvent {
-    entity: Option<Entity>,
-    open_menu: bool,
-}
-
-#[derive(Component)]
-struct UnselectedDrawMode {
-    draw_mode: DrawMode,
-}
-
-fn process_select(
-    mut events: EventReader<SelectEvent>,
-    mut state: ResMut<UiState>,
-    mut commands: Commands,
-    mut menu_event: EventWriter<ContextMenuEvent>,
-    screen_pos: Res<MousePos>,
-    windows: Res<Windows>,
-) {
-    let screen_pos = Vec2::new(
-        screen_pos.x,
-        windows.get_primary().unwrap().height() - screen_pos.y,
-    );
-
-    for SelectEvent { entity, open_menu } in events.iter() {
-        if let Some(entity) = entity {
-            info!("Selecting entity: {:?}", entity);
-            commands.entity(*entity).log_components();
-        } else {
-            info!("Setting selection to nothing");
-        }
-
-        state.selected_entity = entity.map(|entity| EntitySelection { entity });
-        if *open_menu {
-            menu_event.send(ContextMenuEvent { screen_pos });
-        }
-    }
-}
-
-fn find_under_mouse(
-    rapier: &RapierContext,
-    pos: Vec2,
-    filter: QueryFilter,
-    mut z: impl FnMut(Entity) -> f32,
-) -> impl Iterator<Item = Entity> {
-    #[derive(Derivative)]
-    #[derivative(PartialEq, PartialOrd, Eq, Ord)]
-    struct EntityZ {
-        #[derivative(PartialEq = "ignore", PartialOrd = "ignore")]
-        entity: Entity,
-        z: OrderedFloat<f32>,
-    }
-
-    let mut set = BTreeSet::new();
-
-    rapier.intersections_with_point(pos, filter, |ent| {
-        set.insert(EntityZ {
-            entity: ent,
-            z: z(ent).ord(),
-        });
-        true
-    });
-
-    set.into_iter().rev().map(|EntityZ { entity, .. }| entity)
-}
-
-#[derive(Copy, Clone)]
-struct SelectUnderMouseEvent {
-    pos: Vec2,
-    open_menu: bool,
-}
-
-fn process_select_under_mouse(
-    mut events: EventReader<SelectUnderMouseEvent>,
-    rapier: Res<RapierContext>,
-    mut select: EventWriter<SelectEvent>,
-    query: Query<&Transform>,
-    mut commands: Commands,
-    wnds: Query<Entity, With<TemporaryWindow>>,
-) {
-    for SelectUnderMouseEvent { pos, open_menu } in events.iter().copied() {
-        for id in wnds.iter() {
-            commands.entity(id).despawn_recursive();
-        }
-        let selected = find_under_mouse(&rapier, pos, QueryFilter::default(), |ent| {
-            let Ok(transform) = query.get(ent) else {
-                panic!("Entity {:?} has no transform", ent)
-            };
-            transform.translation.z
-        })
-        .next();
-        select.send(SelectEvent {
-            entity: selected,
-            open_menu,
-        });
-    }
 }
 
 impl UiState {}
