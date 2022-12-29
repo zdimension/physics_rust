@@ -6,6 +6,7 @@ pub fn compute_measures() -> SystemSet {
         .with_system(KineticEnergy::compute)
         .with_system(GravityEnergy::compute)
         .with_system(Momentum::compute)
+        .with_system(Forces::compute)
 }
 
 #[derive(Component)]
@@ -61,6 +62,62 @@ impl Momentum {
             let linear = mass.mass * vel.linvel;
             let angular = mass.principal_inertia * vel.angvel;
             commands.entity(id).insert(Momentum { linear, angular });
+        }
+    }
+}
+
+pub enum ForceKind {
+    Gravity,
+    Torque
+}
+
+pub enum ForceValue {
+    Force(Vec2),
+    Torque(f32),
+}
+
+impl From<Vec2> for ForceValue {
+    fn from(f: Vec2) -> Self {
+        ForceValue::Force(f)
+    }
+}
+
+impl From<f32> for ForceValue {
+    fn from(t: f32) -> Self {
+        ForceValue::Torque(t)
+    }
+}
+
+pub struct AppliedForce {
+    pub kind: ForceKind,
+    pub at: Vec2,
+    pub value: ForceValue,
+}
+
+pub struct Forces {
+    forces: Vec<AppliedForce>
+}
+
+impl Forces {
+    fn new() -> Self {
+        Self {
+            forces: Vec::new()
+        }
+    }
+
+    fn compute(bodies: Query<(Entity, &ReadMassProperties, &Velocity)>, mut commands: Commands, rapier_conf: Res<RapierConfiguration>) {
+        use ForceKind::*;
+
+        for (id, ReadMassProperties(mass), vel) in bodies.iter() {
+            let mut forces = vec![];
+
+            forces.push(AppliedForce {
+                kind: Gravity,
+                at: Vec2::ZERO,
+                value: Vec2::new(0.0, mass.mass * rapier_conf.gravity.y).into()
+            });
+
+            commands.entity(id).insert(Forces { forces });
         }
     }
 }
