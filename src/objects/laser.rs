@@ -93,7 +93,7 @@ pub fn draw_lasers(
                 builder.spawn(GeometryBuilder::build_as(
                     &shapes::Line(ray.start, ray.end()),
                     crate::make_stroke(crate::hsva_to_rgba(ray.color), ray.width).as_mode(),
-                    Transform::from_translation(Vec3::new(0.0, 0.0, transform.translation.z))
+                    Transform::from_translation(Vec3::new(0.0, 0.0, transform.translation.z - 0.1))
                 ));
             }
         });

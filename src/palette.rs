@@ -8,6 +8,8 @@ use bevy_egui::egui::epaint::Hsva;
 use bevy_turborand::DelegatedRng;
 use serde;
 use serde::Deserialize;
+use bevy_prototype_lyon::draw::DrawMode;
+use crate::BORDER_THICKNESS;
 
 #[derive(Debug, Deserialize)]
 #[serde(default)]
@@ -150,5 +152,27 @@ impl AssetLoader for PaletteLoader {
 
     fn extensions(&self) -> &[&str] {
         &["ron"]
+    }
+}
+
+impl Palette {
+    fn get_color(&self, rng: &mut impl DelegatedRng) -> Color {
+        self.color_range.rand(rng)
+    }
+
+    pub fn get_color_hsva(&self, rng: &mut impl DelegatedRng) -> Hsva {
+        self.color_range.rand_hsva(rng)
+    }
+
+    fn get_draw_mode(&self, rng: &mut impl DelegatedRng) -> DrawMode {
+        let color = self.color_range.rand_hsva(rng);
+        let darkened = Hsva {
+            v: color.v * 0.5,
+            ..color
+        };
+        DrawMode::Outlined {
+            fill_mode: crate::make_fill(crate::hsva_to_rgba(color)),
+            outline_mode: crate::make_stroke(crate::hsva_to_rgba(darkened), BORDER_THICKNESS),
+        }
     }
 }

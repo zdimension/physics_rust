@@ -26,6 +26,8 @@ mod palette;
 mod ui;
 mod objects;
 mod mouse_select;
+mod cursor;
+mod tools;
 
 pub use egui::egui_assert;
 
@@ -35,9 +37,13 @@ use bevy_turborand::{DelegatedRng, GlobalRng, RngComponent, RngPlugin};
 use derivative::Derivative;
 use palette::{Palette, PaletteList, PaletteLoader};
 use paste::paste;
+use cursor::ToolCursor;
 use mouse_select::{SelectEvent, SelectUnderMouseEvent};
 use objects::laser;
 use objects::laser::LaserRays;
+use tools::{MoveEvent, pan, rotate};
+use tools::pan::PanEvent;
+use tools::rotate::RotateEvent;
 use ui::{ContextMenuEvent, WindowData};
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
@@ -245,10 +251,10 @@ pub fn app_main() {
                 .with_system(mouse_long_or_moved)
                 .with_system(mouse_long_or_moved_writeback),
         )
-        .add_system(process_pan)
-        .add_system(process_move)
+        .add_system(pan::process_pan)
+        .add_system(tools::)
         .add_system(process_unfreeze_entity)
-        .add_system(process_rotate)
+        .add_system(rotate::process_rotate)
         .add_system(process_draw_overlay.after(left_release))
         .add_system(mouse_select::process_select_under_mouse.before(mouse_select::process_select))
         .add_system(
@@ -261,7 +267,7 @@ pub fn app_main() {
                 .after(mouse_select::process_select_under_mouse)
                 .after(mouse_select::process_select),
         )
-        .add_system(show_current_tool_icon.after(mouse_wheel))
+        .add_system(cursor::show_current_tool_icon.after(mouse_wheel))
         .add_system(update_sprites_color)
         .add_system(update_draw_modes)
         .add_system(laser::draw_lasers)
@@ -1017,39 +1023,6 @@ struct HingeBundle {}
 struct MouseLongOrMoved(ToolEnum, Vec2, UsedMouseButton);
 
 #[derive(Copy, Clone)]
-struct PanEvent {
-    orig_camera_pos: Vec2,
-    delta: Vec2,
-}
-
-fn process_pan(
-    mut events: EventReader<PanEvent>,
-    mut cameras: Query<&mut Transform, With<MainCamera>>,
-) {
-    for PanEvent {
-        orig_camera_pos,
-        delta,
-    } in events.iter().copied()
-    {
-        let mut camera = cameras.single_mut();
-        camera.translation = (orig_camera_pos + delta * camera.scale.xy()).extend(CAMERA_Z);
-    }
-}
-
-#[derive(Copy, Clone)]
-struct MoveEvent {
-    entity: Entity,
-    pos: Vec2,
-}
-
-fn process_move(mut events: EventReader<MoveEvent>, mut query: Query<&mut Transform>) {
-    for MoveEvent { entity, pos } in events.iter().copied() {
-        let mut transform = query.get_mut(entity).unwrap();
-        transform.translation = pos.extend(transform.translation.z);
-    }
-}
-
-#[derive(Copy, Clone)]
 struct UnfreezeEntityEvent {
     entity: Entity,
 }
@@ -1061,30 +1034,6 @@ fn process_unfreeze_entity(
     for UnfreezeEntityEvent { entity } in events.iter().copied() {
         let Ok(mut body) = query.get_mut(entity) else { continue; };
         *body = RigidBody::Dynamic;
-    }
-}
-
-#[derive(Copy, Clone)]
-struct RotateEvent {
-    entity: Entity,
-    orig_obj_rot: Quat,
-    click_pos: Vec2,
-    mouse_pos: Vec2,
-}
-
-fn process_rotate(mut events: EventReader<RotateEvent>, mut query: Query<&mut Transform>) {
-    for RotateEvent {
-        entity,
-        orig_obj_rot,
-        click_pos,
-        mouse_pos,
-    } in events.iter().copied()
-    {
-        let mut transform = query.get_mut(entity).unwrap();
-        let start = click_pos - transform.translation.xy();
-        let current = mouse_pos - transform.translation.xy();
-        let angle = start.angle_between(current);
-        transform.rotation = orig_obj_rot * Quat::from_rotation_z(angle);
     }
 }
 
@@ -1298,37 +1247,6 @@ fn setup_graphics(mut commands: Commands, _egui_ctx: ResMut<EguiContext>) {
         ));
 }
 
-#[derive(Component)]
-struct ToolCursor;
-
-fn show_current_tool_icon(
-    ui_state: Res<UiState>,
-    mouse_pos: Res<MousePosWorld>,
-    mut icon: Query<(&mut Handle<Image>, &mut Transform, &mut Visibility), With<ToolCursor>>,
-    camera: Query<&Transform, (With<MainCamera>, Without<ToolCursor>)>,
-    tool_icons: Res<ToolIcons>,
-    mut egui_ctx: ResMut<EguiContext>,
-) {
-    let (mut icon, mut transform, mut vis) = icon.single_mut();
-    if egui_ctx.ctx_mut().wants_pointer_input() {
-        *vis = Visibility::INVISIBLE;
-    } else {
-        *vis = Visibility::VISIBLE;
-        let current_tool = match ui_state.mouse_button {
-            Some(UsedMouseButton::Left) => ui_state.mouse_left,
-            Some(UsedMouseButton::Right) => ui_state.mouse_right,
-            None => None,
-        }
-        .unwrap_or(ui_state.toolbox_selected);
-        let icon_handle = current_tool.icon(tool_icons);
-        let cam_scale = camera.single().scale.xy();
-        *icon = icon_handle;
-        transform.translation =
-            (mouse_pos.xy() + cam_scale * 30.0 * Vec2::new(1.0, -1.0)).extend(FOREGROUND_Z);
-        transform.scale = (cam_scale * 0.26).extend(1.0);
-    }
-}
-
 #[derive(Bundle)]
 struct PhysicalObject {
     rigid_body: RigidBody,
@@ -1364,28 +1282,6 @@ fn make_stroke(color: Color, thickness: f32) -> StrokeMode {
 }
 
 const STROKE_TOLERANCE: f32 = 0.0001;
-
-impl Palette {
-    fn get_color(&self, rng: &mut impl DelegatedRng) -> Color {
-        self.color_range.rand(rng)
-    }
-
-    fn get_color_hsva(&self, rng: &mut impl DelegatedRng) -> Hsva {
-        self.color_range.rand_hsva(rng)
-    }
-
-    fn get_draw_mode(&self, rng: &mut impl DelegatedRng) -> DrawMode {
-        let color = self.color_range.rand_hsva(rng);
-        let darkened = Hsva {
-            v: color.v * 0.5,
-            ..color
-        };
-        DrawMode::Outlined {
-            fill_mode: make_fill(hsva_to_rgba(color)),
-            outline_mode: make_stroke(hsva_to_rgba(darkened), BORDER_THICKNESS),
-        }
-    }
-}
 
 impl PhysicalObject {
     pub fn make(collider: Collider, shape: ShapeBundle) -> Self {
