@@ -254,6 +254,7 @@ pub fn app_main() {
         .add_system(show_current_tool_icon.after(mouse_wheel))
         .add_system(update_sprites_color)
         .add_system(update_draw_modes)
+        .add_system(draw_lasers)
         .run();
 }
 
@@ -333,7 +334,7 @@ fn mouse_long_or_moved(
     mut ev_writeback: EventWriter<MouseLongOrMovedWriteback>,
     mut cameras: Query<&mut Transform, With<MainCamera>>,
     mut ui_state: ResMut<UiState>,
-    mut query: Query<(&mut Transform, &mut RigidBody), Without<MainCamera>>,
+    mut query: Query<(&mut Transform, Option<&mut RigidBody>), Without<MainCamera>>,
     mut commands: Commands,
     rapier: Res<RapierContext>,
     mut select_mouse: EventWriter<SelectEvent>,
@@ -396,22 +397,26 @@ fn mouse_long_or_moved(
                         })));
                     }
                     (Rotate(None), Some(under), _) => {
-                        let (transform, mut body) = query.get_mut(under).unwrap();
+                        let (transform, body) = query.get_mut(under).unwrap();
                         info!("start rotate {:?}", under);
                         *ui_button = Some(Rotate(Some(RotateState {
                             orig_obj_rot: transform.rotation,
                         })));
-                        *body = RigidBody::Fixed;
+                        if let Some(mut body) = body {
+                            *body = RigidBody::Fixed;
+                        }
                     }
                     (Rotate(None), None, _) => {
                         ev_writeback.send(MouseLongOrMoved(Pan(None), pos, *button).into());
                     }
                     (_, Some(under), Some(sel)) if under == sel => {
-                        let (transform, mut body) = query.get_mut(under).unwrap();
+                        let (transform, body) = query.get_mut(under).unwrap();
                         *ui_button = Some(Move(Some(MoveState {
                             obj_delta: transform.translation.xy() - pos,
                         })));
-                        *body = RigidBody::KinematicPositionBased;
+                        if let Some(mut body) = body {
+                            *body = RigidBody::KinematicPositionBased;
+                        }
                     }
                     (Box(None), _, _) => {
                         *ui_button = Some(Box(Some(commands.spawn(DrawObject).id())));
@@ -826,9 +831,10 @@ fn process_add_object(
                 let scale = cameras.single_mut().scale.x * DEFAULT_OBJ_SIZE;
                 let laser = commands
                     .spawn((
-                        LaserBundle {},
+                        LaserBundle { fade_distance: 10.0 },
                         ColorComponent(palette.get_color_hsva(&mut *rng.single_mut())),
                         Collider::cuboid(0.5, 0.25),
+                        UpdateColorFrom::This,
                         Sensor,
                     ))
                     .id();
@@ -943,7 +949,98 @@ fn update_draw_modes(
 }
 
 #[derive(Component)]
-struct LaserBundle {}
+struct LaserBundle {
+    fade_distance: f32
+}
+
+struct LaserRay {
+    start: Vec2,
+    angle: f32,
+    length: f32,
+    strength: f32,
+    color: Hsva,
+    width: f32,
+    start_distance: f32,
+    refractive_index: f32,
+}
+
+impl LaserRay {
+    fn length_clipped(&self) -> f32 {
+        if self.length == f32::INFINITY {
+            1e6f32
+        } else {
+            self.length
+        }
+    }
+
+    fn end(&self) -> Vec2 {
+        self.start + Vec2::from_angle(self.angle) * self.length_clipped()
+    }
+}
+
+struct LaserCompute<'a> {
+    laser: &'a LaserBundle,
+    rays: Vec<LaserRay>
+}
+
+impl<'a> LaserCompute<'a> {
+    fn new(laser: &'a LaserBundle) -> Self {
+        Self {
+            laser,
+            rays: Vec::new()
+        }
+    }
+
+    fn shoot_ray(&mut self, ray: LaserRay, depth: usize) {
+        self.rays.push(ray);
+    }
+
+    fn end(self) -> Vec<LaserRay> {
+        self.rays
+    }
+}
+
+const LASER_WIDTH: f32 = 0.2;
+
+fn draw_lasers(
+    lasers: Query<(&Transform, &LaserBundle, &ColorComponent)>,
+    rays: Query<Entity, With<LaserRays>>,
+    mut commands: Commands,
+) {
+    let rays = rays.single();
+    commands.entity(rays).despawn_descendants();
+
+    for (transform, laser, color) in lasers.iter() {
+        let ray_width = transform.scale.x * LASER_WIDTH;
+
+        let initial = LaserRay {
+            start: transform.transform_point(Vec3::new(0.5, 0.0, 1.0)).xy(),
+            angle: transform.rotation.to_euler(EulerRot::XYZ).2,
+            length: laser.fade_distance,
+            strength: 1.0,
+            color: color.0,
+            width: ray_width,
+            start_distance: 0.0,
+            refractive_index: 1.0,
+        };
+
+        let mut compute = LaserCompute::new(laser);
+
+        compute.shoot_ray(initial, 0);
+
+        let ray_list = compute.end();
+
+        commands.entity(rays).add_children(|builder| {
+            for ray in ray_list {
+                builder.spawn(GeometryBuilder::build_as(
+                    &shapes::Line(ray.start, ray.end()),
+                    make_stroke(hsva_to_rgba(ray.color), ray.width).as_mode(),
+                    Transform::from_translation(Vec3::new(0.0, 0.0, transform.translation.z))
+                ));
+            }
+        });
+    }
+}
 
 #[derive(Component)]
 struct ColorComponent(Hsva);
@@ -997,7 +1094,7 @@ fn process_unfreeze_entity(
     mut query: Query<&mut RigidBody>,
 ) {
     for UnfreezeEntityEvent { entity } in events.iter().copied() {
-        let mut body = query.get_mut(entity).unwrap();
+        let Ok(mut body) = query.get_mut(entity) else { continue; };
         *body = RigidBody::Dynamic;
     }
 }
@@ -1226,10 +1323,21 @@ fn setup_graphics(mut commands: Commands, _egui_ctx: ResMut<EguiContext>) {
         .add_world_tracking();
 
     commands.spawn((ToolCursor, SpriteBundle::default()));
+
+    commands.spawn((
+        LaserRays,
+        Visibility::VISIBLE,
+        ComputedVisibility::default(),
+        TransformBundle::default()
+        ));
 }
 
 #[derive(Component)]
 struct ToolCursor;
+
+
+#[derive(Component)]
+struct LaserRays;
 
 fn show_current_tool_icon(
     ui_state: Res<UiState>,

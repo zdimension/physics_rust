@@ -94,6 +94,7 @@ pub struct AppliedForce {
     pub value: ForceValue,
 }
 
+#[derive(Component)]
 pub struct Forces {
     forces: Vec<AppliedForce>
 }
