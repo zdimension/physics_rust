@@ -216,6 +216,7 @@ impl<'a> Subwindow for egui::Window<'a> {
             .show(ctx, |ui| contents(ui, commands))
             .map(|resp| initial_pos.1 = resp.response.rect.left_top());
         if !open {
+            info!("closing window");
             commands.entity(id).despawn_recursive();
         }
     }

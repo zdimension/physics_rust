@@ -23,6 +23,9 @@ patches = [
     "egui-slider.patch"
 ]
 
+[patch.crates-io]
+egui = { path = './target/patch/egui-0.20.1' }
+
 # native:
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tracing-subscriber = "0.3"

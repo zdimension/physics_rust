@@ -1,3 +1,83 @@
---- src/widgets/slider.rs
-+++ src/widgets/slider.rs
-@@ -2,0 +2,1
+--- src/widgets/slider.rs	2006-07-24 03:21:28.000000000 +0200
++++ src/widgets/slider1.rs	2022-12-29 20:25:27.771065000 +0100
+@@ -3,0 +3,79 @@
++pub struct CustomSlider<'a>(Slider<'a>);
++impl<'a> Slider<'a> {
++    pub fn custom(self) -> CustomSlider<'a> {
++        CustomSlider(self)
++    }
++}
++impl<'a> CustomSlider<'a> {
++    fn add_contents(&mut self, ui: &mut Ui) -> Response {
++        let slider = &mut self.0;
++        let old_value = slider.get_value();
++        let thickness = ui
++            .text_style_height(&TextStyle::Body)
++            .at_least(ui.spacing().interact_size.y);
++        let mut response = slider.allocate_slider_space(ui, thickness);
++        slider.slider_ui(ui, &response);
++        let value = slider.get_value();
++        response.changed = value != old_value;
++        response.widget_info(|| WidgetInfo::slider(value, slider.text.text()));
++        #[cfg(feature = "accesskit")]
++        if let Some(mut node) = ui.ctx().accesskit_node(response.id) {
++            use accesskit::Action;
++            node.min_numeric_value = Some(*slider.range.start());
++            node.max_numeric_value = Some(*slider.range.end());
++            node.numeric_value_step = slider.step;
++            node.actions |= Action::SetValue;
++            let clamp_range = slider.clamp_range();
++            if value < *clamp_range.end() {
++                node.actions |= Action::Increment;
++            }
++            if value > *clamp_range.start() {
++                node.actions |= Action::Decrement;
++            }
++        }
++        let slider_response = response.clone();
++        ui.horizontal(|ui| {
++            let label_response = ui.add(Label::new(slider.text.clone()).wrap(false));
++            let value_response = if slider.show_value {
++                let position_range = slider.position_range(&response.rect);
++                let value_response = slider.value_ui(ui, position_range);
++                if value_response.gained_focus()
++                    || value_response.has_focus()
++                    || value_response.lost_focus()
++                {
++                    // Use the [`DragValue`] id as the id of the whole widget,
++                    // so that the focus events work as expected.
++                    response = value_response.union(response);
++                } else {
++                    // Use the slider id as the id for the whole widget
++                    response = response.union(value_response.clone());
++                }
++                Some(value_response)
++            } else {
++                None
++            };
++            if !slider.text.is_empty() {
++                // The slider already has an accessibility label via widget info,
++                // but sometimes it's useful for a screen reader to know
++                // that a piece of text is a label for another widget,
++                // e.g. so the text itself can be excluded from navigation.
++                slider_response.labelled_by(label_response.id);
++                if let Some(value_response) = value_response {
++                    value_response.labelled_by(label_response.id);
++                }
++            }
++            response
++        }).inner
++    }
++}
++impl<'a> Widget for CustomSlider<'a> {
++    fn ui(mut self, ui: &mut Ui) -> Response {
++        let inner_response = Frame::group(ui.style())
++            .outer_margin(crate::style::Margin::symmetric(0.0, 2.0))
++            .show(ui, |ui| {
++                ui.allocate_ui_with_layout(vec2(0.0, 40.0), Layout::bottom_up(Align::Min), |ui| {
++                    self.add_contents(ui)
++                })
++        });
++        inner_response.inner.inner | inner_response.inner.response | inner_response.response
++    }
++}
