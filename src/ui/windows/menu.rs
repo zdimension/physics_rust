@@ -1,11 +1,12 @@
 use crate::ui::{InitialPos, Subwindow};
-use crate::{ColorComponent, GuiIcons, LaserBundle};
+use crate::{ColorComponent, GuiIcons};
 use bevy::hierarchy::{BuildChildren, DespawnRecursiveExt, Parent};
 use bevy::prelude::*;
-use bevy_egui::egui::{pos2, vec2, Separator};
+use bevy_egui::egui::{pos2, Separator};
 use bevy_egui::{egui, EguiContext};
 use std::time::Duration;
 use bevy_rapier2d::prelude::{CollisionGroups, Velocity};
+use crate::objects::laser::LaserBundle;
 
 use crate::ui::windows::appearance::AppearanceWindow;
 use crate::ui::windows::collisions::CollisionsWindow;

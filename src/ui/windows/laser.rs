@@ -1,8 +1,7 @@
 use bevy::prelude::*;
-use bevy::sprite::Anchor::Custom;
 use bevy_egui::{egui, EguiContext};
-use bevy_egui::egui::{emath, Style};
-use crate::{LaserBundle, SizeComponent};
+use crate::SizeComponent;
+use crate::objects::laser::LaserBundle;
 use crate::ui::{BevyIdThing, InitialPos, Subwindow};
 
 #[derive(Default, Component)]
