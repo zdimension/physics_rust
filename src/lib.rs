@@ -339,10 +339,12 @@ fn mouse_long_or_moved(
     mut commands: Commands,
     rapier: Res<RapierContext>,
     mut select_mouse: EventWriter<SelectEvent>,
+    mouse_pos: Res<MousePosWorld>
 ) {
     use ToolEnum::*;
     for MouseLongOrMoved(hover_tool, pos, button) in events.iter() {
-        let pos = *pos;
+        let clickpos = *pos;
+        let curpos = mouse_pos.xy();
         info!("long or moved!");
 
         let selected_entity = ui_state.selected_entity;
@@ -373,7 +375,7 @@ fn mouse_long_or_moved(
                 todo!()
             }
             _ => {
-                let under_mouse = find_under_mouse(&rapier, pos, QueryFilter::default(), |ent| {
+                let under_mouse = find_under_mouse(&rapier, clickpos, QueryFilter::default(), |ent| {
                     let (transform, _) = query.get(ent).unwrap();
                     transform.translation.z
                 })
@@ -394,7 +396,7 @@ fn mouse_long_or_moved(
                     (Drag(None), Some(ent), _) => {
                         *ui_button = Some(Drag(Some(DragState {
                             entity: ent,
-                            orig_obj_pos: pos - query.get_mut(ent).unwrap().0.translation.xy(),
+                            orig_obj_pos: curpos - query.get_mut(ent).unwrap().0.translation.xy(),
                         })));
                     }
                     (Rotate(None), Some(under), _) => {
@@ -408,12 +410,12 @@ fn mouse_long_or_moved(
                         }
                     }
                     (Rotate(None), None, _) => {
-                        ev_writeback.send(MouseLongOrMoved(Pan(None), pos, *button).into());
+                        ev_writeback.send(MouseLongOrMoved(Pan(None), clickpos, *button).into());
                     }
                     (_, Some(under), Some(sel)) if under == sel => {
                         let (transform, body) = query.get_mut(under).unwrap();
                         *ui_button = Some(Move(Some(MoveState {
-                            obj_delta: transform.translation.xy() - pos,
+                            obj_delta: transform.translation.xy() - curpos,
                         })));
                         if let Some(mut body) = body {
                             *body = RigidBody::KinematicPositionBased;
@@ -1273,7 +1275,8 @@ fn left_pressed(
                             let moved = (click_pos - pos).length() > 0.0;
                             let long_or_moved = long_press || moved;
                             if long_or_moved {
-                                ev_long_or_moved.send(MouseLongOrMoved(tool, pos, $button));
+                                info!("sending long/moved (button was {:?})", $state_button);
+                                ev_long_or_moved.send(MouseLongOrMoved(tool, click_pos, $button));
                             }
                         }
                     }
@@ -1281,7 +1284,7 @@ fn left_pressed(
                     && !egui_ctx.ctx_mut().is_using_pointer()
                     && !egui_ctx.ctx_mut().is_pointer_over_area()
                 {
-                    info!("egui doesn't want pointer input");
+                    info!("button pressed ({:?})", button);
                     if let Some(id) = ui_state.window_temp {
                         ui_state.windows.remove(&id);
                         ui_state.window_temp = None;
@@ -1684,7 +1687,7 @@ fn process_select(
             info!("Selecting entity: {:?}", entity);
             commands.entity(*entity).log_components();
         } else {
-            info!("Deselecting entity");
+            info!("Setting selection to nothing");
         }
 
         state.selected_entity = entity.map(|entity| EntitySelection { entity });
