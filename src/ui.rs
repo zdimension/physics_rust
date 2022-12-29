@@ -13,6 +13,7 @@ mod menu_item;
 mod separator_custom;
 mod toolbox;
 mod windows;
+mod custom_slider;
 
 use self::windows::collisions::CollisionsWindow;
 use self::windows::information::InformationWindow;

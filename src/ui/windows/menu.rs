@@ -48,7 +48,7 @@ impl MenuWindow {
         for (wnd_id, entity, mut info_wnd, mut initial_pos) in wnds.iter_mut() {
             let entity = entity.map(Parent::get);
             egui::Window::new("context menu")
-                .default_size(vec2(0.0, 0.0))
+                .default_size(egui::Vec2::ZERO)
                 .resizable(false)
                 .subwindow(wnd_id, ctx, &mut initial_pos, &mut commands, |ui, commands| {
                     macro_rules! item {

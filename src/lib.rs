@@ -1,4 +1,6 @@
+use std::borrow::BorrowMut;
 use std::collections::{BTreeSet, HashMap};
+use std::marker::PhantomData;
 use std::time::Duration;
 
 use bevy::math::Vec3Swizzles;
@@ -22,6 +24,8 @@ mod demo;
 mod measures;
 mod palette;
 mod ui;
+
+pub use egui::egui_assert;
 
 use crate::palette::ToRgba;
 use crate::ui::{RemoveTemporaryWindowsEvent, TemporaryWindow};
@@ -627,8 +631,7 @@ fn process_add_object(
                     .spawn(PhysicalObject::rect(size, z.pos(pos)))
                     .insert(ColorComponent(
                         palette.get_color_hsva(&mut *rng.single_mut()),
-                    ))
-                    .insert(UpdateColorFrom::This)
+                    ).update_from_this())
                     .log_components();
             }
             Circle { center: center, radius: radius } => {
@@ -636,8 +639,7 @@ fn process_add_object(
                     .spawn(PhysicalObject::ball(radius, z.pos(center)))
                     .insert(ColorComponent(
                         palette.get_color_hsva(&mut *rng.single_mut()),
-                    ))
-                    .insert(UpdateColorFrom::This)
+                    ).update_from_this())
                     .log_components();
             }
             Fix(pos) => {
@@ -776,8 +778,7 @@ fn process_add_object(
                                 ),
                                 Collider::ball(0.5),
                                 Sensor,
-                                ColorComponent(palette.get_color_hsva(&mut *rng.single_mut())),
-                                UpdateColorFrom::This,
+                                ColorComponent(palette.get_color_hsva(&mut *rng.single_mut())).update_from_this(),
                             ))
                             .add_children(|builder| {
                                 builder
@@ -793,7 +794,7 @@ fn process_add_object(
                                                 },
                                                 ..Default::default()
                                             },
-                                            UpdateColorFrom::Entity(entity1),
+                                            UpdateFrom::<ColorComponent>::entity(entity1)
                                         ));
                                     })
                                     .with_children(|builder| {
@@ -805,7 +806,7 @@ fn process_add_object(
                                                 },
                                                 ..Default::default()
                                             },
-                                            UpdateColorFrom::This,
+                                            UpdateFrom::<ColorComponent>::This
                                         ));
                                     })
                                     .with_children(|builder| {
@@ -818,7 +819,7 @@ fn process_add_object(
                                             ..Default::default()
                                         });
                                         if let Some(entity2) = entity2 {
-                                            sprite.insert(UpdateColorFrom::Entity(entity2));
+                                            sprite.insert(UpdateFrom::<ColorComponent>::entity(entity2));
                                         }
                                     });
                             });
@@ -835,9 +836,8 @@ fn process_add_object(
                 let laser = commands
                     .spawn((
                         LaserBundle { fade_distance: 10.0 },
-                        ColorComponent(palette.get_color_hsva(&mut *rng.single_mut())),
+                        ColorComponent(palette.get_color_hsva(&mut *rng.single_mut())).update_from_this(),
                         Collider::cuboid(0.5, 0.25),
-                        UpdateColorFrom::This,
                         Sensor,
                     ))
                     .id();
@@ -870,7 +870,7 @@ fn process_add_object(
                                 )),
                                 ..Default::default()
                             },
-                            UpdateColorFrom::This,
+                            UpdateFrom::<ColorComponent>::This
                         ));
                     });
             }
@@ -879,25 +879,29 @@ fn process_add_object(
 }
 
 #[derive(Component)]
-enum UpdateColorFrom {
+enum UpdateFrom<T: SettingComponent> {
     This,
-    Entity(Entity),
+    Entity(Entity, PhantomData<T>)
 }
 
-impl UpdateColorFrom {
-    fn find_color_component(
+impl<T: SettingComponent> UpdateFrom<T> {
+    fn entity(ent: Entity) -> Self {
+        UpdateFrom::Entity(ent, PhantomData)
+    }
+
+    fn find_component(
         &self,
         base: Entity,
-        parents: &Query<(Option<&Parent>, Option<&ColorComponent>)>,
-    ) -> (Entity, Hsva) {
+        parents: &Query<(Option<&Parent>, Option<&T>)>,
+    ) -> (Entity, T::Value) {
         let mut root = match self {
-            UpdateColorFrom::This => base,
-            UpdateColorFrom::Entity(e) => *e,
+            UpdateFrom::This => base,
+            UpdateFrom::Entity(e, _) => *e,
         };
         loop {
             let (p, col) = parents.get(root).unwrap();
             if let Some(col) = col {
-                return (root, col.0);
+                return (root, col.get());
             }
             root = p.expect("No parent").get();
         }
@@ -905,24 +909,24 @@ impl UpdateColorFrom {
 }
 
 fn update_sprites_color(
-    mut sprites: Query<(Entity, &mut Sprite, &UpdateColorFrom)>,
+    mut sprites: Query<(Entity, &mut Sprite, &UpdateFrom<ColorComponent>)>,
     parents: Query<(Option<&Parent>, Option<&ColorComponent>)>,
 ) {
     for (entity, mut sprite, update_source) in sprites.iter_mut() {
         sprite.color = update_source
-            .find_color_component(entity, &parents)
+            .find_component(entity, &parents)
             .1
             .to_rgba();
     }
 }
 
 fn update_draw_modes(
-    mut draws: Query<(Entity, &mut DrawMode, &UpdateColorFrom)>,
+    mut draws: Query<(Entity, &mut DrawMode, &UpdateFrom<ColorComponent>)>,
     parents: Query<(Option<&Parent>, Option<&ColorComponent>)>,
     ui_state: Res<UiState>,
 ) {
     for (entity, mut draw, update_source) in draws.iter_mut() {
-        let (entity, color) = update_source.find_color_component(entity, &parents);
+        let (entity, color) = update_source.find_component(entity, &parents);
 
         *draw = match *draw {
             DrawMode::Outlined { .. } | DrawMode::Fill(_) => DrawMode::Outlined {
@@ -1045,8 +1049,30 @@ fn draw_lasers(
     }
 }
 
+trait SettingComponent : Component + Sized {
+    type Value;
+
+    fn get(&self) -> Self::Value;
+
+    fn update_from_this(self) -> (Self, UpdateFrom<Self>) {
+        (self, UpdateFrom::<Self>::This)
+    }
+
+    fn update_from_entity(self, entity: Entity) -> (Self, UpdateFrom<Self>) {
+        (self, UpdateFrom::<Self>::Entity(entity, PhantomData))
+    }
+}
+
 #[derive(Component)]
 struct ColorComponent(Hsva);
+
+impl SettingComponent for ColorComponent {
+    type Value = Hsva;
+
+    fn get(&self) -> Hsva {
+        self.0
+    }
+}
 
 #[derive(Bundle)]
 struct HingeBundle {}
@@ -1800,10 +1826,14 @@ fn configure_visuals(
     palette: Res<PaletteConfig>,
     mut clear_color: ResMut<ClearColor>,
 ) {
-    egui_ctx.ctx_mut().set_visuals(egui::Visuals {
-        window_rounding: 0.0.into(),
+    let ctx = egui_ctx.ctx_mut();
+    ctx.set_visuals(egui::Visuals {
+        window_rounding: 4.0.into(),
         ..Default::default()
     });
+    let mut style: egui::Style = (*ctx.style()).clone();
+    style.spacing.slider_width = 260.0;
+    ctx.set_style(style);
     clear_color.0 = palette.current_palette.sky_color;
 }
 
