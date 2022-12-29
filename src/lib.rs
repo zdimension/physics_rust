@@ -23,6 +23,7 @@ mod measures;
 mod palette;
 mod ui;
 
+use crate::palette::ToRgba;
 use crate::ui::{RemoveTemporaryWindowsEvent, TemporaryWindow};
 use bevy_turborand::{DelegatedRng, GlobalRng, RngComponent, RngPlugin};
 use derivative::Derivative;
@@ -31,7 +32,6 @@ use paste::paste;
 use ui::{ContextMenuEvent, WindowData};
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
-use crate::palette::ToRgba;
 
 const BORDER_THICKNESS: f32 = 0.03;
 const CAMERA_FAR: f32 = 1e6f32;
@@ -617,14 +617,18 @@ fn process_add_object(
             Box(pos, size) => {
                 commands
                     .spawn(PhysicalObject::rect(size, z.pos(pos)))
-                    .insert(ColorComponent(palette.get_color_hsva(&mut *rng.single_mut())))
+                    .insert(ColorComponent(
+                        palette.get_color_hsva(&mut *rng.single_mut()),
+                    ))
                     .insert(UpdateColorFrom::This)
                     .log_components();
             }
             Circle(center, radius) => {
                 commands
                     .spawn(PhysicalObject::ball(radius, z.pos(center)))
-                    .insert(ColorComponent(palette.get_color_hsva(&mut *rng.single_mut())))
+                    .insert(ColorComponent(
+                        palette.get_color_hsva(&mut *rng.single_mut()),
+                    ))
                     .insert(UpdateColorFrom::This)
                     .log_components();
             }
@@ -722,18 +726,16 @@ fn process_add_object(
                             "hinge: {:?} {:?} {:?} {:?}",
                             entity1, anchor1, entity2, anchor2
                         );
-                        commands
-                            .entity(entity2)
-                            .insert((
-                                HingeObject,
-                                MultibodyJoint::new(
-                                    entity1,
-                                    RevoluteJointBuilder::new()
-                                        .local_anchor1(anchor1)
-                                        .local_anchor2(anchor2),
-                                ),
-                                ActiveHooks::FILTER_CONTACT_PAIRS,
-                            ));
+                        commands.entity(entity2).insert((
+                            HingeObject,
+                            MultibodyJoint::new(
+                                entity1,
+                                RevoluteJointBuilder::new()
+                                    .local_anchor1(anchor1)
+                                    .local_anchor2(anchor2),
+                            ),
+                            ActiveHooks::FILTER_CONTACT_PAIRS,
+                        ));
                     } else {
                         commands.spawn((
                             ImpulseJoint::new(
@@ -746,7 +748,6 @@ fn process_add_object(
                         ));
                     }
 
-
                     const HINGE_RADIUS: f32 = DEFAULT_OBJ_SIZE / 2.0;
                     let scale = cameras.single_mut().scale.x * DEFAULT_OBJ_SIZE;
                     const IMAGE_SCALE: f32 = 1.0 / 256.0;
@@ -757,16 +758,18 @@ fn process_add_object(
                             .spawn((
                                 GeometryBuilder::build_as(
                                     &shapes::Circle {
-                                        radius: 0.5,
+                                        radius: 0.5 * 1.1, // make selection display a bit bigger
                                         ..Default::default()
                                     },
                                     make_stroke(Color::rgba(0.0, 0.0, 0.0, 0.0), BORDER_THICKNESS)
                                         .as_mode(),
-                                    Transform::from_translation(hinge_pos).with_scale(Vec3::new(scale, scale, 1.0)),
+                                    Transform::from_translation(hinge_pos)
+                                        .with_scale(Vec3::new(scale, scale, 1.0)),
                                 ),
                                 Collider::ball(0.5),
                                 Sensor,
-                                ColorComponent(palette.get_color_hsva(&mut *rng.single_mut()))
+                                ColorComponent(palette.get_color_hsva(&mut *rng.single_mut())),
+                                UpdateColorFrom::This,
                             ))
                             .add_children(|builder| {
                                 builder
@@ -774,22 +777,28 @@ fn process_add_object(
                                         IMAGE_SCALE_VEC,
                                     )))
                                     .with_children(|builder| {
-                                        builder.spawn((SpriteBundle {
-                                            texture: images.hinge_balls.clone(),
-                                            sprite: Sprite {
+                                        builder.spawn((
+                                            SpriteBundle {
+                                                texture: images.hinge_balls.clone(),
+                                                sprite: Sprite {
+                                                    ..Default::default()
+                                                },
                                                 ..Default::default()
                                             },
-                                            ..Default::default()
-                                        }, UpdateColorFrom::Entity(entity1)));
+                                            UpdateColorFrom::Entity(entity1),
+                                        ));
                                     })
                                     .with_children(|builder| {
-                                        builder.spawn((SpriteBundle {
-                                            texture: images.hinge_background.clone(),
-                                            sprite: Sprite {
+                                        builder.spawn((
+                                            SpriteBundle {
+                                                texture: images.hinge_background.clone(),
+                                                sprite: Sprite {
+                                                    ..Default::default()
+                                                },
                                                 ..Default::default()
                                             },
-                                            ..Default::default()
-                                        }, UpdateColorFrom::This));
+                                            UpdateColorFrom::This,
+                                        ));
                                     })
                                     .with_children(|builder| {
                                         let mut sprite = builder.spawn(SpriteBundle {
@@ -814,10 +823,15 @@ fn process_add_object(
                 })
                 .next();
 
-                let laser = commands.spawn((
-                    LaserBundle{},
-                    ColorComponent(palette.get_color_hsva(&mut *rng.single_mut())),
-                )).id();
+                let scale = cameras.single_mut().scale.x * DEFAULT_OBJ_SIZE;
+                let laser = commands
+                    .spawn((
+                        LaserBundle {},
+                        ColorComponent(palette.get_color_hsva(&mut *rng.single_mut())),
+                        Collider::cuboid(0.5, 0.25),
+                        Sensor,
+                    ))
+                    .id();
 
                 let laser_pos = if let Some(entity) = entity {
                     commands.entity(entity).add_child(laser);
@@ -825,16 +839,30 @@ fn process_add_object(
                 } else {
                     pos
                 };
-                let scale = cameras.single_mut().scale.x * DEFAULT_OBJ_SIZE;
-                commands.entity(laser).insert(TransformBundle::from_transform(Transform::from_translation(
-                    z.pos(laser_pos),
-                ).with_scale(Vec3::new(scale, scale, 1.0))))
-                    .with_children(|builder| {
-                        builder.spawn((SpriteBundle {
-                            texture: images.laserpen.clone(),
-                            transform: Transform::from_scale(Vec3::new(1.0 / 256.0, 1.0 / 256.0, 1.0)),
+                commands
+                    .entity(laser)
+                    .insert(GeometryBuilder::build_as(
+                        &shapes::Rectangle {
+                            extents: Vec2::new(1.0, 0.5) * 1.1, // make selection display a bit bigger
                             ..Default::default()
-                        }, UpdateColorFrom::This));
+                        },
+                        make_stroke(Color::rgba(0.0, 0.0, 0.0, 0.0), BORDER_THICKNESS).as_mode(),
+                        Transform::from_translation(z.pos(laser_pos))
+                            .with_scale(Vec3::new(scale, scale, 1.0)),
+                    ))
+                    .with_children(|builder| {
+                        builder.spawn((
+                            SpriteBundle {
+                                texture: images.laserpen.clone(),
+                                transform: Transform::from_scale(Vec3::new(
+                                    1.0 / 256.0,
+                                    1.0 / 256.0,
+                                    1.0,
+                                )),
+                                ..Default::default()
+                            },
+                            UpdateColorFrom::This,
+                        ));
                     });
             }
         }
@@ -844,14 +872,18 @@ fn process_add_object(
 #[derive(Component)]
 enum UpdateColorFrom {
     This,
-    Entity(Entity)
+    Entity(Entity),
 }
 
 impl UpdateColorFrom {
-    fn find_color_component(&self, base: Entity, parents: &Query<(Option<&Parent>, Option<&ColorComponent>)>) -> (Entity, Hsva) {
+    fn find_color_component(
+        &self,
+        base: Entity,
+        parents: &Query<(Option<&Parent>, Option<&ColorComponent>)>,
+    ) -> (Entity, Hsva) {
         let mut root = match self {
             UpdateColorFrom::This => base,
-            UpdateColorFrom::Entity(e) => *e
+            UpdateColorFrom::Entity(e) => *e,
         };
         loop {
             let (p, col) = parents.get(root).unwrap();
@@ -865,42 +897,53 @@ impl UpdateColorFrom {
 
 fn update_sprites_color(
     mut sprites: Query<(Entity, &mut Sprite, &UpdateColorFrom)>,
-    parents: Query<(Option<&Parent>, Option<&ColorComponent>)>
+    parents: Query<(Option<&Parent>, Option<&ColorComponent>)>,
 ) {
     for (entity, mut sprite, update_source) in sprites.iter_mut() {
-        sprite.color = update_source.find_color_component(entity, &parents).1.to_rgba();
+        sprite.color = update_source
+            .find_color_component(entity, &parents)
+            .1
+            .to_rgba();
     }
 }
 
 fn update_draw_modes(
     mut draws: Query<(Entity, &mut DrawMode, &UpdateColorFrom)>,
     parents: Query<(Option<&Parent>, Option<&ColorComponent>)>,
-    ui_state: Res<UiState>
+    ui_state: Res<UiState>,
 ) {
     for (entity, mut draw, update_source) in draws.iter_mut() {
         let (entity, color) = update_source.find_color_component(entity, &parents);
 
-        *draw = DrawMode::Outlined {
-            fill_mode: make_fill(hsva_to_rgba(color)),
-            outline_mode: {
+        *draw = match *draw {
+            DrawMode::Outlined { .. } | DrawMode::Fill(_) => DrawMode::Outlined {
+                fill_mode: make_fill(hsva_to_rgba(color)),
+                outline_mode: {
+                    let stroke = if ui_state.selected_entity == Some(EntitySelection { entity }) {
+                        Color::WHITE
+                    } else {
+                        hsva_to_rgba(Hsva {
+                            v: color.v * 0.5,
+                            ..color
+                        })
+                    };
+                    make_stroke(stroke, BORDER_THICKNESS)
+                },
+            },
+            DrawMode::Stroke(_) => {
                 let stroke = if ui_state.selected_entity == Some(EntitySelection { entity }) {
                     Color::WHITE
                 } else {
-                    hsva_to_rgba(Hsva {
-                        v: color.v * 0.5,
-                        ..color
-                    })
+                    Color::rgba(0.0, 0.0, 0.0, 0.0)
                 };
-                make_stroke(stroke, BORDER_THICKNESS)
+                make_stroke(stroke, BORDER_THICKNESS).as_mode()
             },
         }
     }
 }
 
 #[derive(Component)]
-struct LaserBundle {
-}
-
+struct LaserBundle {}
 
 #[derive(Component)]
 struct ColorComponent(Hsva);
@@ -1517,8 +1560,6 @@ struct UnselectedDrawMode {
 fn process_select(
     mut events: EventReader<SelectEvent>,
     mut state: ResMut<UiState>,
-    mut query: Query<&mut DrawMode>,
-    query_backup: Query<&UnselectedDrawMode>,
     mut commands: Commands,
     mut menu_event: EventWriter<ContextMenuEvent>,
     screen_pos: Res<MousePos>,
@@ -1530,14 +1571,6 @@ fn process_select(
     );
 
     for SelectEvent { entity, open_menu } in events.iter() {
-        /*if let Some(EntitySelection { entity }) = state.selected_entity {
-            if let Ok(mut current) = query.get_mut(entity) {
-                let backup = query_backup.get(entity).unwrap();
-                *current = backup.draw_mode;
-                commands.entity(entity).remove::<UnselectedDrawMode>();
-            }
-        }*/
-
         if let Some(entity) = entity {
             info!("Selecting entity: {:?}", entity);
             commands.entity(*entity).log_components();
@@ -1545,29 +1578,7 @@ fn process_select(
             info!("Deselecting entity");
         }
 
-        state.selected_entity = entity.map(|entity| {
-            /*if let Ok(mut current) = query.get_mut(entity) {
-                commands.entity(entity).insert(UnselectedDrawMode {
-                    draw_mode: current.clone(),
-                });
-                let stroke = make_stroke(Color::WHITE, BORDER_THICKNESS);
-                *current = match *current {
-                    DrawMode::Outlined {
-                        fill_mode,
-                        outline_mode: _,
-                    } => DrawMode::Outlined {
-                        fill_mode,
-                        outline_mode: stroke,
-                    },
-                    DrawMode::Fill(fill_mode) => DrawMode::Outlined {
-                        fill_mode,
-                        outline_mode: stroke,
-                    },
-                    DrawMode::Stroke(_) => DrawMode::Stroke(stroke),
-                };
-            }*/
-            EntitySelection { entity }
-        });
+        state.selected_entity = entity.map(|entity| EntitySelection { entity });
         if *open_menu {
             menu_event.send(ContextMenuEvent { screen_pos });
         }

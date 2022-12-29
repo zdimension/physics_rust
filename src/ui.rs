@@ -79,7 +79,6 @@ pub fn ui_example(
 
     egui::Window::new("Debug").show(egui_ctx.clone().ctx_mut(), |ui| {
         ui.monospace(format!("{:#?}\n{:#?}", ui_state, cameras.single_mut()));
-
     });
 }
 
