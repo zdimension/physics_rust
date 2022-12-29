@@ -12,3 +12,4 @@ mod selection;
 mod text;
 pub(crate) mod toolbar;
 mod velocities;
+pub mod laser;

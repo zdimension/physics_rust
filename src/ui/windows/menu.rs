@@ -1,10 +1,11 @@
 use crate::ui::{InitialPos, Subwindow};
-use crate::GuiIcons;
+use crate::{ColorComponent, GuiIcons, LaserBundle};
 use bevy::hierarchy::{BuildChildren, DespawnRecursiveExt, Parent};
 use bevy::prelude::*;
 use bevy_egui::egui::{pos2, vec2, Separator};
 use bevy_egui::{egui, EguiContext};
 use std::time::Duration;
+use bevy_rapier2d::prelude::{CollisionGroups, Velocity};
 
 use crate::ui::windows::appearance::AppearanceWindow;
 use crate::ui::windows::collisions::CollisionsWindow;
@@ -12,6 +13,7 @@ use crate::ui::windows::combine_shapes::CombineShapesWindow;
 use crate::ui::windows::controller::ControllerWindow;
 use crate::ui::windows::geom_actions::GeometryActionsWindow;
 use crate::ui::windows::information::InformationWindow;
+use crate::ui::windows::laser::LaserWindow;
 use crate::ui::windows::material::MaterialWindow;
 use crate::ui::windows::script::ScriptMenuWindow;
 use crate::ui::windows::selection::SelectionWindow;
@@ -35,6 +37,12 @@ impl MenuWindow {
         mut egui_ctx: ResMut<EguiContext>,
         icons: Res<GuiIcons>,
         mut commands: Commands,
+        entity_info: Query<(
+            Option<&ColorComponent>,
+            Option<&Velocity>,
+            Option<&CollisionGroups>,
+            Option<&LaserBundle>,
+        )>
     ) {
         let ctx = egui_ctx.ctx_mut();
         for (wnd_id, entity, mut info_wnd, mut initial_pos) in wnds.iter_mut() {
@@ -106,6 +114,8 @@ impl MenuWindow {
 
                     match entity {
                         Some(id) => {
+                            let info = entity_info.get(id).unwrap();
+
                             if item!("Erase", erase) {
                                 commands.entity(id).despawn_recursive();
                             }
@@ -119,12 +129,21 @@ impl MenuWindow {
                             ui.add(Separator::default().horizontal());
 
                             menu!("Selection", /, SelectionWindow);
-                            menu!("Appearance", color, AppearanceWindow);
+                            if info.0.is_some() {
+                                menu!("Appearance", color, AppearanceWindow);
+                            }
                             menu!("Text", text, TextWindow);
                             menu!("Material", material, MaterialWindow);
-                            menu!("Velocities", velocity, VelocitiesWindow);
+                            if info.1.is_some() {
+                                menu!("Velocities", velocity, VelocitiesWindow);
+                            }
                             menu!("Information", info, InformationWindow);
-                            menu!("Collision layers", collisions, CollisionsWindow);
+                            if info.2.is_some() {
+                                menu!("Collision layers", collisions, CollisionsWindow);
+                            }
+                            if info.3.is_some() {
+                                menu!("Laser pens", lasermenu, LaserWindow);
+                            }
                             menu!("Geometry actions", /, GeometryActionsWindow);
                             menu!("Combine shapes", csg, CombineShapesWindow);
                             menu!("Controller", controller, ControllerWindow);

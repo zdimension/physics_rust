@@ -19,6 +19,7 @@ use self::windows::information::InformationWindow;
 use self::windows::menu::MenuWindow;
 use self::windows::toolbar;
 use windows::plot::PlotWindow;
+use crate::ui::windows::laser::LaserWindow;
 
 #[derive(Derivative)]
 #[derivative(Debug)]
@@ -93,6 +94,7 @@ pub fn draw_ui() -> SystemSet {
         .with_system(InformationWindow::show)
         .with_system(PlotWindow::show)
         .with_system(CollisionsWindow::show)
+        .with_system(LaserWindow::show)
 }
 
 trait AsPos2 {

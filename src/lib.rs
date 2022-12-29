@@ -120,6 +120,7 @@ icon_set!(
         erase,
         gravity,
         info,
+        lasermenu,
         material,
         mirror,
         pause,
@@ -949,7 +950,7 @@ fn update_draw_modes(
 }
 
 #[derive(Component)]
-struct LaserBundle {
+pub struct LaserBundle {
     fade_distance: f32
 }
 
