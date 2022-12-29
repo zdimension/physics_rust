@@ -109,9 +109,7 @@ const fn quantity(name: &'static str, measure: QuantityFn) -> PlotQuantity {
 }
 
 static PLOT_QUANTITIES: &[&[PlotQuantity]] = &[
-    &[
-        quantity("Time", |time, _| time),
-    ],
+    &[quantity("Time", |time, _| time)],
     &[
         quantity("Position (x)", |_, query| query.0.translation.x),
         quantity("Position (y)", |_, query| query.0.translation.y),
@@ -121,18 +119,14 @@ static PLOT_QUANTITIES: &[&[PlotQuantity]] = &[
         quantity("Velocity (x)", |_, query| query.1.linvel.x),
         quantity("Velocity (y)", |_, query| query.1.linvel.y),
     ],
-    &[
-        quantity("Angular velocity", |_, query| query.1.angvel),
-    ],
+    &[quantity("Angular velocity", |_, query| query.1.angvel)],
     // todo: acceleration
     // todo: force
     &[
         quantity("Momentum (x)", |_, query| query.4.linear.x),
         quantity("Momentum (y)", |_, query| query.4.linear.y),
     ],
-    &[
-        quantity("Angular momentum", |_, query| query.4.angular),
-    ],
+    &[quantity("Angular momentum", |_, query| query.4.angular)],
     &[
         quantity("Linear kinetic energy", |_, query| query.2.linear),
         quantity("Angular kinetic energy", |_, query| query.2.angular),

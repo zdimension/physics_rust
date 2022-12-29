@@ -76,10 +76,20 @@ fn f32_between(rng: &mut impl DelegatedRng, min: f32, max: f32) -> f32 {
     min + (max - min) * rnd
 }
 
+pub trait ToRgba {
+    fn to_rgba(&self) -> Color;
+}
+
+impl ToRgba for Hsva {
+    fn to_rgba(&self) -> Color {
+        let [r, g, b, a] = self.to_rgba_unmultiplied();
+        Color::rgba_linear(r, g, b, a)
+    }
+}
+
 impl HsvaRange {
     pub fn rand(&self, rng: &mut impl DelegatedRng) -> Color {
-        let color = self.rand_hsva(rng).to_rgba_unmultiplied();
-        Color::rgba_linear(color[0], color[1], color[2], color[3])
+        self.rand_hsva(rng).to_rgba()
     }
 
     pub fn rand_hsva(&self, rng: &mut impl DelegatedRng) -> Hsva {

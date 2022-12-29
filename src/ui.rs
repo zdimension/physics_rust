@@ -78,7 +78,8 @@ pub fn ui_example(
     });
 
     egui::Window::new("Debug").show(egui_ctx.clone().ctx_mut(), |ui| {
-        ui.monospace(format!("{:#?}", ui_state));
+        ui.monospace(format!("{:#?}\n{:#?}", ui_state, cameras.single_mut()));
+
     });
 }
 
@@ -159,8 +160,12 @@ fn process_temporary_windows(
     mut commands: Commands,
 ) {
     for (wnd, pos, _) in wnds.iter() {
+        // todo: really detect whether window was moved
         if pos.0.distance(pos.1) > 1.0 {
-            info!("marking window {:?} as persistent (initial {:?} != current {:?})", wnd, pos.0, pos.1);
+            info!(
+                "marking window {:?} as persistent (initial {:?} != current {:?})",
+                wnd, pos.0, pos.1
+            );
             commands.entity(wnd).remove::<TemporaryWindow>();
         }
     }
