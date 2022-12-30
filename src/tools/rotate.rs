@@ -3,10 +3,10 @@ use bevy::math::{Quat, Vec2, Vec3Swizzles};
 
 #[derive(Copy, Clone)]
 pub struct RotateEvent {
-    entity: Entity,
-    orig_obj_rot: Quat,
-    click_pos: Vec2,
-    mouse_pos: Vec2,
+    pub entity: Entity,
+    pub orig_obj_rot: Quat,
+    pub click_pos: Vec2,
+    pub mouse_pos: Vec2,
 }
 
 pub fn process_rotate(mut events: EventReader<RotateEvent>, mut query: Query<&mut Transform>) {

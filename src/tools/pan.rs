@@ -5,8 +5,8 @@ use crate::CAMERA_Z;
 
 #[derive(Copy, Clone)]
 pub struct PanEvent {
-    orig_camera_pos: Vec2,
-    delta: Vec2,
+    pub orig_camera_pos: Vec2,
+    pub delta: Vec2,
 }
 
 pub fn process_pan(

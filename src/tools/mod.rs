@@ -1,3 +1,3 @@
-mod pan;
-mod r#move;
-mod rotate;
+pub(crate) mod pan;
+pub(crate) mod r#move;
+pub(crate) mod rotate;

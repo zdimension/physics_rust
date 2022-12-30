@@ -2830,6 +2830,7 @@ dependencies = [
  "derivative",
  "itertools",
  "lyon_path",
+ "num-traits",
  "paste",
  "ron",
  "serde",

@@ -5,7 +5,7 @@ use bevy::prelude::*;
 use bevy_egui::egui::{pos2, Separator};
 use bevy_egui::{egui, EguiContext};
 use std::time::Duration;
-use bevy_rapier2d::prelude::{CollisionGroups, Velocity};
+use bevy_rapier2d::prelude::{CollisionGroups, RigidBody, Velocity};
 use crate::objects::laser::LaserBundle;
 
 use crate::ui::windows::appearance::AppearanceWindow;
@@ -43,6 +43,7 @@ impl MenuWindow {
             Option<&Velocity>,
             Option<&CollisionGroups>,
             Option<&LaserBundle>,
+            Option<&RigidBody>,
         )>
     ) {
         let ctx = egui_ctx.ctx_mut();
@@ -134,7 +135,9 @@ impl MenuWindow {
                                 menu!("Appearance", color, AppearanceWindow);
                             }
                             menu!("Text", text, TextWindow);
-                            menu!("Material", material, MaterialWindow);
+                            if info.4.is_some() {
+                                menu!("Material", material, MaterialWindow);
+                            }
                             if info.1.is_some() {
                                 menu!("Velocities", velocity, VelocitiesWindow);
                             }

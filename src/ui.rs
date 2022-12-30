@@ -19,6 +19,7 @@ use self::windows::information::InformationWindow;
 use self::windows::menu::MenuWindow;
 use self::windows::toolbar;
 use windows::plot::PlotWindow;
+use crate::objects::laser::LaserRays;
 use crate::ui::windows::laser::LaserWindow;
 
 #[derive(Derivative)]
@@ -60,6 +61,7 @@ pub fn ui_example(
     ui_state: ResMut<UiState>,
     mut is_initialized: Local<bool>,
     mut cameras: Query<&mut Transform, With<MainCamera>>,
+    laser: Query<&LaserRays>,
 ) {
     if !*is_initialized {
         let mut camera = cameras.single_mut();
@@ -79,7 +81,7 @@ pub fn ui_example(
     });
 
     egui::Window::new("Debug").show(egui_ctx.clone().ctx_mut(), |ui| {
-        ui.monospace(format!("{:#?}\n{:#?}", ui_state, cameras.single_mut()));
+        ui.monospace(format!("{}\n{:#?}\n{:#?}", laser.single().debug, ui_state, cameras.single_mut()));
     });
 }
 

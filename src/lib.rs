@@ -41,12 +41,13 @@ use cursor::ToolCursor;
 use mouse_select::{SelectEvent, SelectUnderMouseEvent};
 use objects::laser;
 use objects::laser::LaserRays;
-use tools::{MoveEvent, pan, rotate};
+use tools::{r#move, pan, rotate};
 use tools::pan::PanEvent;
 use tools::rotate::RotateEvent;
 use ui::{ContextMenuEvent, WindowData};
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
+use crate::tools::r#move::MoveEvent;
 
 const BORDER_THICKNESS: f32 = 0.03;
 const CAMERA_FAR: f32 = 1e6f32;
@@ -252,7 +253,7 @@ pub fn app_main() {
                 .with_system(mouse_long_or_moved_writeback),
         )
         .add_system(pan::process_pan)
-        .add_system(tools::)
+        .add_system(r#move::process_move)
         .add_system(process_unfreeze_entity)
         .add_system(rotate::process_rotate)
         .add_system(process_draw_overlay.after(left_release))
@@ -1016,6 +1017,15 @@ impl SettingComponent for SizeComponent {
     }
 }
 
+#[derive(Component)]
+pub struct RefractiveIndex(f32);
+
+impl Default for RefractiveIndex {
+    fn default() -> Self {
+        RefractiveIndex(1.5)
+    }
+}
+
 #[derive(Bundle)]
 struct HingeBundle {}
 
@@ -1240,7 +1250,7 @@ fn setup_graphics(mut commands: Commands, _egui_ctx: ResMut<EguiContext>) {
     commands.spawn((ToolCursor, SpriteBundle::default()));
 
     commands.spawn((
-        LaserRays,
+        LaserRays::default(),
         Visibility::VISIBLE,
         ComputedVisibility::default(),
         TransformBundle::default()
@@ -1258,6 +1268,7 @@ struct PhysicalObject {
     shape: ShapeBundle,
     read_props: ReadMassProperties,
     groups: CollisionGroups,
+    refractive_index: RefractiveIndex,
 }
 
 fn hsva_to_rgba(hsva: Hsva) -> Color {
@@ -1295,6 +1306,7 @@ impl PhysicalObject {
             shape,
             read_props: ReadMassProperties::default(),
             groups: CollisionGroups::new(Group::GROUP_1, Group::GROUP_1),
+            refractive_index: RefractiveIndex::default(),
         }
     }
 
