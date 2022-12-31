@@ -54,7 +54,7 @@ struct LaserCompute<'a, Refr: Fn(Entity) -> f32> {
     rays: Vec<LaserRay>,
 }
 
-const MAX_RAYS: usize = 1;
+const MAX_RAYS: usize = 100;
 
 impl<'a, Refr: Fn(Entity) -> f32> LaserCompute<'a, Refr> {
     fn new(laser: &'a LaserBundle, rapier: &'a RapierContext, refr: Refr) -> Self {

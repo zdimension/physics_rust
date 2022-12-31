@@ -1,4 +1,4 @@
-use crate::UiState;
+use crate::{PaletteConfig, UiState};
 use bevy::log::info;
 use bevy::math::{Vec2, Vec3};
 use bevy::prelude::*;
@@ -22,6 +22,7 @@ use self::windows::menu::MenuWindow;
 use crate::objects::laser::LaserRays;
 use crate::ui::windows::laser::LaserWindow;
 use windows::plot::PlotWindow;
+use crate::palette::PaletteList;
 use crate::ui::windows::material::MaterialWindow;
 
 #[derive(Derivative)]
@@ -63,11 +64,15 @@ pub fn ui_example(
     ui_state: ResMut<UiState>,
     mut is_initialized: Local<bool>,
     mut cameras: Query<&mut Transform, With<MainCamera>>,
+    mut palette_config: ResMut<PaletteConfig>,
+    assets: Res<Assets<PaletteList>>,
     laser: Query<&LaserRays>,
 ) {
     if !*is_initialized {
         let mut camera = cameras.single_mut();
         camera.scale = Vec3::new(0.01, 0.01, 1.0);
+
+        palette_config.current_palette = *assets.get(&palette_config.palettes).unwrap().0.get("Optics").unwrap();
         *is_initialized = true;
     }
 

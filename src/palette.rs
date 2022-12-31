@@ -11,7 +11,7 @@ use bevy_turborand::DelegatedRng;
 use serde;
 use serde::Deserialize;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Copy, Clone)]
 #[serde(default)]
 pub struct ObjectAppearance {
     pub opaque_borders: bool,
@@ -39,7 +39,7 @@ impl Default for ObjectAppearance {
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Copy, Clone)]
 pub struct HsvaRange(
     #[serde(deserialize_with = "deserialize_hsva")] Hsva,
     #[serde(deserialize_with = "deserialize_hsva")] Hsva,
@@ -103,7 +103,7 @@ impl HsvaRange {
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Copy, Clone)]
 #[serde(default)]
 pub struct Palette {
     pub object_appearance: ObjectAppearance,
@@ -132,7 +132,7 @@ impl Default for Palette {
 
 #[derive(Debug, Deserialize, TypeUuid)]
 #[uuid = "005a11ae-18b1-4c47-9f2e-21827d204835"]
-pub struct PaletteList(HashMap<String, Palette>);
+pub struct PaletteList(pub HashMap<String, Palette>);
 
 #[derive(Default)]
 pub struct PaletteLoader;

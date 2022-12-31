@@ -1552,9 +1552,9 @@ pub struct UiState {
 }
 
 #[derive(Resource, Default)]
-struct PaletteConfig {
-    palettes: Handle<PaletteList>,
-    current_palette: Palette,
+pub struct PaletteConfig {
+    pub palettes: Handle<PaletteList>,
+    pub current_palette: Palette,
 }
 
 fn setup_palettes(mut palette_config: ResMut<PaletteConfig>, asset_server: Res<AssetServer>) {
