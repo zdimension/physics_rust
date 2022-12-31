@@ -1,5 +1,5 @@
-use bevy::prelude::{Entity, EventReader, Query, Transform};
 use bevy::math::{Quat, Vec2, Vec3Swizzles};
+use bevy::prelude::{Entity, EventReader, Query, Transform};
 
 #[derive(Copy, Clone)]
 pub struct RotateEvent {

@@ -12,7 +12,7 @@ use bevy_egui::{
     egui::{self},
     EguiContext, EguiPlugin,
 };
-use bevy_mouse_tracking_plugin::{MainCamera, MousePos, MousePosWorld, prelude::*};
+use bevy_mouse_tracking_plugin::{prelude::*, MainCamera, MousePos, MousePosWorld};
 use bevy_prototype_lyon::prelude::*;
 use bevy_prototype_lyon::{
     entity::ShapeBundle,
@@ -20,34 +20,34 @@ use bevy_prototype_lyon::{
 };
 use bevy_rapier2d::prelude::*;
 
+mod cursor;
 mod demo;
 mod measures;
-mod palette;
-mod ui;
-mod objects;
 mod mouse_select;
-mod cursor;
+mod objects;
+mod palette;
 mod tools;
+mod ui;
 
 pub use egui::egui_assert;
 
 use crate::palette::ToRgba;
+use crate::tools::r#move::MoveEvent;
 use crate::ui::RemoveTemporaryWindowsEvent;
 use bevy_turborand::{DelegatedRng, GlobalRng, RngComponent, RngPlugin};
-use derivative::Derivative;
-use palette::{Palette, PaletteList, PaletteLoader};
-use paste::paste;
 use cursor::ToolCursor;
+use derivative::Derivative;
 use mouse_select::{SelectEvent, SelectUnderMouseEvent};
 use objects::laser;
 use objects::laser::LaserRays;
-use tools::{r#move, pan, rotate};
+use palette::{Palette, PaletteList, PaletteLoader};
+use paste::paste;
 use tools::pan::PanEvent;
 use tools::rotate::RotateEvent;
+use tools::{pan, r#move, rotate};
 use ui::{ContextMenuEvent, WindowData};
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
-use crate::tools::r#move::MoveEvent;
 
 const BORDER_THICKNESS: f32 = 0.03;
 const CAMERA_FAR: f32 = 1e6f32;
@@ -139,10 +139,13 @@ icon_set!(
         lasermenu,
         material,
         mirror,
+        new,
+        open,
         pause,
         play,
         plot,
         plot_clear,
+        save,
         text,
         velocity,
         zoom2scene
@@ -356,7 +359,7 @@ fn mouse_long_or_moved(
     mut commands: Commands,
     rapier: Res<RapierContext>,
     mut select_mouse: EventWriter<SelectEvent>,
-    mouse_pos: Res<MousePosWorld>
+    mouse_pos: Res<MousePosWorld>,
 ) {
     use ToolEnum::*;
     for MouseLongOrMoved(hover_tool, pos, button) in events.iter() {
@@ -392,10 +395,15 @@ fn mouse_long_or_moved(
                 todo!()
             }
             _ => {
-                let under_mouse = mouse_select::find_under_mouse(&rapier, clickpos, QueryFilter::default(), |ent| {
-                    let (transform, _) = query.get(ent).unwrap();
-                    transform.translation.z
-                })
+                let under_mouse = mouse_select::find_under_mouse(
+                    &rapier,
+                    clickpos,
+                    QueryFilter::default(),
+                    |ent| {
+                        let (transform, _) = query.get(ent).unwrap();
+                        transform.translation.z
+                    },
+                )
                 .next();
 
                 if matches!(
@@ -507,7 +515,10 @@ fn left_release(
                         }
                     }
                     Box(Some(_ent)) if screen_pos.distance(click_pos_screen) > 6.0 => {
-                        add_obj.send(AddObjectEvent::Box { pos: click_pos, size: pos - click_pos });
+                        add_obj.send(AddObjectEvent::Box {
+                            pos: click_pos,
+                            size: pos - click_pos,
+                        });
                     }
                     Circle(Some(_ent)) if screen_pos.distance(click_pos_screen) > 6.0 => {
                         add_obj.send(AddObjectEvent::Circle {
@@ -636,33 +647,45 @@ fn process_add_object(
     sensor: Query<&Sensor>,
 ) {
     let palette = &palette_config.current_palette;
-    use AddObjectEvent::*;
     use objects::laser::LaserBundle;
+    use AddObjectEvent::*;
     for ev in events.iter() {
         match *ev {
-            Box { pos: pos, size: size } => {
+            Box {
+                pos: pos,
+                size: size,
+            } => {
                 commands
                     .spawn(PhysicalObject::rect(size, z.pos(pos)))
-                    .insert(ColorComponent(
-                        palette.get_color_hsva(&mut *rng.single_mut()),
-                    ).update_from_this())
+                    .insert(
+                        ColorComponent(palette.get_color_hsva(&mut *rng.single_mut()))
+                            .update_from_this(),
+                    )
                     .log_components();
             }
-            Circle { center: center, radius: radius } => {
+            Circle {
+                center: center,
+                radius: radius,
+            } => {
                 commands
                     .spawn(PhysicalObject::ball(radius, z.pos(center)))
-                    .insert(ColorComponent(
-                        palette.get_color_hsva(&mut *rng.single_mut()),
-                    ).update_from_this())
+                    .insert(
+                        ColorComponent(palette.get_color_hsva(&mut *rng.single_mut()))
+                            .update_from_this(),
+                    )
                     .log_components();
             }
             Fix(pos) => {
                 let (entity1, entity2) = {
-                    let mut entities =
-                        mouse_select::find_under_mouse(&rapier, pos, QueryFilter::only_dynamic(), |ent| {
+                    let mut entities = mouse_select::find_under_mouse(
+                        &rapier,
+                        pos,
+                        QueryFilter::only_dynamic(),
+                        |ent| {
                             let (transform, _) = query.get(ent).unwrap();
                             transform.translation.z
-                        });
+                        },
+                    );
                     (entities.next(), entities.next())
                 };
 
@@ -710,11 +733,15 @@ fn process_add_object(
             }
             Hinge(pos) => {
                 let (entity1, entity2) = {
-                    let mut entities =
-                        mouse_select::find_under_mouse(&rapier, pos, QueryFilter::only_dynamic(), |ent| {
+                    let mut entities = mouse_select::find_under_mouse(
+                        &rapier,
+                        pos,
+                        QueryFilter::only_dynamic(),
+                        |ent| {
                             let (transform, _) = query.get(ent).unwrap();
                             transform.translation.z
-                        });
+                        },
+                    );
                     (entities.next(), entities.next())
                 };
 
@@ -792,7 +819,8 @@ fn process_add_object(
                                 ),
                                 Collider::ball(0.5),
                                 Sensor,
-                                ColorComponent(palette.get_color_hsva(&mut *rng.single_mut())).update_from_this(),
+                                ColorComponent(palette.get_color_hsva(&mut *rng.single_mut()))
+                                    .update_from_this(),
                             ))
                             .add_children(|builder| {
                                 builder
@@ -808,7 +836,7 @@ fn process_add_object(
                                                 },
                                                 ..Default::default()
                                             },
-                                            UpdateFrom::<ColorComponent>::entity(entity1)
+                                            UpdateFrom::<ColorComponent>::entity(entity1),
                                         ));
                                     })
                                     .with_children(|builder| {
@@ -820,7 +848,7 @@ fn process_add_object(
                                                 },
                                                 ..Default::default()
                                             },
-                                            UpdateFrom::<ColorComponent>::This
+                                            UpdateFrom::<ColorComponent>::This,
                                         ));
                                     })
                                     .with_children(|builder| {
@@ -833,7 +861,9 @@ fn process_add_object(
                                             ..Default::default()
                                         });
                                         if let Some(entity2) = entity2 {
-                                            sprite.insert(UpdateFrom::<ColorComponent>::entity(entity2));
+                                            sprite.insert(UpdateFrom::<ColorComponent>::entity(
+                                                entity2,
+                                            ));
                                         }
                                     });
                             });
@@ -841,16 +871,22 @@ fn process_add_object(
                 }
             }
             Laser(pos) => {
-                let entity = mouse_select::find_under_mouse(&rapier, pos, QueryFilter::only_dynamic(), |ent| {
-                    query.get(ent).unwrap().0.translation.z
-                })
+                let entity = mouse_select::find_under_mouse(
+                    &rapier,
+                    pos,
+                    QueryFilter::only_dynamic(),
+                    |ent| query.get(ent).unwrap().0.translation.z,
+                )
                 .next();
 
                 let scale = cameras.single_mut().scale.x * DEFAULT_OBJ_SIZE;
                 let laser = commands
                     .spawn((
-                        LaserBundle { fade_distance: 10.0 },
-                        ColorComponent(palette.get_color_hsva(&mut *rng.single_mut())).update_from_this(),
+                        LaserBundle {
+                            fade_distance: 10.0,
+                        },
+                        ColorComponent(palette.get_color_hsva(&mut *rng.single_mut()))
+                            .update_from_this(),
                         Collider::cuboid(0.5, 0.25),
                         SizeComponent(scale),
                         Sensor,
@@ -865,15 +901,18 @@ fn process_add_object(
                 };
                 commands
                     .entity(laser)
-                    .insert((GeometryBuilder::build_as(
-                        &shapes::Rectangle {
-                            extents: Vec2::new(1.0, 0.5) * 1.1, // make selection display a bit bigger
-                            ..Default::default()
-                        },
-                        make_stroke(Color::rgba(0.0, 0.0, 0.0, 0.0), BORDER_THICKNESS).as_mode(),
-                        Transform::from_translation(z.pos(laser_pos)),
-
-                    ), UpdateFrom::<SizeComponent>::This))
+                    .insert((
+                        GeometryBuilder::build_as(
+                            &shapes::Rectangle {
+                                extents: Vec2::new(1.0, 0.5) * 1.1, // make selection display a bit bigger
+                                ..Default::default()
+                            },
+                            make_stroke(Color::rgba(0.0, 0.0, 0.0, 0.0), BORDER_THICKNESS)
+                                .as_mode(),
+                            Transform::from_translation(z.pos(laser_pos)),
+                        ),
+                        UpdateFrom::<SizeComponent>::This,
+                    ))
                     .with_children(|builder| {
                         builder.spawn((
                             SpriteBundle {
@@ -885,7 +924,7 @@ fn process_add_object(
                                 )),
                                 ..Default::default()
                             },
-                            UpdateFrom::<ColorComponent>::This
+                            UpdateFrom::<ColorComponent>::This,
                         ));
                     });
             }
@@ -896,7 +935,7 @@ fn process_add_object(
 #[derive(Component)]
 enum UpdateFrom<T: SettingComponent> {
     This,
-    Entity(Entity, PhantomData<T>)
+    Entity(Entity, PhantomData<T>),
 }
 
 impl<T: SettingComponent> UpdateFrom<T> {
@@ -928,10 +967,7 @@ fn update_sprites_color(
     parents: Query<(Option<&Parent>, Option<&ColorComponent>)>,
 ) {
     for (entity, mut sprite, update_source) in sprites.iter_mut() {
-        sprite.color = update_source
-            .find_component(entity, &parents)
-            .1
-            .to_rgba();
+        sprite.color = update_source.find_component(entity, &parents).1.to_rgba();
     }
 }
 
@@ -976,12 +1012,12 @@ fn update_draw_modes(
                     Color::rgba(0.0, 0.0, 0.0, 0.0)
                 };
                 make_stroke(stroke, BORDER_THICKNESS).as_mode()
-            },
+            }
         }
     }
 }
 
-trait SettingComponent : Component + Sized {
+trait SettingComponent: Component + Sized {
     type Value;
 
     fn get(&self) -> Self::Value;
@@ -1253,8 +1289,8 @@ fn setup_graphics(mut commands: Commands, _egui_ctx: ResMut<EguiContext>) {
         LaserRays::default(),
         Visibility::VISIBLE,
         ComputedVisibility::default(),
-        TransformBundle::default()
-        ));
+        TransformBundle::default(),
+    ));
 }
 
 #[derive(Bundle)]

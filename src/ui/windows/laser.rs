@@ -1,8 +1,8 @@
-use bevy::prelude::*;
-use bevy_egui::{egui, EguiContext};
-use crate::SizeComponent;
 use crate::objects::laser::LaserBundle;
 use crate::ui::{BevyIdThing, InitialPos, Subwindow};
+use crate::SizeComponent;
+use bevy::prelude::*;
+use bevy_egui::{egui, EguiContext};
 
 #[derive(Default, Component)]
 pub struct LaserWindow;
@@ -22,17 +22,19 @@ impl LaserWindow {
                 .default_size(egui::Vec2::ZERO)
                 .id_bevy(id)
                 .subwindow(id, ctx, &mut initial_pos, &mut commands, |ui, _commands| {
-                    ui.add(egui::Slider::new(&mut laser.fade_distance, 1.0..=1000.0)
-                        .logarithmic(true)
-                        .suffix("m")
-                        .text("Fade distance :")
-                        .custom()
+                    ui.add(
+                        egui::Slider::new(&mut laser.fade_distance, 1.0..=1000.0)
+                            .logarithmic(true)
+                            .suffix("m")
+                            .text("Fade distance :")
+                            .custom(),
                     );
-                    ui.add(egui::Slider::new(&mut size.0, 0.01..=5.0)
-                        .logarithmic(true)
-                        .suffix("m")
-                        .text("Size :")
-                        .custom()
+                    ui.add(
+                        egui::Slider::new(&mut size.0, 0.01..=5.0)
+                            .logarithmic(true)
+                            .suffix("m")
+                            .text("Size :")
+                            .custom(),
                     );
                 });
         }

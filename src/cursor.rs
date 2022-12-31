@@ -1,9 +1,9 @@
-use bevy::prelude::{Component, Image, Query, Res, ResMut, Transform, Visibility, With, Without};
-use bevy_mouse_tracking_plugin::{MainCamera, MousePosWorld};
+use crate::{ToolIcons, UiState, UsedMouseButton, FOREGROUND_Z};
 use bevy::asset::Handle;
-use bevy_egui::EguiContext;
 use bevy::math::{Vec2, Vec3Swizzles};
-use crate::{FOREGROUND_Z, ToolIcons, UiState, UsedMouseButton};
+use bevy::prelude::{Component, Image, Query, Res, ResMut, Transform, Visibility, With, Without};
+use bevy_egui::EguiContext;
+use bevy_mouse_tracking_plugin::{MainCamera, MousePosWorld};
 
 #[derive(Component)]
 pub struct ToolCursor;

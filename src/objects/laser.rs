@@ -1,15 +1,15 @@
-use bevy::prelude::*;
+use crate::{AsMode, ColorComponent, RefractiveIndex};
+use bevy::hierarchy::{BuildChildren, DespawnRecursiveExt};
 use bevy::math::{EulerRot, Vec2, Vec3, Vec3Swizzles};
+use bevy::prelude::*;
 use bevy_egui::egui::ecolor::Hsva;
 use bevy_prototype_lyon::geometry::GeometryBuilder;
 use bevy_prototype_lyon::shapes;
-use bevy::hierarchy::{BuildChildren, DespawnRecursiveExt};
 use bevy_rapier2d::prelude::{QueryFilter, RapierContext, RayIntersection};
-use crate::{AsMode, ColorComponent, RefractiveIndex};
 use num_traits::float::FloatConst;
 #[derive(Component)]
 pub struct LaserBundle {
-    pub(crate) fade_distance: f32
+    pub(crate) fade_distance: f32,
 }
 
 #[derive(Debug)]
@@ -38,7 +38,8 @@ impl LaserRay {
     }
 
     fn end_strength(&self, parent: &LaserBundle) -> f32 {
-        0.0f32.max(self.strength * (1.0 - self.length / (parent.fade_distance - self.start_distance)))
+        0.0f32
+            .max(self.strength * (1.0 - self.length / (parent.fade_distance - self.start_distance)))
     }
 
     fn end_distance(&self) -> f32 {
@@ -50,7 +51,7 @@ struct LaserCompute<'a, Refr: Fn(Entity) -> f32> {
     laser: &'a LaserBundle,
     rapier: &'a RapierContext,
     refractive_index: Refr,
-    rays: Vec<LaserRay>
+    rays: Vec<LaserRay>,
 }
 
 const MAX_RAYS: usize = 1;
@@ -61,7 +62,7 @@ impl<'a, Refr: Fn(Entity) -> f32> LaserCompute<'a, Refr> {
             laser,
             rapier,
             refractive_index: refr,
-            rays: Vec::new()
+            rays: Vec::new(),
         }
     }
 
@@ -70,7 +71,9 @@ impl<'a, Refr: Fn(Entity) -> f32> LaserCompute<'a, Refr> {
             return;
         }
 
-        ray.length = ray.length.min(self.laser.fade_distance - ray.start_distance);
+        ray.length = ray
+            .length
+            .min(self.laser.fade_distance - ray.start_distance);
 
         let mut intersection = None;
         let mut min_dist = f32::INFINITY;
@@ -89,10 +92,19 @@ impl<'a, Refr: Fn(Entity) -> f32> LaserCompute<'a, Refr> {
                     min_dist = inter.toi;
                 }
                 true
-            }
+            },
         );
 
-        if let Some((ent, RayIntersection { toi, point, normal, feature })) = intersection {
+        if let Some((
+            ent,
+            RayIntersection {
+                toi,
+                point,
+                normal,
+                feature,
+            },
+        )) = intersection
+        {
             ray.length = toi;
 
             let normal_angle = normal.y.atan2(normal.x);
@@ -108,7 +120,10 @@ impl<'a, Refr: Fn(Entity) -> f32> LaserCompute<'a, Refr> {
 
             let opacity_refracted = (-obj_index.log10()).exp();
             let opacity_reflected = 1.0 - opacity_refracted;
-            let test = Hsva { h: ray.color.h + 20.0, .. ray.color };
+            let test = Hsva {
+                h: ray.color.h + 20.0,
+                ..ray.color
+            };
             let reflected_ray = LaserRay {
                 start: point,
                 angle: reflected_angle,
@@ -175,7 +190,7 @@ pub fn draw_lasers(
                 builder.spawn(GeometryBuilder::build_as(
                     &shapes::Line(ray.start, ray.end()),
                     crate::make_stroke(crate::hsva_to_rgba(ray.color), ray.width).as_mode(),
-                    Transform::from_translation(Vec3::new(0.0, 0.0, transform.translation.z - 0.1))
+                    Transform::from_translation(Vec3::new(0.0, 0.0, transform.translation.z - 0.1)),
                 ));
             }
         });
@@ -184,8 +199,7 @@ pub fn draw_lasers(
     }
 }
 
-
 #[derive(Component, Default)]
 pub struct LaserRays {
-    pub debug: String
+    pub debug: String,
 }

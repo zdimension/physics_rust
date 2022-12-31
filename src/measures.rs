@@ -68,7 +68,7 @@ impl Momentum {
 
 pub enum ForceKind {
     Gravity,
-    Torque
+    Torque,
 }
 
 pub enum ForceValue {
@@ -96,17 +96,19 @@ pub struct AppliedForce {
 
 #[derive(Component)]
 pub struct Forces {
-    forces: Vec<AppliedForce>
+    forces: Vec<AppliedForce>,
 }
 
 impl Forces {
     fn new() -> Self {
-        Self {
-            forces: Vec::new()
-        }
+        Self { forces: Vec::new() }
     }
 
-    fn compute(bodies: Query<(Entity, &ReadMassProperties, &Velocity)>, mut commands: Commands, rapier_conf: Res<RapierConfiguration>) {
+    fn compute(
+        bodies: Query<(Entity, &ReadMassProperties, &Velocity)>,
+        mut commands: Commands,
+        rapier_conf: Res<RapierConfiguration>,
+    ) {
         use ForceKind::*;
 
         for (id, ReadMassProperties(mass), vel) in bodies.iter() {
@@ -115,7 +117,7 @@ impl Forces {
             forces.push(AppliedForce {
                 kind: Gravity,
                 at: Vec2::ZERO,
-                value: Vec2::new(0.0, mass.mass * rapier_conf.gravity.y).into()
+                value: Vec2::new(0.0, mass.mass * rapier_conf.gravity.y).into(),
             });
 
             commands.entity(id).insert(Forces { forces });

@@ -1,5 +1,5 @@
-use bevy::prelude::{Entity, EventReader, Query, Transform};
 use bevy::math::Vec2;
+use bevy::prelude::{Entity, EventReader, Query, Transform};
 
 #[derive(Copy, Clone)]
 pub struct MoveEvent {

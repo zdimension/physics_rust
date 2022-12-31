@@ -1,12 +1,12 @@
+use crate::objects::laser::LaserBundle;
 use crate::ui::{InitialPos, Subwindow};
 use crate::{ColorComponent, GuiIcons};
 use bevy::hierarchy::{BuildChildren, DespawnRecursiveExt, Parent};
 use bevy::prelude::*;
 use bevy_egui::egui::{pos2, Separator};
 use bevy_egui::{egui, EguiContext};
-use std::time::Duration;
 use bevy_rapier2d::prelude::{CollisionGroups, RigidBody, Velocity};
-use crate::objects::laser::LaserBundle;
+use std::time::Duration;
 
 use crate::ui::windows::appearance::AppearanceWindow;
 use crate::ui::windows::collisions::CollisionsWindow;
@@ -44,7 +44,7 @@ impl MenuWindow {
             Option<&CollisionGroups>,
             Option<&LaserBundle>,
             Option<&RigidBody>,
-        )>
+        )>,
     ) {
         let ctx = egui_ctx.ctx_mut();
         for (wnd_id, entity, mut info_wnd, mut initial_pos) in wnds.iter_mut() {

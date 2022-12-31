@@ -1,15 +1,15 @@
 use std::collections::HashMap;
 
+use crate::BORDER_THICKNESS;
 use bevy::asset::AssetLoader;
 use bevy::asset::LoadedAsset;
 use bevy::prelude::*;
 use bevy::reflect::TypeUuid;
 use bevy_egui::egui::epaint::Hsva;
+use bevy_prototype_lyon::draw::DrawMode;
 use bevy_turborand::DelegatedRng;
 use serde;
 use serde::Deserialize;
-use bevy_prototype_lyon::draw::DrawMode;
-use crate::BORDER_THICKNESS;
 
 #[derive(Debug, Deserialize)]
 #[serde(default)]

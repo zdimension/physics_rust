@@ -1,16 +1,19 @@
-use bevy::prelude::{Commands, Component, Entity, EventReader, EventWriter, Query, Res, ResMut, Transform, Windows, With};
-use bevy_rapier2d::plugin::RapierContext;
-use bevy_rapier2d::pipeline::QueryFilter;
-use bevy::math::Vec2;
-use derivative::Derivative;
-use bevy_egui::egui::epaint::util::{FloatOrd, OrderedFloat};
-use std::collections::BTreeSet;
-use bevy_prototype_lyon::draw::DrawMode;
-use bevy_mouse_tracking_plugin::MousePos;
-use bevy::log::info;
-use bevy::hierarchy::DespawnRecursiveExt;
 use crate::ui::{ContextMenuEvent, TemporaryWindow};
 use crate::{EntitySelection, UiState};
+use bevy::hierarchy::DespawnRecursiveExt;
+use bevy::log::info;
+use bevy::math::Vec2;
+use bevy::prelude::{
+    Commands, Component, Entity, EventReader, EventWriter, Query, Res, ResMut, Transform, Windows,
+    With,
+};
+use bevy_egui::egui::epaint::util::{FloatOrd, OrderedFloat};
+use bevy_mouse_tracking_plugin::MousePos;
+use bevy_prototype_lyon::draw::DrawMode;
+use bevy_rapier2d::pipeline::QueryFilter;
+use bevy_rapier2d::plugin::RapierContext;
+use derivative::Derivative;
+use std::collections::BTreeSet;
 
 pub struct SelectEvent {
     pub(crate) entity: Option<Entity>,

@@ -2,7 +2,7 @@ use crate::UiState;
 use bevy::log::info;
 use bevy::math::{Vec2, Vec3};
 use bevy::prelude::*;
-use bevy_egui::egui::{Context, Id, InnerResponse, pos2, Pos2, Ui};
+use bevy_egui::egui::{pos2, Context, Id, InnerResponse, Pos2, Ui};
 use bevy_egui::{egui, EguiContext};
 use bevy_mouse_tracking_plugin::MainCamera;
 
@@ -10,17 +10,19 @@ use derivative::Derivative;
 
 mod icon_button;
 mod menu_item;
+mod scene_actions;
 mod separator_custom;
 mod toolbox;
 mod windows;
+mod toolbar;
 
 use self::windows::collisions::CollisionsWindow;
 use self::windows::information::InformationWindow;
 use self::windows::menu::MenuWindow;
-use self::windows::toolbar;
-use windows::plot::PlotWindow;
 use crate::objects::laser::LaserRays;
 use crate::ui::windows::laser::LaserWindow;
+use windows::plot::PlotWindow;
+use crate::ui::windows::material::MaterialWindow;
 
 #[derive(Derivative)]
 #[derivative(Debug)]
@@ -81,7 +83,12 @@ pub fn ui_example(
     });
 
     egui::Window::new("Debug").show(egui_ctx.clone().ctx_mut(), |ui| {
-        ui.monospace(format!("{}\n{:#?}\n{:#?}", laser.single().debug, ui_state, cameras.single_mut()));
+        ui.monospace(format!(
+            "{}\n{:#?}\n{:#?}",
+            laser.single().debug,
+            ui_state,
+            cameras.single_mut()
+        ));
     });
 }
 
@@ -90,6 +97,7 @@ pub fn draw_ui() -> SystemSet {
         .with_system(ui_example)
         .with_system(toolbox::draw_toolbox)
         .with_system(toolbar::draw_bottom_toolbar)
+        .with_system(scene_actions::draw_scene_actions)
         .with_system(process_temporary_windows)
         .with_system(remove_temporary_windows)
         .with_system(MenuWindow::show)
@@ -97,6 +105,7 @@ pub fn draw_ui() -> SystemSet {
         .with_system(PlotWindow::show)
         .with_system(CollisionsWindow::show)
         .with_system(LaserWindow::show)
+        .with_system(MaterialWindow::show)
 }
 
 trait AsPos2 {
