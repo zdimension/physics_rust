@@ -242,8 +242,8 @@ pub fn app_main() {
         .add_startup_system(configure_ui_state)
         .add_startup_system(setup_graphics)
         .add_startup_system(setup_physics)
-        .add_startup_system(setup_palettes)
         .add_startup_system(setup_rng)
+        .add_system(update_from_palette)
         .add_system_set(ui::draw_ui())
         .add_system_set(measures::compute_measures())
         .add_system_set(
@@ -1551,14 +1551,21 @@ pub struct UiState {
     window_temp: Option<Id>,
 }
 
-#[derive(Resource, Default)]
+#[derive(Resource)]
 pub struct PaletteConfig {
     pub palettes: Handle<PaletteList>,
     pub current_palette: Palette,
 }
 
-fn setup_palettes(mut palette_config: ResMut<PaletteConfig>, asset_server: Res<AssetServer>) {
-    palette_config.palettes = asset_server.load("palettes.ron");
+impl FromWorld for PaletteConfig {
+    fn from_world(world: &mut World) -> Self {
+        let asset_server = world.get_resource_mut::<AssetServer>().unwrap();
+        let palettes = asset_server.load("palettes.ron");
+        Self {
+            palettes,
+            current_palette: Palette::default(),
+        }
+    }
 }
 
 impl UiState {}
@@ -1602,8 +1609,6 @@ impl FromWorld for UiState {
 
 fn configure_visuals(
     mut egui_ctx: ResMut<EguiContext>,
-    palette: Res<PaletteConfig>,
-    mut clear_color: ResMut<ClearColor>,
 ) {
     let ctx = egui_ctx.ctx_mut();
     ctx.set_visuals(egui::Visuals {
@@ -1613,6 +1618,12 @@ fn configure_visuals(
     let mut style: egui::Style = (*ctx.style()).clone();
     style.spacing.slider_width = 260.0;
     ctx.set_style(style);
+}
+
+fn update_from_palette(
+    palette: Res<PaletteConfig>,
+    mut clear_color: ResMut<ClearColor>,
+) {
     clear_color.0 = palette.current_palette.sky_color;
 }
 
