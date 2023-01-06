@@ -64,6 +64,7 @@ impl MenuWindow {
                                 item!(@ $text, None)
                             };
                         }
+
                     macro_rules! menu {
                             (@ $text: literal, $icon: expr, $wnd:ty) => {
                                 let our_id = $text;
@@ -81,7 +82,7 @@ impl MenuWindow {
                                         info_wnd.selected_item = Some(our_id);
 
                                         if let Some(id) = info_wnd.our_child_window {
-                                            commands.entity(id).despawn_recursive();
+                                            commands.get_entity(id).map(|ent| ent.despawn_recursive());
                                         }
 
                                         info!("rect: {:?}", menu.rect);
