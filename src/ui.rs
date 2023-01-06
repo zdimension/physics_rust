@@ -1,10 +1,10 @@
-use crate::{PaletteConfig, UiState};
+use crate::{demo, PaletteConfig, UiState};
 use bevy::log::info;
-use bevy::math::{Vec2, Vec3};
+use bevy::math::{Vec2, Vec3, Vec3Swizzles};
 use bevy::prelude::*;
 use bevy_egui::egui::{pos2, Context, Id, InnerResponse, Pos2, Ui};
 use bevy_egui::{egui, EguiContext};
-use bevy_mouse_tracking_plugin::MainCamera;
+use bevy_mouse_tracking_plugin::{MainCamera, MousePosWorld};
 
 use derivative::Derivative;
 
@@ -23,6 +23,7 @@ use crate::objects::laser::LaserRays;
 use crate::ui::windows::laser::LaserWindow;
 use windows::plot::PlotWindow;
 use crate::palette::PaletteList;
+use crate::ui::windows::appearance::AppearanceWindow;
 use crate::ui::windows::material::MaterialWindow;
 
 #[derive(Derivative)]
@@ -67,12 +68,15 @@ pub fn ui_example(
     mut palette_config: ResMut<PaletteConfig>,
     assets: Res<Assets<PaletteList>>,
     laser: Query<&LaserRays>,
+    mut cmds: Commands,
+    mouse: Res<MousePosWorld>
 ) {
     if !*is_initialized {
-        let mut camera = cameras.single_mut();
-        camera.scale = Vec3::new(0.01, 0.01, 1.0);
+
 
         palette_config.current_palette = *assets.get(&palette_config.palettes).unwrap().0.get("Optics").unwrap();
+
+        demo::lasers::init(&mut cmds);
         *is_initialized = true;
     }
 
@@ -88,11 +92,18 @@ pub fn ui_example(
     });
 
     egui::Window::new("Debug").show(egui_ctx.clone().ctx_mut(), |ui| {
+        let tr = cameras.single_mut();
         ui.monospace(format!(
-            "{}\n{:#?}\n{:#?}",
+            "Mouse: {:.2} m\n\
+            {}\n\
+            {:#?}\n\
+            pos = {:.2} m\n\
+            scale = {:.2} m\n",
+            mouse.xy(),
             laser.single().debug,
             ui_state,
-            cameras.single_mut()
+            tr.translation,
+            tr.scale
         ));
     });
 }

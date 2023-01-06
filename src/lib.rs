@@ -239,9 +239,8 @@ pub fn app_main() {
         .add_event::<ContextMenuEvent>()
         .add_event::<RemoveTemporaryWindowsEvent>()
         .add_startup_system(configure_visuals)
-        .add_startup_system(configure_ui_state)
         .add_startup_system(setup_graphics)
-        .add_startup_system(setup_physics)
+        .add_startup_system(setup_physics.after(setup_graphics))
         .add_startup_system(setup_rng)
         .add_system(update_from_palette)
         .add_system_set(ui::draw_ui())
@@ -579,12 +578,14 @@ fn left_release(
     );
 }
 
+#[derive(Debug)]
 enum AddObjectEvent {
     Hinge(Vec2),
     Fix(Vec2),
     Circle { center: Vec2, radius: f32 },
     Box { pos: Vec2, size: Vec2 },
     Laser(Vec2),
+    Polygon { pos: Vec2, points: Vec<Vec2> },
 }
 
 trait DrawModeExt {
@@ -669,6 +670,15 @@ fn process_add_object(
             } => {
                 commands
                     .spawn(PhysicalObject::ball(radius, z.pos(center)))
+                    .insert(
+                        ColorComponent(palette.get_color_hsva(&mut *rng.single_mut()))
+                            .update_from_this(),
+                    )
+                    .log_components();
+            }
+            Polygon { pos, ref points } => {
+                commands
+                    .spawn(PhysicalObject::poly(points.clone(), z.pos(pos)))
                     .insert(
                         ColorComponent(palette.get_color_hsva(&mut *rng.single_mut()))
                             .update_from_this(),
@@ -928,6 +938,7 @@ fn process_add_object(
                         ));
                     });
             }
+            ref x @ _ => unimplemented!("unimplemented tool {:?}", x),
         }
     }
 }
@@ -999,6 +1010,7 @@ fn update_draw_modes(
                     } else {
                         hsva_to_rgba(Hsva {
                             v: color.v * 0.5,
+                            a: 1.0,
                             ..color
                         })
                     };
@@ -1280,8 +1292,14 @@ fn setup_graphics(mut commands: Commands, _egui_ctx: ResMut<EguiContext>) {
     // Add a camera so we can see the debug-render.
     // note: camera's scale means meters per pixel
     commands
-        .spawn((Camera2dBundle::new_with_far(CAMERA_FAR), MainCamera))
+        .spawn((
+            Camera2dBundle::new_with_far(CAMERA_FAR),
+            MainCamera,
+
+        ))
+        .insert(TransformBundle::from(Transform::default().with_translation(Vec3::new(0.0, 0.0, CAMERA_FAR - 0.1)).with_scale(Vec3::new(0.01, 0.01, 1.0))))
         .add_world_tracking();
+
 
     commands.spawn((ToolCursor, SpriteBundle::default()));
 
@@ -1305,10 +1323,12 @@ struct PhysicalObject {
     read_props: ReadMassProperties,
     groups: CollisionGroups,
     refractive_index: RefractiveIndex,
+    color: ColorComponent,
+    color_upd: UpdateFrom<ColorComponent>
 }
 
 fn hsva_to_rgba(hsva: Hsva) -> Color {
-    let color = hsva.to_rgba_unmultiplied();
+    let color = hsva.to_rgba_premultiplied();
     Color::rgba_linear(color[0], color[1], color[2], color[3])
 }
 
@@ -1343,6 +1363,8 @@ impl PhysicalObject {
             read_props: ReadMassProperties::default(),
             groups: CollisionGroups::new(Group::GROUP_1, Group::GROUP_1),
             refractive_index: RefractiveIndex::default(),
+            color: ColorComponent(Hsva::new(0.0, 1.0, 1.0, 1.0)),
+            color_upd: UpdateFrom::This,
         }
     }
 
@@ -1388,6 +1410,23 @@ impl PhysicalObject {
             ),
         )
     }
+
+    pub fn poly(points: Vec<Vec2>, pos: Vec3) -> Self {
+        Self::make(
+            Collider::convex_hull(&points).unwrap(),
+            GeometryBuilder::build_as(
+                &shapes::Polygon {
+                    points,
+                    closed: true
+                },
+                DrawMode::Outlined {
+                    fill_mode: make_fill(Color::CYAN),
+                    outline_mode: make_stroke(Color::BLACK, BORDER_THICKNESS),
+                },
+                Transform::from_translation(pos),
+            ),
+        )
+    }
 }
 
 #[derive(Component)]
@@ -1395,8 +1434,8 @@ struct HingeObject;
 
 fn setup_physics(mut commands: Commands) {
     /* Create the ground. */
-    demo::newton_cradle::init(&mut commands);
-
+    //demo::newton_cradle::init(&mut commands);
+//demo::lasers::init(&mut commands);
     /*  commands
         .spawn(Collider::cuboid(4.0, 0.5))
         .insert(TransformBundle::from(Transform::from_xyz(0.0, -3.0, 0.0)));
@@ -1626,5 +1665,3 @@ fn update_from_palette(
 ) {
     clear_color.0 = palette.current_palette.sky_color;
 }
-
-fn configure_ui_state(_ui_state: ResMut<UiState>) {}

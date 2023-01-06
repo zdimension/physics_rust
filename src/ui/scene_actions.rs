@@ -13,7 +13,7 @@ pub fn draw_scene_actions(
     mut clear_tmp: EventWriter<RemoveTemporaryWindowsEvent>,
 ) {
     egui::Window::new("Scene actions")
-        .anchor(Align2::LEFT_TOP, [0.0, 0.0])
+        .anchor(Align2::LEFT_TOP, [0.0, 64.0])
         .title_bar(false)
         .resizable(false)
         .default_size(egui::Vec2::ZERO)

@@ -17,7 +17,7 @@ pub fn process_rotate(mut events: EventReader<RotateEvent>, mut query: Query<&mu
         mouse_pos,
     } in events.iter().copied()
     {
-        let mut transform = query.get_mut(entity).unwrap();
+        let Ok(mut transform) = query.get_mut(entity) else { continue };
         let start = click_pos - transform.translation.xy();
         let current = mouse_pos - transform.translation.xy();
         let angle = start.angle_between(current);
