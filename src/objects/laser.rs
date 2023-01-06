@@ -22,14 +22,25 @@ struct LaserRay {
     width: f32,
     start_distance: f32,
     refractive_index: f32,
+    kind: RayKind,
+    num: usize,
+    source: usize
+}
+
+#[derive(Debug)]
+enum RayKind {
+    Laser,
+    Reflected,
+    Refracted,
+    Diffracted
 }
 
 impl Debug for LaserRay {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "{{ {:.3}, {:.1}°, L={:.1}m, {:.1}%, w: {:.1}m, n: {:?} }}",
-            self.start, self.angle.to_degrees(), self.length, self.strength * 100.0, self.width, self.refractive_index
+            "{:2} ({:2}): {{ {:.3}, {:.1}°, L={:.1}m, {:.1}%, w: {:.1}m, n: {:?}, {:?} }}",
+            self.num, self.source, self.start, self.angle.to_degrees(), self.length, self.strength * 100.0, self.width, self.refractive_index, self.kind
         )
     }
 }
@@ -75,7 +86,7 @@ struct LaserCompute<'a, ObjInfo: Fn(Entity) -> ObjectInfo> {
     rays: Vec<LaserRay>,
 }
 
-const MAX_RAYS: usize = 10;
+const MAX_RAYS: usize = 100;
 
 impl<'a, ObjInfo: Fn(Entity) -> ObjectInfo> LaserCompute<'a, ObjInfo> {
     fn new(laser: &'a LaserBundle, rapier: &'a RapierContext, object_info: ObjInfo) -> Self {
@@ -108,7 +119,7 @@ impl<'a, ObjInfo: Fn(Entity) -> ObjectInfo> LaserCompute<'a, ObjInfo> {
         let ray_dir = Vec2::from_angle(ray.angle);
 
         self.rapier.intersections_with_ray(
-            ray.start,
+            ray.start + 0.0001 * ray_dir,
             ray_dir,
             ray.length_clipped(),
             false,
@@ -135,6 +146,19 @@ impl<'a, ObjInfo: Fn(Entity) -> ObjectInfo> LaserCompute<'a, ObjInfo> {
             ray.length = toi;
 
             let normal_angle = normal.y.atan2(normal.x);
+
+            let mut inside_object = false;
+            self.rapier.intersections_with_point(ray.start + (toi / 2.0) * ray_dir, QueryFilter::default().predicate(&|scrutinee| scrutinee == ent), |_| {
+                inside_object = true;
+                false
+            });
+
+            let normal_angle = if inside_object {
+                normal_angle + std::f32::consts::PI
+            } else {
+                normal_angle
+            };
+
             let mut incidence_angle = ray.angle - normal_angle;
             if incidence_angle > f32::FRAC_PI_2() {
                 incidence_angle -= f32::PI();
@@ -156,9 +180,12 @@ impl<'a, ObjInfo: Fn(Entity) -> ObjectInfo> LaserCompute<'a, ObjInfo> {
                 width: ray.width,
                 start_distance: ray.end_distance(),
                 refractive_index: ray.refractive_index,
+                kind: RayKind::Reflected,
+                num: *ray_count,
+                source: ray.num
             };
 
-            let inside_object = false; // todo
+
 
             self.shoot_ray(reflected_ray, ray_count);
 
@@ -192,6 +219,9 @@ impl<'a, ObjInfo: Fn(Entity) -> ObjectInfo> LaserCompute<'a, ObjInfo> {
                             width: refraction_thickness(ray.width, ref_angle, side_angle),
                             start_distance: ray.end_distance(),
                             refractive_index: ref_index,
+                            kind: RayKind::Refracted,
+                            num: *ray_count,
+                            source: ray.num
                         };
 
                         self.shoot_ray(refracted_ray, ray_count);
@@ -214,6 +244,9 @@ impl<'a, ObjInfo: Fn(Entity) -> ObjectInfo> LaserCompute<'a, ObjInfo> {
                                 width: refraction_thickness(ray.width, rb_angle, side_angle),
                                 start_distance: ray.end_distance(),
                                 refractive_index: rb_index,
+                                kind: RayKind::Diffracted,
+                                num: *ray_count,
+                                source: ray.num
                             };
 
                             self.shoot_ray(rainbow_ray, ray_count);
@@ -279,6 +312,9 @@ pub fn draw_lasers(
             width: ray_width,
             start_distance: 0.0,
             refractive_index: 1.0,
+            kind: RayKind::Laser,
+            num: 0,
+            source: 0
         };
 
         let mut compute = LaserCompute::new(laser, &rapier, |ent| {
