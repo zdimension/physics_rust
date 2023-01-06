@@ -111,6 +111,7 @@ pub fn draw_ui() -> SystemSet {
         .with_system(CollisionsWindow::show)
         .with_system(LaserWindow::show)
         .with_system(MaterialWindow::show)
+        .with_system(AppearanceWindow::show)
 }
 
 trait AsPos2 {
