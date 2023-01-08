@@ -24,7 +24,9 @@ struct LaserRay {
     refractive_index: f32,
     kind: RayKind,
     num: usize,
-    source: usize
+    source: usize,
+    start_angle: f32,
+    end_angle: f32
 }
 
 #[derive(Debug)]
@@ -182,7 +184,9 @@ impl<'a, ObjInfo: Fn(Entity) -> ObjectInfo> LaserCompute<'a, ObjInfo> {
                 refractive_index: ray.refractive_index,
                 kind: RayKind::Reflected,
                 num: *ray_count,
-                source: ray.num
+                source: ray.num,
+                start_angle: incidence_angle,
+                end_angle: 0.0
             };
 
 
@@ -221,7 +225,9 @@ impl<'a, ObjInfo: Fn(Entity) -> ObjectInfo> LaserCompute<'a, ObjInfo> {
                             refractive_index: ref_index,
                             kind: RayKind::Refracted,
                             num: *ray_count,
-                            source: ray.num
+                            source: ray.num,
+                            start_angle: normal_angle - ref_angle,
+                            end_angle: 0.0
                         };
 
                         self.shoot_ray(refracted_ray, ray_count);
@@ -246,7 +252,9 @@ impl<'a, ObjInfo: Fn(Entity) -> ObjectInfo> LaserCompute<'a, ObjInfo> {
                                 refractive_index: rb_index,
                                 kind: RayKind::Diffracted,
                                 num: *ray_count,
-                                source: ray.num
+                                source: ray.num,
+                                start_angle: normal_angle - rb_angle,
+                                end_angle: 0.0
                             };
 
                             self.shoot_ray(rainbow_ray, ray_count);
@@ -314,7 +322,9 @@ pub fn draw_lasers(
             refractive_index: 1.0,
             kind: RayKind::Laser,
             num: 0,
-            source: 0
+            source: 0,
+            start_angle: 0.0,
+            end_angle: 0.0
         };
 
         let mut compute = LaserCompute::new(laser, &rapier, |ent| {
