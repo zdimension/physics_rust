@@ -156,6 +156,8 @@ impl<'a, ObjInfo: Fn(Entity) -> ObjectInfo> LaserCompute<'a, ObjInfo> {
                 false
             });
 
+            // We need to add it's data
+
             /*let normal_angle_fix = if inside_object {
                 normal_angle + std::f32::consts::PI
             } else {
@@ -195,8 +197,22 @@ impl<'a, ObjInfo: Fn(Entity) -> ObjectInfo> LaserCompute<'a, ObjInfo> {
             self.shoot_ray(reflected_ray, ray_count);
 
             if f32::is_finite(obj_index) {
-                let new_index = if inside_object {
-                    ray.refractive_index / obj_index
+
+                // let new_index = if inside_object {
+                //     ray.refractive_index / obj_index
+                // } else {
+                //     obj_index
+                // };
+                let obj_index = if inside_object {
+                    let mut object_other = None;
+                    self.rapier.intersections_with_point(point, QueryFilter::default().exclude_sensors().predicate(&|scrutinee| scrutinee != ent), |ent| {
+                        object_other = Some(ent);
+                        false
+                    });
+                    match object_other {
+                        Some(ent) => (self.object_info)(ent).refractive_index,
+                        None => 1.0
+                    }
                 } else {
                     obj_index
                 };
@@ -213,7 +229,7 @@ impl<'a, ObjInfo: Fn(Entity) -> ObjectInfo> LaserCompute<'a, ObjInfo> {
                 let side_angle = normal_angle + f32::FRAC_PI_2();
 
                 if refraction_strength > 0.0 {
-                    let ref_index = adjust_index(new_index, ray.color.h);
+                    let ref_index = adjust_index(obj_index, ray.color.h);
                     if let Some(ref_angle) = compute_new_angle(incidence_angle, ray.refractive_index, obj_index) {
                         let refracted_ray = LaserRay {
                             start: point,
@@ -221,7 +237,7 @@ impl<'a, ObjInfo: Fn(Entity) -> ObjectInfo> LaserCompute<'a, ObjInfo> {
                             length: f32::INFINITY,
                             strength: refraction_strength * color_strength(ray.color.h),
                             color: ray.color,
-                            width: refraction_thickness(ray.width, incidence_angle, 123.0),
+                            width: refraction_thickness(ray.width, incidence_angle, ref_angle),
                             start_distance: ray.end_distance(),
                             refractive_index: ref_index,
                             kind: RayKind::Refracted,
@@ -240,7 +256,7 @@ impl<'a, ObjInfo: Fn(Entity) -> ObjectInfo> LaserCompute<'a, ObjInfo> {
 
                     for i in 0..COLORS_IN_RAINBOW {
                         color.h = 0.5 * (2.0 * i as f32 + 1.0) / COLORS_IN_RAINBOW as f32;
-                        let rb_index = adjust_index(new_index, color.h);
+                        let rb_index = adjust_index(obj_index, color.h);
                         if let Some(rb_angle) = compute_new_angle(incidence_angle, ray.refractive_index, rb_index) {
                             let rainbow_ray = LaserRay {
                                 start: point,
@@ -248,7 +264,7 @@ impl<'a, ObjInfo: Fn(Entity) -> ObjectInfo> LaserCompute<'a, ObjInfo> {
                                 length: f32::INFINITY,
                                 strength: rainbow_strength * color_strength(color.h),
                                 color,
-                                width: refraction_thickness(ray.width, rb_angle, side_angle),
+                                width: refraction_thickness(ray.width, incidence_angle, rb_angle),
                                 start_distance: ray.end_distance(),
                                 refractive_index: rb_index,
                                 kind: RayKind::Diffracted,
@@ -277,8 +293,9 @@ const STRENGTH_EPSILON: f32 = 0.9 / 255.0;
 const RAINBOW_SPLIT_MULT: f32 = 1.0 / 3.0;
 const COLORS_IN_RAINBOW: usize = 12;
 
-fn refraction_thickness(thickness: f32, angle: f32, side_angle: f32) -> f32 {
-    thickness / angle.cos()
+fn refraction_thickness(thickness: f32, angle_in: f32, angle_out: f32) -> f32 {
+    let miter_width = thickness / angle_in.cos();
+    miter_width * angle_out.cos()
     //thickness * (angle - side_angle).sin() / (side_angle - angle + f32::FRAC_PI_2()).cos()
 }
 
@@ -319,7 +336,7 @@ pub fn draw_lasers(
             length: laser.fade_distance,
             strength: 1.0,
             color: color.0,
-            width: ray_width,
+            width: ray_width / 2.0,
             start_distance: 0.0,
             refractive_index: 1.0,
             kind: RayKind::Laser,
@@ -349,7 +366,7 @@ pub fn draw_lasers(
                 debug.push_str(&format!("{:?}\n", ray));
                 let start = ray.start;
                 let end = ray.end();
-                let thick = ray.width / 2.0; // todo: lazer_fuzziness
+                let thick = ray.width; // todo: lazer_fuzziness
                 let halfthick = thick / 2.0;
                 let dir = (end - start).normalize();
                 let norm = dir.perp() * halfthick;
