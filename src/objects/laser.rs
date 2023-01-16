@@ -188,7 +188,7 @@ impl<'a, ObjInfo: Fn(Entity) -> ObjectInfo> LaserCompute<'a, ObjInfo> {
                 kind: RayKind::Reflected,
                 num: *ray_count,
                 source: ray.num,
-                start_angle: incidence_angle,
+                start_angle: -incidence_angle,
                 end_angle: 0.0
             };
 
@@ -221,7 +221,7 @@ impl<'a, ObjInfo: Fn(Entity) -> ObjectInfo> LaserCompute<'a, ObjInfo> {
                             length: f32::INFINITY,
                             strength: refraction_strength * color_strength(ray.color.h),
                             color: ray.color,
-                            width: refraction_thickness(ray.width, ref_angle, side_angle),
+                            width: refraction_thickness(ray.width, incidence_angle, 123.0),
                             start_distance: ray.end_distance(),
                             refractive_index: ref_index,
                             kind: RayKind::Refracted,
@@ -235,7 +235,7 @@ impl<'a, ObjInfo: Fn(Entity) -> ObjectInfo> LaserCompute<'a, ObjInfo> {
                     }
                 }
 
-                if rainbow_strength > 0.0 {
+                if false && rainbow_strength > 0.0 {
                     let mut color = Hsva::new(0.0, 1.0, 1.0, 1.0);
 
                     for i in 0..COLORS_IN_RAINBOW {
@@ -244,7 +244,7 @@ impl<'a, ObjInfo: Fn(Entity) -> ObjectInfo> LaserCompute<'a, ObjInfo> {
                         if let Some(rb_angle) = compute_new_angle(incidence_angle, ray.refractive_index, rb_index) {
                             let rainbow_ray = LaserRay {
                                 start: point,
-                                angle: rb_angle,
+                                angle: (normal_angle - f32::PI()) + rb_angle,
                                 length: f32::INFINITY,
                                 strength: rainbow_strength * color_strength(color.h),
                                 color,
@@ -254,7 +254,7 @@ impl<'a, ObjInfo: Fn(Entity) -> ObjectInfo> LaserCompute<'a, ObjInfo> {
                                 kind: RayKind::Diffracted,
                                 num: *ray_count,
                                 source: ray.num,
-                                start_angle: (normal_angle - f32::PI()) + rb_angle,
+                                start_angle: rb_angle,
                                 end_angle: 0.0
                             };
 
@@ -278,7 +278,8 @@ const RAINBOW_SPLIT_MULT: f32 = 1.0 / 3.0;
 const COLORS_IN_RAINBOW: usize = 12;
 
 fn refraction_thickness(thickness: f32, angle: f32, side_angle: f32) -> f32 {
-    thickness * (angle - side_angle).sin() / (side_angle - angle + f32::FRAC_PI_2()).cos()
+    thickness / angle.cos()
+    //thickness * (angle - side_angle).sin() / (side_angle - angle + f32::FRAC_PI_2()).cos()
 }
 
 fn adjust_index(base_index: f32, hue: f32) -> f32 {
@@ -356,8 +357,8 @@ pub fn draw_lasers(
                 let diff_end = dir * halfthick * ray.end_angle.tan();
                 let poly = shapes::Polygon {
                     points: vec![
-                        start + norm - diff_start,
-                        start - norm + diff_start,
+                        start + norm + diff_start,
+                        start - norm - diff_start,
                         end - norm - diff_end,
                         end + norm + diff_end,
                     ],
