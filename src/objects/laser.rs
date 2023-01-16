@@ -226,17 +226,15 @@ impl<'a, ObjInfo: Fn(Entity) -> ObjectInfo> LaserCompute<'a, ObjInfo> {
                 let rainbow_strength = strength * (1.0 - ray.color.s) * RAINBOW_SPLIT_MULT;
                 let refraction_strength = strength * ray.color.s;
 
-                let side_angle = normal_angle + f32::FRAC_PI_2();
-
-                if refraction_strength > 0.0 {
-                    let ref_index = adjust_index(obj_index, ray.color.h);
+                let mut shoot_refracted_ray = |color: Hsva, base_strength| {
+                    let ref_index = adjust_index(ray.refractive_index, color.h);
                     if let Some(ref_angle) = compute_new_angle(incidence_angle, ray.refractive_index, obj_index) {
                         let refracted_ray = LaserRay {
                             start: point,
                             angle: (normal_angle - f32::PI()) + ref_angle,
                             length: f32::INFINITY,
-                            strength: refraction_strength * color_strength(ray.color.h),
-                            color: ray.color,
+                            strength: base_strength * color_strength(color.h),
+                            color: color,
                             width: refraction_thickness(ray.width, incidence_angle, ref_angle),
                             start_distance: ray.end_distance(),
                             refractive_index: ref_index,
@@ -249,33 +247,18 @@ impl<'a, ObjInfo: Fn(Entity) -> ObjectInfo> LaserCompute<'a, ObjInfo> {
 
                         self.shoot_ray(refracted_ray, ray_count);
                     }
+                };
+
+                if refraction_strength > 0.0 {
+                    shoot_refracted_ray(ray.color, refraction_strength);
                 }
 
-                if false && rainbow_strength > 0.0 {
+                if rainbow_strength > 0.0 {
                     let mut color = Hsva::new(0.0, 1.0, 1.0, 1.0);
 
                     for i in 0..COLORS_IN_RAINBOW {
                         color.h = 0.5 * (2.0 * i as f32 + 1.0) / COLORS_IN_RAINBOW as f32;
-                        let rb_index = adjust_index(obj_index, color.h);
-                        if let Some(rb_angle) = compute_new_angle(incidence_angle, ray.refractive_index, rb_index) {
-                            let rainbow_ray = LaserRay {
-                                start: point,
-                                angle: (normal_angle - f32::PI()) + rb_angle,
-                                length: f32::INFINITY,
-                                strength: rainbow_strength * color_strength(color.h),
-                                color,
-                                width: refraction_thickness(ray.width, incidence_angle, rb_angle),
-                                start_distance: ray.end_distance(),
-                                refractive_index: rb_index,
-                                kind: RayKind::Diffracted,
-                                num: *ray_count,
-                                source: ray.num,
-                                start_angle: rb_angle,
-                                end_angle: 0.0
-                            };
-
-                            self.shoot_ray(rainbow_ray, ray_count);
-                        }
+                        shoot_refracted_ray(color, rainbow_strength);
                     }
                 }
             }
@@ -330,15 +313,26 @@ pub fn draw_lasers(
     for (transform, laser, color) in lasers.iter() {
         let ray_width = transform.scale.x * LASER_WIDTH;
 
+        let start = transform.transform_point(Vec3::new(0.5, 0.0, 1.0)).xy();
+        let mut object_other = None;
+        rapier.intersections_with_point(start, QueryFilter::default().exclude_sensors(), |ent| {
+            object_other = Some(ent);
+            false
+        });
+        let start_index = match object_other {
+            Some(ent) => refr.get(ent).unwrap().0.0,
+            None => 1.0
+        };
+
         let initial = LaserRay {
-            start: transform.transform_point(Vec3::new(0.5, 0.0, 1.0)).xy(),
+            start,
             angle: transform.rotation.to_euler(EulerRot::XYZ).2,
             length: laser.fade_distance,
             strength: 1.0,
             color: color.0,
             width: ray_width / 2.0,
             start_distance: 0.0,
-            refractive_index: 1.0,
+            refractive_index: start_index,
             kind: RayKind::Laser,
             num: 0,
             source: 0,
