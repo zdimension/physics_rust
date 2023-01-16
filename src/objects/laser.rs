@@ -41,8 +41,9 @@ impl Debug for LaserRay {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "{:2} ({:2}): {{ {:.3}, {:.1}°, L={:.1}m, {:.1}%, w: {:.1}m, n: {:?}, {:?} }}",
-            self.num, self.source, self.start, self.angle.to_degrees(), self.length, self.strength * 100.0, self.width, self.refractive_index, self.kind
+            "{:2} ({:2}): {{ {:.3}, {:.1}°, L={:.1}m, {:.1}%, w: {:.1}m, n: {:?}, {:?}, S: {:.1}°, E: {:.1}° }}",
+            self.num, self.source, self.start, self.angle.to_degrees(), self.length, self.strength * 100.0, self.width, self.refractive_index, self.kind,
+            self.start_angle.to_degrees(), self.end_angle.to_degrees()
         )
     }
 }
@@ -155,19 +156,21 @@ impl<'a, ObjInfo: Fn(Entity) -> ObjectInfo> LaserCompute<'a, ObjInfo> {
                 false
             });
 
-            let normal_angle = if inside_object {
+            /*let normal_angle_fix = if inside_object {
                 normal_angle + std::f32::consts::PI
             } else {
                 normal_angle
-            };
+            };*/
 
-            let mut incidence_angle = ray.angle - normal_angle;
-            if incidence_angle > f32::FRAC_PI_2() {
+            let mut incidence_angle = (f32::PI() + ray.angle) - normal_angle;
+            /*if incidence_angle > f32::FRAC_PI_2() {
                 incidence_angle -= f32::PI();
             } else if incidence_angle < -f32::FRAC_PI_2() {
                 incidence_angle += f32::PI();
-            }
+            }*/
             let reflected_angle = normal_angle - incidence_angle;
+
+            ray.end_angle = incidence_angle;
 
             let ObjectInfo { refractive_index: obj_index, color: obj_color } = (self.object_info)(ent);
 
@@ -188,8 +191,6 @@ impl<'a, ObjInfo: Fn(Entity) -> ObjectInfo> LaserCompute<'a, ObjInfo> {
                 start_angle: incidence_angle,
                 end_angle: 0.0
             };
-
-
 
             self.shoot_ray(reflected_ray, ray_count);
 
@@ -213,10 +214,10 @@ impl<'a, ObjInfo: Fn(Entity) -> ObjectInfo> LaserCompute<'a, ObjInfo> {
 
                 if refraction_strength > 0.0 {
                     let ref_index = adjust_index(new_index, ray.color.h);
-                    if let Some(ref_angle) = compute_new_angle(normal_angle, incidence_angle, ray.refractive_index, obj_index) {
+                    if let Some(ref_angle) = compute_new_angle(incidence_angle, ray.refractive_index, obj_index) {
                         let refracted_ray = LaserRay {
                             start: point,
-                            angle: ref_angle,
+                            angle: (normal_angle - f32::PI()) + ref_angle,
                             length: f32::INFINITY,
                             strength: refraction_strength * color_strength(ray.color.h),
                             color: ray.color,
@@ -226,7 +227,7 @@ impl<'a, ObjInfo: Fn(Entity) -> ObjectInfo> LaserCompute<'a, ObjInfo> {
                             kind: RayKind::Refracted,
                             num: *ray_count,
                             source: ray.num,
-                            start_angle: normal_angle - ref_angle,
+                            start_angle: ref_angle,
                             end_angle: 0.0
                         };
 
@@ -240,7 +241,7 @@ impl<'a, ObjInfo: Fn(Entity) -> ObjectInfo> LaserCompute<'a, ObjInfo> {
                     for i in 0..COLORS_IN_RAINBOW {
                         color.h = 0.5 * (2.0 * i as f32 + 1.0) / COLORS_IN_RAINBOW as f32;
                         let rb_index = adjust_index(new_index, color.h);
-                        if let Some(rb_angle) = compute_new_angle(normal_angle, incidence_angle, ray.refractive_index, rb_index) {
+                        if let Some(rb_angle) = compute_new_angle(incidence_angle, ray.refractive_index, rb_index) {
                             let rainbow_ray = LaserRay {
                                 start: point,
                                 angle: rb_angle,
@@ -253,7 +254,7 @@ impl<'a, ObjInfo: Fn(Entity) -> ObjectInfo> LaserCompute<'a, ObjInfo> {
                                 kind: RayKind::Diffracted,
                                 num: *ray_count,
                                 source: ray.num,
-                                start_angle: normal_angle - rb_angle,
+                                start_angle: (normal_angle - f32::PI()) + rb_angle,
                                 end_angle: 0.0
                             };
 
@@ -285,13 +286,13 @@ fn adjust_index(base_index: f32, hue: f32) -> f32 {
     base_index + (1.206e-4 * (hue_360 - 180.0) * (base_index * base_index))
 }
 
-fn compute_new_angle(normal: f32, incidence: f32, index_ray: f32, index_new: f32) -> Option<f32> {
+fn compute_new_angle(incidence: f32, index_ray: f32, index_new: f32) -> Option<f32> {
     let new_sin = incidence.sin() * index_ray / index_new;
     if new_sin > 1.0 || new_sin < -1.0 {
         None // total internal reflection
     } else {
-        let new_angle = normal + new_sin.asin() + f32::PI();
-        assert!(new_angle.is_finite(), "normal: {}, new_sin: {}, incidence: {}, index_ray: {}, index_new: {}", normal, new_sin, incidence, index_ray, index_new);
+        let new_angle = new_sin.asin();
+        assert!(new_angle.is_finite(), "new_sin: {}, incidence: {}, index_ray: {}, index_new: {}", new_sin, incidence, index_ray, index_new);
         Some(new_angle)
     }
 }
@@ -345,9 +346,31 @@ pub fn draw_lasers(
         commands.entity(rays).add_children(|builder| {
             for ray in ray_list {
                 debug.push_str(&format!("{:?}\n", ray));
-                builder.spawn(GeometryBuilder::build_as(
+                let start = ray.start;
+                let end = ray.end();
+                let thick = ray.width / 2.0; // todo: lazer_fuzziness
+                let halfthick = thick / 2.0;
+                let dir = (end - start).normalize();
+                let norm = dir.perp() * halfthick;
+                let diff_start = dir * halfthick * ray.start_angle.tan();
+                let diff_end = dir * halfthick * ray.end_angle.tan();
+                let poly = shapes::Polygon {
+                    points: vec![
+                        start + norm - diff_start,
+                        start - norm + diff_start,
+                        end - norm - diff_end,
+                        end + norm + diff_end,
+                    ],
+                    closed: true,
+                };
+                /*builder.spawn(GeometryBuilder::build_as(
                     &shapes::Line(ray.start, ray.end()),
                     crate::make_stroke(crate::hsva_to_rgba(ray.color_blended()), ray.width).as_mode(),
+                    Transform::from_translation(Vec3::new(0.0, 0.0, transform.translation.z - 0.1)),
+                ));*/
+                builder.spawn(GeometryBuilder::build_as(
+                    &poly,
+                    crate::make_fill(crate::hsva_to_rgba(ray.color_blended())).as_mode(),
                     Transform::from_translation(Vec3::new(0.0, 0.0, transform.translation.z - 0.1)),
                 ));
             }
@@ -356,6 +379,8 @@ pub fn draw_lasers(
         rays_obj.debug = debug;
     }
 }
+
+
 
 #[derive(Component, Default)]
 pub struct LaserRays {
