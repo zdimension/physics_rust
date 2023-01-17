@@ -12,8 +12,8 @@ pub fn init(commands: &mut Commands) {
             points: vec![
                 Vec2::new(0.0, 0.0),
                 Vec2::new(2.0, 0.0),
-                Vec2::new(1.0, 2.0)
-            ]
+                Vec2::new(1.0, 2.0),
+            ],
         });
     })
 }

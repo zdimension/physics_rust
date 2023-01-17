@@ -1,4 +1,3 @@
-use std::fmt::{Debug, Formatter};
 use crate::{AsMode, ColorComponent, RefractiveIndex};
 use bevy::hierarchy::{BuildChildren, DespawnRecursiveExt};
 use bevy::math::{EulerRot, Vec2, Vec3, Vec3Swizzles};
@@ -8,6 +7,7 @@ use bevy_prototype_lyon::geometry::GeometryBuilder;
 use bevy_prototype_lyon::shapes;
 use bevy_rapier2d::prelude::{QueryFilter, RapierContext, RayIntersection};
 use num_traits::float::FloatConst;
+use std::fmt::{Debug, Formatter};
 #[derive(Component)]
 pub struct LaserBundle {
     pub(crate) fade_distance: f32,
@@ -26,7 +26,7 @@ struct LaserRay {
     num: usize,
     source: usize,
     start_angle: f32,
-    end_angle: f32
+    end_angle: f32,
 }
 
 #[derive(Debug)]
@@ -34,7 +34,7 @@ enum RayKind {
     Laser,
     Reflected,
     Refracted,
-    Diffracted
+    Diffracted,
 }
 
 impl Debug for LaserRay {
@@ -79,7 +79,7 @@ impl LaserRay {
 
 struct ObjectInfo {
     refractive_index: f32,
-    color: Hsva
+    color: Hsva,
 }
 
 struct LaserCompute<'a, ObjInfo: Fn(Entity) -> ObjectInfo> {
@@ -148,13 +148,23 @@ impl<'a, ObjInfo: Fn(Entity) -> ObjectInfo> LaserCompute<'a, ObjInfo> {
         {
             ray.length = toi;
 
+            let normal = if normal.dot(ray_dir) > 0.0 {
+                -normal
+            } else {
+                normal
+            };
+
             let normal_angle = normal.y.atan2(normal.x);
 
             let mut inside_object = false;
-            self.rapier.intersections_with_point(ray.start + (toi / 2.0) * ray_dir, QueryFilter::default().predicate(&|scrutinee| scrutinee == ent), |_| {
-                inside_object = true;
-                false
-            });
+            self.rapier.intersections_with_point(
+                ray.start + (toi / 2.0) * ray_dir,
+                QueryFilter::default().predicate(&|scrutinee| scrutinee == ent),
+                |_| {
+                    inside_object = true;
+                    false
+                },
+            );
 
             // We need to add it's data
 
@@ -174,7 +184,10 @@ impl<'a, ObjInfo: Fn(Entity) -> ObjectInfo> LaserCompute<'a, ObjInfo> {
 
             ray.end_angle = incidence_angle;
 
-            let ObjectInfo { refractive_index: obj_index, color: obj_color } = (self.object_info)(ent);
+            let ObjectInfo {
+                refractive_index: obj_index,
+                color: obj_color,
+            } = (self.object_info)(ent);
 
             let opacity_refracted = (-obj_index.log10()).exp();
             let opacity_reflected = 1.0 - opacity_refracted;
@@ -191,13 +204,12 @@ impl<'a, ObjInfo: Fn(Entity) -> ObjectInfo> LaserCompute<'a, ObjInfo> {
                 num: *ray_count,
                 source: ray.num,
                 start_angle: -incidence_angle,
-                end_angle: 0.0
+                end_angle: 0.0,
             };
 
-            self.shoot_ray(reflected_ray, ray_count);
+            //self.shoot_ray(reflected_ray, ray_count);
 
             if f32::is_finite(obj_index) {
-
                 // let new_index = if inside_object {
                 //     ray.refractive_index / obj_index
                 // } else {
@@ -205,13 +217,19 @@ impl<'a, ObjInfo: Fn(Entity) -> ObjectInfo> LaserCompute<'a, ObjInfo> {
                 // };
                 let obj_index = if inside_object {
                     let mut object_other = None;
-                    self.rapier.intersections_with_point(point, QueryFilter::default().exclude_sensors().predicate(&|scrutinee| scrutinee != ent), |ent| {
-                        object_other = Some(ent);
-                        false
-                    });
+                    self.rapier.intersections_with_point(
+                        point,
+                        QueryFilter::default()
+                            .exclude_sensors()
+                            .predicate(&|scrutinee| scrutinee != ent),
+                        |ent| {
+                            object_other = Some(ent);
+                            false
+                        },
+                    );
                     match object_other {
                         Some(ent) => (self.object_info)(ent).refractive_index,
-                        None => 1.0
+                        None => 1.0,
                     }
                 } else {
                     obj_index
@@ -227,8 +245,10 @@ impl<'a, ObjInfo: Fn(Entity) -> ObjectInfo> LaserCompute<'a, ObjInfo> {
                 let refraction_strength = strength * ray.color.s;
 
                 let mut shoot_refracted_ray = |color: Hsva, base_strength| {
-                    let ref_index = adjust_index(ray.refractive_index, color.h);
-                    if let Some(ref_angle) = compute_new_angle(incidence_angle, ray.refractive_index, obj_index) {
+                    let ref_index = adjust_index(obj_index, color.h);
+                    if let Some(ref_angle) =
+                        compute_new_angle(incidence_angle, ray.refractive_index, obj_index)
+                    {
                         let refracted_ray = LaserRay {
                             start: point,
                             angle: (normal_angle - f32::PI()) + ref_angle,
@@ -242,7 +262,7 @@ impl<'a, ObjInfo: Fn(Entity) -> ObjectInfo> LaserCompute<'a, ObjInfo> {
                             num: *ray_count,
                             source: ray.num,
                             start_angle: ref_angle,
-                            end_angle: 0.0
+                            end_angle: 0.0,
                         };
 
                         self.shoot_ray(refracted_ray, ray_count);
@@ -293,7 +313,14 @@ fn compute_new_angle(incidence: f32, index_ray: f32, index_new: f32) -> Option<f
         None // total internal reflection
     } else {
         let new_angle = new_sin.asin();
-        assert!(new_angle.is_finite(), "new_sin: {}, incidence: {}, index_ray: {}, index_new: {}", new_sin, incidence, index_ray, index_new);
+        assert!(
+            new_angle.is_finite(),
+            "new_sin: {}, incidence: {}, index_ray: {}, index_new: {}",
+            new_sin,
+            incidence,
+            index_ray,
+            index_new
+        );
         Some(new_angle)
     }
 }
@@ -320,8 +347,8 @@ pub fn draw_lasers(
             false
         });
         let start_index = match object_other {
-            Some(ent) => refr.get(ent).unwrap().0.0,
-            None => 1.0
+            Some(ent) => refr.get(ent).unwrap().0 .0,
+            None => 1.0,
         };
 
         let initial = LaserRay {
@@ -337,7 +364,7 @@ pub fn draw_lasers(
             num: 0,
             source: 0,
             start_angle: 0.0,
-            end_angle: 0.0
+            end_angle: 0.0,
         };
 
         let mut compute = LaserCompute::new(laser, &rapier, |ent| {
@@ -391,8 +418,6 @@ pub fn draw_lasers(
         rays_obj.debug = debug;
     }
 }
-
-
 
 #[derive(Component, Default)]
 pub struct LaserRays {

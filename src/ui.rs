@@ -12,19 +12,19 @@ mod icon_button;
 mod menu_item;
 mod scene_actions;
 mod separator_custom;
+mod toolbar;
 mod toolbox;
 mod windows;
-mod toolbar;
 
 use self::windows::collisions::CollisionsWindow;
 use self::windows::information::InformationWindow;
 use self::windows::menu::MenuWindow;
 use crate::objects::laser::LaserRays;
-use crate::ui::windows::laser::LaserWindow;
-use windows::plot::PlotWindow;
 use crate::palette::PaletteList;
 use crate::ui::windows::appearance::AppearanceWindow;
+use crate::ui::windows::laser::LaserWindow;
 use crate::ui::windows::material::MaterialWindow;
+use windows::plot::PlotWindow;
 
 #[derive(Derivative)]
 #[derivative(Debug)]
@@ -69,12 +69,15 @@ pub fn ui_example(
     assets: Res<Assets<PaletteList>>,
     laser: Query<&LaserRays>,
     mut cmds: Commands,
-    mouse: Res<MousePosWorld>
+    mouse: Res<MousePosWorld>,
 ) {
     if !*is_initialized {
-
-
-        palette_config.current_palette = *assets.get(&palette_config.palettes).unwrap().0.get("Optics").unwrap();
+        palette_config.current_palette = *assets
+            .get(&palette_config.palettes)
+            .unwrap()
+            .0
+            .get("Optics")
+            .unwrap();
 
         demo::lasers::init(&mut cmds);
         *is_initialized = true;

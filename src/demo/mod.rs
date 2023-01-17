@@ -1,2 +1,2 @@
-pub mod newton_cradle;
 pub mod lasers;
+pub mod newton_cradle;

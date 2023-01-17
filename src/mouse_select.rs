@@ -58,7 +58,7 @@ pub fn find_under_mouse(
     pos: Vec2,
     filter: QueryFilter,
     mut z: impl FnMut(Entity) -> f32,
-) -> impl Iterator<Item = Entity> {
+) -> impl Iterator<Item=Entity> {
     #[derive(Derivative)]
     #[derivative(PartialEq, PartialOrd, Eq, Ord)]
     struct EntityZ {
@@ -104,7 +104,7 @@ pub fn process_select_under_mouse(
             };
             transform.translation.z
         })
-        .next();
+            .next();
         select.send(SelectEvent {
             entity: selected,
             open_menu,

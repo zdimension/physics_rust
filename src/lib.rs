@@ -1292,14 +1292,13 @@ fn setup_graphics(mut commands: Commands, _egui_ctx: ResMut<EguiContext>) {
     // Add a camera so we can see the debug-render.
     // note: camera's scale means meters per pixel
     commands
-        .spawn((
-            Camera2dBundle::new_with_far(CAMERA_FAR),
-            MainCamera,
-
+        .spawn((Camera2dBundle::new_with_far(CAMERA_FAR), MainCamera))
+        .insert(TransformBundle::from(
+            Transform::default()
+                .with_translation(Vec3::new(0.0, 0.0, CAMERA_FAR - 0.1))
+                .with_scale(Vec3::new(0.01, 0.01, 1.0)),
         ))
-        .insert(TransformBundle::from(Transform::default().with_translation(Vec3::new(0.0, 0.0, CAMERA_FAR - 0.1)).with_scale(Vec3::new(0.01, 0.01, 1.0))))
         .add_world_tracking();
-
 
     commands.spawn((ToolCursor, SpriteBundle::default()));
 
@@ -1324,7 +1323,7 @@ struct PhysicalObject {
     groups: CollisionGroups,
     refractive_index: RefractiveIndex,
     color: ColorComponent,
-    color_upd: UpdateFrom<ColorComponent>
+    color_upd: UpdateFrom<ColorComponent>,
 }
 
 fn hsva_to_rgba(hsva: Hsva) -> Color {
@@ -1417,7 +1416,7 @@ impl PhysicalObject {
             GeometryBuilder::build_as(
                 &shapes::Polygon {
                     points,
-                    closed: true
+                    closed: true,
                 },
                 DrawMode::Outlined {
                     fill_mode: make_fill(Color::CYAN),
@@ -1435,7 +1434,7 @@ struct HingeObject;
 fn setup_physics(mut commands: Commands) {
     /* Create the ground. */
     //demo::newton_cradle::init(&mut commands);
-//demo::lasers::init(&mut commands);
+    //demo::lasers::init(&mut commands);
     /*  commands
         .spawn(Collider::cuboid(4.0, 0.5))
         .insert(TransformBundle::from(Transform::from_xyz(0.0, -3.0, 0.0)));
@@ -1646,9 +1645,7 @@ impl FromWorld for UiState {
     }
 }
 
-fn configure_visuals(
-    mut egui_ctx: ResMut<EguiContext>,
-) {
+fn configure_visuals(mut egui_ctx: ResMut<EguiContext>) {
     let ctx = egui_ctx.ctx_mut();
     ctx.set_visuals(egui::Visuals {
         window_rounding: 4.0.into(),
@@ -1659,9 +1656,6 @@ fn configure_visuals(
     ctx.set_style(style);
 }
 
-fn update_from_palette(
-    palette: Res<PaletteConfig>,
-    mut clear_color: ResMut<ClearColor>,
-) {
+fn update_from_palette(palette: Res<PaletteConfig>, mut clear_color: ResMut<ClearColor>) {
     clear_color.0 = palette.current_palette.sky_color;
 }

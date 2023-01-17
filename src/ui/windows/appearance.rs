@@ -1,8 +1,8 @@
+use crate::ui::{BevyIdThing, InitialPos, Subwindow};
+use crate::ColorComponent;
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContext};
 use bevy_rapier2d::na::DimAdd;
-use crate::ColorComponent;
-use crate::ui::{BevyIdThing, InitialPos, Subwindow};
 
 #[derive(Default, Component)]
 pub struct AppearanceWindow;
@@ -22,7 +22,11 @@ impl AppearanceWindow {
                 .default_size(egui::Vec2::ZERO)
                 .id_bevy(id)
                 .subwindow(id, ctx, &mut initial_pos, &mut commands, |ui, _commands| {
-                    egui::color_picker::color_picker_hsva_2d(ui, &mut color.0, egui::color_picker::Alpha::OnlyBlend);
+                    egui::color_picker::color_picker_hsva_2d(
+                        ui,
+                        &mut color.0,
+                        egui::color_picker::Alpha::OnlyBlend,
+                    );
                 });
         }
     }
