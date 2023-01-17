@@ -164,6 +164,10 @@ impl Palette {
         self.color_range.rand_hsva(rng)
     }
 
+    pub fn get_color_hsva_opaque(&self, rng: &mut impl DelegatedRng) -> Hsva {
+        Hsva { a: 1.0, ..self.get_color_hsva(rng) }
+    }
+
     fn get_draw_mode(&self, rng: &mut impl DelegatedRng) -> DrawMode {
         let color = self.color_range.rand_hsva(rng);
         let darkened = Hsva {

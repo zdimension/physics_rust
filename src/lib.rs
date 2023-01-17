@@ -829,7 +829,7 @@ fn process_add_object(
                                 ),
                                 Collider::ball(0.5),
                                 Sensor,
-                                ColorComponent(palette.get_color_hsva(&mut *rng.single_mut()))
+                                ColorComponent(palette.get_color_hsva_opaque(&mut *rng.single_mut()))
                                     .update_from_this(),
                             ))
                             .add_children(|builder| {
@@ -895,7 +895,7 @@ fn process_add_object(
                         LaserBundle {
                             fade_distance: 10.0,
                         },
-                        ColorComponent(palette.get_color_hsva(&mut *rng.single_mut()))
+                        ColorComponent(palette.get_color_hsva_opaque(&mut *rng.single_mut()))
                             .update_from_this(),
                         Collider::cuboid(0.5, 0.25),
                         SizeComponent(scale),
