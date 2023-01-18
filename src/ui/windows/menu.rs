@@ -1,5 +1,5 @@
 use crate::objects::laser::LaserBundle;
-use crate::ui::{InitialPos, Subwindow};
+use crate::ui::{InitialPos, Subwindow, TemporaryWindow};
 use crate::{ColorComponent, GuiIcons};
 use bevy::hierarchy::{BuildChildren, DespawnRecursiveExt, Parent};
 use bevy::prelude::*;
@@ -27,13 +27,13 @@ use crate::ui::windows::plot::PlotWindow;
 #[derive(Default, Component)]
 pub struct MenuWindow {
     hovered_item: Option<(MenuId, Duration)>,
-    selected_item: Option<MenuId>,
-    our_child_window: Option<Entity>,
+    selected_item: Option<(MenuId, Entity)>,
 }
 
 impl MenuWindow {
     pub(crate) fn show(
         mut wnds: Query<(Entity, Option<&Parent>, &mut MenuWindow, &mut InitialPos)>,
+        is_temp: Query<Option<&TemporaryWindow>>,
         time: Res<Time>,
         mut egui_ctx: ResMut<EguiContext>,
         icons: Res<GuiIcons>,
@@ -53,6 +53,12 @@ impl MenuWindow {
                 .default_size(egui::Vec2::ZERO)
                 .resizable(false)
                 .subwindow(wnd_id, ctx, &mut initial_pos, &mut commands, |ui, commands| {
+                    if let Some((_, id)) = info_wnd.selected_item {
+                        if matches!(is_temp.get(id), Err(_) | Ok(None)) {
+                            info_wnd.selected_item = None;
+                        }
+                    }
+
                     macro_rules! item {
                             (@ $text:literal, $icon:expr) => {
                                 ui.add(MenuItem::button($icon, $text.to_string())).clicked()
@@ -68,7 +74,7 @@ impl MenuWindow {
                     macro_rules! menu {
                             (@ $text: literal, $icon: expr, $wnd:ty) => {
                                 let our_id = $text;
-                                let us_selected = matches!(info_wnd.selected_item, Some(id) if id == our_id);
+                                let us_selected = matches!(info_wnd.selected_item, Some((id, _)) if id == our_id);
                                 let menu = ui.add(MenuItem::menu($icon, $text.to_string(), icons.arrow_right).selected(us_selected));
 
                                 if !us_selected {
@@ -79,9 +85,8 @@ impl MenuWindow {
 
                                     if selected {
                                         info!("clicked: {}", $text);
-                                        info_wnd.selected_item = Some(our_id);
 
-                                        if let Some(id) = info_wnd.our_child_window {
+                                        if let Some((_, id)) = info_wnd.selected_item {
                                             commands.get_entity(id).map(|ent| ent.despawn_recursive());
                                         }
 
@@ -96,7 +101,7 @@ impl MenuWindow {
                                             commands.entity(id).push_children(&[new_wnd]);
                                         }
 
-                                        info_wnd.our_child_window = Some(new_wnd);
+                                        info_wnd.selected_item = Some((our_id, new_wnd));
                                     }
                                 }
 

@@ -166,20 +166,8 @@ impl<'a, ObjInfo: Fn(Entity) -> ObjectInfo> LaserCompute<'a, ObjInfo> {
                 },
             );
 
-            // We need to add it's data
-
-            /*let normal_angle_fix = if inside_object {
-                normal_angle + std::f32::consts::PI
-            } else {
-                normal_angle
-            };*/
-
             let mut incidence_angle = (f32::PI() + ray.angle) - normal_angle;
-            /*if incidence_angle > f32::FRAC_PI_2() {
-                incidence_angle -= f32::PI();
-            } else if incidence_angle < -f32::FRAC_PI_2() {
-                incidence_angle += f32::PI();
-            }*/
+
             let reflected_angle = normal_angle - incidence_angle;
 
             ray.end_angle = incidence_angle;
@@ -207,14 +195,9 @@ impl<'a, ObjInfo: Fn(Entity) -> ObjectInfo> LaserCompute<'a, ObjInfo> {
                 end_angle: 0.0,
             };
 
-            //self.shoot_ray(reflected_ray, ray_count);
+            self.shoot_ray(reflected_ray, ray_count);
 
             if f32::is_finite(obj_index) {
-                // let new_index = if inside_object {
-                //     ray.refractive_index / obj_index
-                // } else {
-                //     obj_index
-                // };
                 let obj_index = if inside_object {
                     let mut object_other = None;
                     self.rapier.intersections_with_point(
