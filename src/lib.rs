@@ -433,7 +433,7 @@ fn mouse_long_or_moved(
                             *body = RigidBody::Fixed;
                         }
                     }
-                    (Rotate(None), None, _) => {
+                    (Rotate(None) | Move(None), None, _) => {
                         ev_writeback.send(MouseLongOrMoved(Pan(None), clickpos, *button).into());
                     }
                     (_, Some(under), Some(sel)) if under == sel => {
