@@ -5,6 +5,7 @@ use bevy::prelude::*;
 use bevy_egui::egui::{pos2, Context, Id, InnerResponse, Pos2, Ui};
 use bevy_egui::{egui, EguiContext};
 use bevy_mouse_tracking_plugin::{MainCamera, MousePosWorld};
+use bevy_rapier2d::plugin::RapierConfiguration;
 
 use derivative::Derivative;
 
@@ -16,15 +17,16 @@ mod toolbar;
 mod toolbox;
 mod windows;
 
-use self::windows::collisions::CollisionsWindow;
-use self::windows::information::InformationWindow;
+use self::windows::object::collisions::CollisionsWindow;
+use self::windows::object::information::InformationWindow;
 use self::windows::menu::MenuWindow;
 use crate::objects::laser::LaserRays;
 use crate::palette::PaletteList;
-use crate::ui::windows::appearance::AppearanceWindow;
-use crate::ui::windows::laser::LaserWindow;
-use crate::ui::windows::material::MaterialWindow;
-use windows::plot::PlotWindow;
+use crate::ui::windows::object::appearance::AppearanceWindow;
+use crate::ui::windows::object::laser::LaserWindow;
+use crate::ui::windows::object::material::MaterialWindow;
+use windows::object::plot::PlotWindow;
+use crate::ui::windows::scene::background::BackgroundWindow;
 
 #[derive(Derivative)]
 #[derivative(Debug)]
@@ -70,6 +72,7 @@ pub fn ui_example(
     laser: Query<&LaserRays>,
     mut cmds: Commands,
     mouse: Res<MousePosWorld>,
+    rapier: Res<RapierConfiguration>
 ) {
     if !*is_initialized {
         palette_config.current_palette = *assets
@@ -95,19 +98,22 @@ pub fn ui_example(
     });
 
     egui::Window::new("Debug").show(egui_ctx.clone().ctx_mut(), |ui| {
-        let tr = cameras.single_mut();
-        ui.monospace(format!(
-            "Mouse: {:.2} m\n\
-            {}\n\
-            {:#?}\n\
-            pos = {:.2} m\n\
-            scale = {:.2} m\n",
-            mouse.xy(),
-            laser.single().debug,
-            ui_state,
-            tr.translation,
-            tr.scale
-        ));
+        ui.collapsing("Mouse", |ui| {
+            ui.label(format!("{:.2} m", mouse.xy()));
+        });
+        ui.collapsing("Laser", |ui| {
+            ui.monospace(&laser.single().debug);
+        });
+        let tr = cameras.single();
+        ui.collapsing("Camera", |ui| {
+            ui.monospace(format!("pos = {:.2} m\nscale = {:.2} m\n", tr.translation, tr.scale));
+        });
+        ui.collapsing("UI state", |ui| {
+            ui.monospace(format!("{:#?}", ui_state));
+        });
+        ui.collapsing("Rapier", |ui| {
+            ui.monospace(format!("{:#?}", rapier));
+        });
     });
 }
 
@@ -126,6 +132,7 @@ pub fn draw_ui() -> SystemSet {
         .with_system(LaserWindow::show)
         .with_system(MaterialWindow::show)
         .with_system(AppearanceWindow::show)
+        .with_system(BackgroundWindow::show)
 }
 
 trait AsPos2 {

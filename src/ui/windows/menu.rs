@@ -8,21 +8,23 @@ use bevy_egui::{egui, EguiContext};
 use bevy_rapier2d::prelude::{CollisionGroups, RigidBody, Velocity};
 use std::time::Duration;
 
-use crate::ui::windows::appearance::AppearanceWindow;
-use crate::ui::windows::collisions::CollisionsWindow;
-use crate::ui::windows::combine_shapes::CombineShapesWindow;
-use crate::ui::windows::controller::ControllerWindow;
-use crate::ui::windows::geom_actions::GeometryActionsWindow;
-use crate::ui::windows::information::InformationWindow;
-use crate::ui::windows::laser::LaserWindow;
-use crate::ui::windows::material::MaterialWindow;
-use crate::ui::windows::script::ScriptMenuWindow;
-use crate::ui::windows::selection::SelectionWindow;
-use crate::ui::windows::text::TextWindow;
-use crate::ui::windows::velocities::VelocitiesWindow;
+use crate::ui::windows::object::appearance::AppearanceWindow;
+use crate::ui::windows::object::collisions::CollisionsWindow;
+use crate::ui::windows::object::combine_shapes::CombineShapesWindow;
+use crate::ui::windows::object::controller::ControllerWindow;
+use crate::ui::windows::object::geom_actions::GeometryActionsWindow;
+use crate::ui::windows::object::information::InformationWindow;
+use crate::ui::windows::object::laser::LaserWindow;
+use crate::ui::windows::object::material::MaterialWindow;
+use crate::ui::windows::object::plot::PlotWindow;
+use crate::ui::windows::object::script::ScriptMenuWindow;
+use crate::ui::windows::object::selection::SelectionWindow;
+use crate::ui::windows::object::text::TextWindow;
+use crate::ui::windows::object::velocities::VelocitiesWindow;
+
+use crate::ui::windows::scene::background::BackgroundWindow;
 
 use crate::ui::menu_item::MenuItem;
-use crate::ui::windows::plot::PlotWindow;
 
 #[derive(Default, Component)]
 pub struct MenuWindow {
@@ -55,7 +57,7 @@ impl MenuWindow {
                 .subwindow(wnd_id, ctx, &mut initial_pos, &mut commands, |ui, commands| {
                     if let Some((_, id)) = info_wnd.selected_item {
                         if matches!(is_temp.get(id), Err(_) | Ok(None)) {
-                            info_wnd.selected_item = None;
+                            commands.entity(wnd_id).despawn_recursive();
                         }
                     }
 
@@ -162,7 +164,7 @@ impl MenuWindow {
                         None => {
                             if item!("Zoom to scene", zoom2scene) {}
                             if item!("Default view") {}
-                            if item!("Background", color) {}
+                            menu!("Background", color, BackgroundWindow);
                         }
                     }
                 });

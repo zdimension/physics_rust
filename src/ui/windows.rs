@@ -1,14 +1,3 @@
-pub mod appearance;
-pub(crate) mod collisions;
-pub mod combine_shapes;
-pub mod controller;
-pub mod geom_actions;
-pub mod information;
-pub mod laser;
-pub mod material;
-pub(crate) mod menu;
-pub mod plot;
-pub mod script;
-pub mod selection;
-pub mod text;
-pub mod velocities;
+pub mod menu;
+pub mod object;
+pub mod scene;
