@@ -2,7 +2,7 @@ use crate::ui::{BevyIdThing, InitialPos, Subwindow};
 use crate::ColorComponent;
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContext};
-use bevy_rapier2d::na::DimAdd;
+
 
 #[derive(Default, Component)]
 pub struct AppearanceWindow;
@@ -16,7 +16,7 @@ impl AppearanceWindow {
     ) {
         let ctx = egui_ctx.ctx_mut();
         for (id, parent, mut initial_pos) in wnds.iter_mut() {
-            let (mut color) = ents.get_mut(parent.get()).unwrap();
+            let mut color = ents.get_mut(parent.get()).unwrap();
             egui::Window::new("Appearance")
                 .resizable(false)
                 .default_size(egui::Vec2::ZERO)

@@ -1,6 +1,6 @@
-use crate::{AddObjectEvent, HingeObject, PhysicalObject};
+use crate::{AddObjectEvent};
 use bevy::prelude::*;
-use bevy_rapier2d::prelude::*;
+
 
 pub fn init(commands: &mut Commands) {
     commands.add(|w: &mut World| {
@@ -15,5 +15,7 @@ pub fn init(commands: &mut Commands) {
                 Vec2::new(1.0, 2.0),
             ],
         });
+
+        ev.send(AddObjectEvent::Box { pos: Default::default(), size: Vec2::new(1.0, 1.0) });
     })
 }

@@ -1,16 +1,16 @@
 use crate::ui::icon_button::IconButton;
-use crate::ui::separator_custom::SeparatorCustom;
+
 use crate::ui::RemoveTemporaryWindowsEvent;
-use crate::{GuiIcons, ToolIcons, UiState};
+use crate::{GuiIcons, UiState};
 use bevy::prelude::{EventWriter, Res, ResMut};
 use bevy_egui::egui::Align2;
 use bevy_egui::{egui, EguiContext};
 
 pub fn draw_scene_actions(
-    mut egui_ctx: ResMut<EguiContext>,
-    mut ui_state: ResMut<UiState>,
+    egui_ctx: ResMut<EguiContext>,
+    _ui_state: ResMut<UiState>,
     gui_icons: Res<GuiIcons>,
-    mut clear_tmp: EventWriter<RemoveTemporaryWindowsEvent>,
+    _clear_tmp: EventWriter<RemoveTemporaryWindowsEvent>,
 ) {
     egui::Window::new("Scene actions")
         .anchor(Align2::LEFT_TOP, [0.0, 64.0])

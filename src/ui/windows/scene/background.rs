@@ -3,7 +3,7 @@ use crate::{ColorComponent, hsva_to_rgba, PaletteConfig};
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContext};
 use bevy_egui::egui::ecolor::Hsva;
-use bevy_rapier2d::na::DimAdd;
+
 
 #[derive(Default, Component)]
 pub struct BackgroundWindow;
@@ -11,7 +11,7 @@ pub struct BackgroundWindow;
 impl BackgroundWindow {
     pub fn show(
         mut wnds: Query<(Entity, &mut InitialPos), With<BackgroundWindow>>,
-        mut ents: Query<&mut ColorComponent>,
+        _ents: Query<&mut ColorComponent>,
         mut egui_ctx: ResMut<EguiContext>,
         mut commands: Commands,
         mut palette: ResMut<PaletteConfig>

@@ -142,7 +142,7 @@ impl<'a, ObjInfo: Fn(Entity) -> ObjectInfo> LaserCompute<'a, ObjInfo> {
                 toi,
                 point,
                 normal,
-                feature,
+                feature: _,
             },
         )) = intersection
         {
@@ -166,7 +166,7 @@ impl<'a, ObjInfo: Fn(Entity) -> ObjectInfo> LaserCompute<'a, ObjInfo> {
                 },
             );
 
-            let mut incidence_angle = (f32::PI() + ray.angle) - normal_angle;
+            let incidence_angle = (f32::PI() + ray.angle) - normal_angle;
 
             let reflected_angle = normal_angle - incidence_angle;
 
@@ -222,7 +222,7 @@ impl<'a, ObjInfo: Fn(Entity) -> ObjectInfo> LaserCompute<'a, ObjInfo> {
                 let strength = ray.end_strength(self.laser) * opacity_refracted;
 
                 let alpha_inv = 1.0 - obj_color.a;
-                let color_strength = |hue| alpha_inv;
+                let color_strength = |_hue| alpha_inv;
 
                 let rainbow_strength = strength * (1.0 - ray.color.s) * RAINBOW_SPLIT_MULT;
                 let refraction_strength = strength * ray.color.s;

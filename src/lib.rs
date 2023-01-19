@@ -1,11 +1,11 @@
-use std::borrow::BorrowMut;
+
 use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::time::Duration;
 
 use bevy::math::Vec3Swizzles;
 use bevy::{input::mouse::MouseWheel, prelude::*};
-use bevy_egui::egui::epaint::util::FloatOrd;
+
 use bevy_egui::egui::epaint::Hsva;
 use bevy_egui::egui::{Id, TextureId};
 use bevy_egui::{
@@ -640,7 +640,7 @@ fn process_add_object(
     images: Res<AppIcons>,
     mut commands: Commands,
     mut cameras: Query<&mut Transform, With<MainCamera>>,
-    draw_mode: Query<&DrawMode>,
+    _draw_mode: Query<&DrawMode>,
     palette_config: Res<PaletteConfig>,
     mut z: Local<DepthSorter>,
     mut rng: Query<&mut RngComponent>,
@@ -653,8 +653,8 @@ fn process_add_object(
     for ev in events.iter() {
         match *ev {
             Box {
-                pos: pos,
-                size: size,
+                pos,
+                size,
             } => {
                 commands
                     .spawn(PhysicalObject::rect(size, z.pos(pos)))
@@ -665,8 +665,8 @@ fn process_add_object(
                     .log_components();
             }
             Circle {
-                center: center,
-                radius: radius,
+                center,
+                radius,
             } => {
                 commands
                     .spawn(PhysicalObject::ball(radius, z.pos(center)))
@@ -1431,7 +1431,7 @@ impl PhysicalObject {
 #[derive(Component)]
 struct HingeObject;
 
-fn setup_physics(mut commands: Commands) {
+fn setup_physics(_commands: Commands) {
     /* Create the ground. */
     //demo::newton_cradle::init(&mut commands);
     //demo::lasers::init(&mut commands);

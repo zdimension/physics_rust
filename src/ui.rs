@@ -1,6 +1,6 @@
 use crate::{demo, PaletteConfig, UiState};
 use bevy::log::info;
-use bevy::math::{Vec2, Vec3, Vec3Swizzles};
+use bevy::math::{Vec2, Vec3Swizzles};
 use bevy::prelude::*;
 use bevy_egui::egui::{pos2, Context, Id, InnerResponse, Pos2, Ui};
 use bevy_egui::{egui, EguiContext};
@@ -66,7 +66,7 @@ pub fn ui_example(
     mut egui_ctx: ResMut<EguiContext>,
     ui_state: ResMut<UiState>,
     mut is_initialized: Local<bool>,
-    mut cameras: Query<&mut Transform, With<MainCamera>>,
+    cameras: Query<&mut Transform, With<MainCamera>>,
     mut palette_config: ResMut<PaletteConfig>,
     assets: Res<Assets<PaletteList>>,
     laser: Query<&LaserRays>,

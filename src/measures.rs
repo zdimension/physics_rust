@@ -111,7 +111,7 @@ impl Forces {
     ) {
         use ForceKind::*;
 
-        for (id, ReadMassProperties(mass), vel) in bodies.iter() {
+        for (id, ReadMassProperties(mass), _vel) in bodies.iter() {
             let mut forces = vec![];
 
             forces.push(AppliedForce {
