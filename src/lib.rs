@@ -37,6 +37,7 @@ use crate::ui::RemoveTemporaryWindowsEvent;
 use bevy_turborand::{DelegatedRng, GlobalRng, RngComponent, RngPlugin};
 use cursor::ToolCursor;
 use derivative::Derivative;
+use num_traits::FloatConst;
 use mouse_select::{SelectEvent, SelectUnderMouseEvent};
 use objects::laser;
 use objects::laser::LaserRays;
@@ -428,6 +429,8 @@ fn mouse_long_or_moved(
                         info!("start rotate {:?}", under);
                         *ui_button = Some(Rotate(Some(RotateState {
                             orig_obj_rot: transform.rotation,
+                            overlay_ent: commands.spawn(DrawObject).id(),
+                            scale: cameras.single_mut().scale.x
                         })));
                         if let Some(mut body) = body {
                             *body = RigidBody::Fixed;
@@ -504,6 +507,9 @@ fn left_release(
                     }
                     Circle(Some(ent)) => {
                         commands.entity(ent).despawn();
+                    }
+                    Rotate(Some(state)) => {
+                        commands.entity(state.overlay_ent).despawn();
                     }
                     _ => {}
                 }
@@ -1099,13 +1105,7 @@ fn process_unfreeze_entity(
 enum Overlay {
     Rectangle(Vec2),
     Circle(f32),
-}
-
-#[derive(Copy, Clone)]
-struct DrawOverlayEvent {
-    draw_ent: Entity,
-    shape: Overlay,
-    pos: Vec2,
+    Rotate(f32, f32)
 }
 
 trait AsMode {
@@ -1129,6 +1129,9 @@ struct OverlayState {
     draw_ent: Option<(Entity, Overlay, Vec2)>,
 }
 
+const ROTATE_HELPER_RADIUS: f32 = 136.0;
+const ROTATE_HELPER_ROUND_TO: f32 = 15.0f32 * std::f32::consts::PI / 180.0;
+
 fn process_draw_overlay(
     cameras: Query<&mut Transform, With<MainCamera>>,
     overlay: ResMut<OverlayState>,
@@ -1137,18 +1140,23 @@ fn process_draw_overlay(
     if let Some((draw_ent, shape, pos)) = overlay.draw_ent {
         let camera = cameras.single();
         let builder = GeometryBuilder::new();
-        let builder = match shape {
-            Overlay::Rectangle(size) => builder.add(&shapes::Rectangle {
+        let (thickness, color, builder) = match shape {
+            Overlay::Rectangle(size) => (5.0, Color::WHITE, builder.add(&shapes::Rectangle {
                 extents: size,
                 origin: RectangleOrigin::BottomLeft,
-            }),
-            Overlay::Circle(radius) => builder.add(&shapes::Circle {
+            })),
+            Overlay::Circle(radius) => (5.0, Color::WHITE, builder.add(&shapes::Circle {
                 radius,
                 ..Default::default()
-            }),
+            })),
+            Overlay::Rotate(rot_value, scale) => (3.0, Color::rgba(1.0, 1.0, 1.0, 0.4), builder.add(&shapes::Circle {
+                radius: scale * ROTATE_HELPER_RADIUS,
+                ..Default::default()
+            }))
         };
+        // todo: rotate helper 2
         commands.entity(draw_ent).insert(builder.build(
-            make_stroke(Color::WHITE, 5.0 * camera.scale.x).as_mode(),
+            make_stroke(color, thickness * camera.scale.x).as_mode(),
             Transform::from_translation(pos.extend(FOREGROUND_Z)),
         ));
     }
@@ -1166,6 +1174,7 @@ fn left_pressed(
     mut ev_rotate: EventWriter<RotateEvent>,
     mut overlay: ResMut<OverlayState>,
     time: Res<Time>,
+    xform: Query<&Transform>
 ) {
     let screen_pos = **screen_pos;
 
@@ -1216,6 +1225,14 @@ fn left_pressed(
                                     click_pos,
                                     mouse_pos: pos,
                                 });
+                                let xf = xform.get(entity).unwrap();
+                                *overlay = OverlayState {
+                                    draw_ent: Some((
+                                        state.overlay_ent,
+                                        Overlay::Rotate(2.0 * xf.rotation.z.asin(), state.scale),
+                                        xf.translation.xy(),
+                                    )),
+                                };
                             } else {
                                 $state_pos = None;
                                 $state_button = None;
@@ -1549,6 +1566,8 @@ struct MoveState {
 #[derive(Copy, Clone, Debug)]
 struct RotateState {
     orig_obj_rot: Quat,
+    overlay_ent: Entity,
+    scale: f32
 }
 
 #[derive(Copy, Clone, PartialEq, Debug)]

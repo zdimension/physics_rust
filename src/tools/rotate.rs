@@ -20,7 +20,12 @@ pub fn process_rotate(mut events: EventReader<RotateEvent>, mut query: Query<&mu
         let Ok(mut transform) = query.get_mut(entity) else { continue };
         let start = click_pos - transform.translation.xy();
         let current = mouse_pos - transform.translation.xy();
-        let angle = start.angle_between(current);
-        transform.rotation = orig_obj_rot * Quat::from_rotation_z(angle);
+        let mut angle = (2.0 * orig_obj_rot.z.asin()) + start.angle_between(current);
+        if current.length() <= crate::ROTATE_HELPER_RADIUS {
+            let count = angle / crate::ROTATE_HELPER_ROUND_TO;
+            let rounded = count.round();
+            angle = rounded * crate::ROTATE_HELPER_ROUND_TO;
+        }
+        transform.rotation = Quat::from_rotation_z(angle);
     }
 }
