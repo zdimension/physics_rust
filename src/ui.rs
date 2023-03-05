@@ -20,6 +20,7 @@ use crate::ui::windows::object::appearance::AppearanceWindow;
 use crate::ui::windows::object::laser::LaserWindow;
 use crate::ui::windows::object::material::MaterialWindow;
 use crate::ui::windows::scene::background::BackgroundWindow;
+use crate::ui::windows::{scene_actions, toolbar, toolbox};
 
 use self::windows::menu::MenuWindow;
 use self::windows::object::collisions::CollisionsWindow;
@@ -29,11 +30,8 @@ pub mod cursor;
 mod icon_button;
 pub mod images;
 mod menu_item;
-mod scene_actions;
 pub(crate) mod selection_overlay;
 mod separator_custom;
-mod toolbar;
-mod toolbox;
 mod windows;
 
 pub struct GravitySetting {
@@ -121,6 +119,7 @@ pub fn draw_ui() -> SystemSet {
         .with_system(toolbox::draw_toolbox)
         .with_system(toolbar::draw_bottom_toolbar)
         .with_system(scene_actions::draw_scene_actions)
+        .with_system(scene_actions::NewSceneWindow::show)
         .with_system(process_temporary_windows)
         .with_system(remove_temporary_windows)
         .with_system(MenuWindow::show)

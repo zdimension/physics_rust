@@ -313,7 +313,8 @@ impl DrawModeExt for DrawMode {
 #[derive(Component)]
 pub enum Despawn {
     Single,
-    Recursive
+    Recursive,
+    Descendants
 }
 
 fn despawn_entities(
@@ -327,6 +328,10 @@ fn despawn_entities(
             }
             Despawn::Recursive => {
                 commands.entity(entity).despawn_recursive();
+            }
+            Despawn::Descendants => {
+                commands.entity(entity).despawn_descendants();
+                commands.entity(entity).remove::<Despawn>();
             }
         }
     }
