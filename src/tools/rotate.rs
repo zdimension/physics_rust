@@ -1,5 +1,6 @@
 use bevy::math::{Quat, Vec2, Vec3Swizzles};
 use bevy::prelude::{Entity, EventReader, Query, Transform};
+use crate::ToRot;
 
 #[derive(Copy, Clone)]
 pub struct RotateEvent {
@@ -22,7 +23,7 @@ pub fn process_rotate(mut events: EventReader<RotateEvent>, mut query: Query<&mu
         let Ok(mut transform) = query.get_mut(entity) else { continue };
         let start = click_pos - transform.translation.xy();
         let current = mouse_pos - transform.translation.xy();
-        let mut angle = (2.0 * orig_obj_rot.z.asin()) + start.angle_between(current);
+        let mut angle = orig_obj_rot.to_rot() + start.angle_between(current);
         if current.length() <= ROTATE_HELPER_RADIUS * scale {
             let count = angle / ROTATE_HELPER_ROUND_TO;
             let rounded = count.round();

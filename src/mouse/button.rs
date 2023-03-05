@@ -13,12 +13,13 @@ use crate::Despawn;
 use bevy::input::Input;
 use bevy::log::info;
 use bevy::prelude::{
-    Commands, EventWriter, MouseButton, Query, Res, ResMut, Time, Transform, Windows,
+    Commands, EventWriter, MouseButton, Query, Res, ResMut, Time, Transform, Windows
 };
 use bevy::utils::Duration;
 use bevy_egui::EguiContext;
 use bevy_mouse_tracking_plugin::{MousePos, MousePosWorld};
 use pan::PanState;
+use crate::ToRot;
 
 pub fn left_release(
     mouse_button_input: Res<Input<MouseButton>>,
@@ -207,7 +208,7 @@ pub fn left_pressed(
                                 *overlay = OverlayState {
                                     draw_ent: Some((
                                         state.overlay_ent,
-                                        Overlay::Rotate(2.0 * xf.rotation.z.asin(), state.scale, state.orig_obj_rot.z, click_pos),
+                                        Overlay::Rotate(xf.rotation.to_rot(), state.scale, state.orig_obj_rot.to_rot(), click_pos),
                                         xf.translation.xy(),
                                     )),
                                 };

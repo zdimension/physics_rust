@@ -32,14 +32,13 @@ pub struct OverlayState {
 pub struct CircleSector {
     pub radius: f32,
     pub center: Vec2,
-    pub start_angle: f32,
     pub end_angle: f32,
 }
 
 impl CircleSector {
     pub fn add_geometry(&self, builder: Builder) -> lyon_path::Path {
         let scale = self.radius;
-        let mut total_angle = self.end_angle - self.start_angle;
+        let mut total_angle = self.end_angle;
         if total_angle == 0.0 {
             return lyon_path::Path::new();
         }
@@ -50,9 +49,7 @@ impl CircleSector {
         if total_angle < 0.0 {
             total_angle = -total_angle;
             xform = xform.then_scale(1.0, -1.0);
-            xform = xform.then_rotate(Angle::radians(-self.start_angle));
         } else {
-            xform = xform.then_rotate(Angle::radians(self.start_angle));
         }
         let mut builder = builder.transformed(xform);
 
@@ -138,17 +135,18 @@ pub fn process_draw_overlay(
                 }),
             ),
             Overlay::Rotate(_rot_value, scale, rot, click) => {
+                let start = -(click - pos).angle_between(Vec2::X);
+                //let end = -(mouse.xy() - pos).angle_between(Vec2::X);
+                let end = _rot_value - rot;
                 commands.entity(draw_ent).with_children(|builder|{
                     builder.spawn(ShapeBundle {
                         path: Path(CircleSector {
                             radius: mouse.xy().distance(pos),
                             center: Vec2::ZERO,
-                            start_angle: 0.0,
-                            end_angle: -(mouse.xy() - pos).angle_between(Vec2::X),
+                            end_angle: end,
                         }.add_geometry(Builder::new())),
-                        mode: crate::make_fill(Color::rgb_u8(0xff, 0xa0, 0xff)).as_mode(),
-                        transform: Transform::from_rotation(Quat::from_rotation_z(-(click - pos).angle_between(Vec2::X))),
-                        //transform: Transform::from_translation(pos.extend(FOREGROUND_Z + 0.1)),
+                        mode: crate::make_fill(Color::rgba_u8(0xff, 0x40, 0xff, 128)).as_mode(),
+                        transform: Transform::from_rotation(Quat::from_rotation_z(start)),
                         ..Default::default()
                     });});
 

@@ -140,6 +140,17 @@ impl BevyAppExt for App {
     }
 }
 
+trait ToRot {
+    fn to_rot(&self) -> f32;
+}
+
+impl ToRot for Quat {
+    fn to_rot(&self) -> f32 {
+        let ang = self.to_euler(EulerRot::XYZ);
+        ang.2
+    }
+}
+
 pub fn app_main() {
     App::new()
         .insert_resource(ClearColor(Color::rgb(0.0, 0.0, 0.0)))
