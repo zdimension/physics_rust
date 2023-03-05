@@ -1,14 +1,29 @@
-use crate::{demo, Despawn, UsedMouseButton};
+use std::time::Duration;
+
 use bevy::log::info;
 use bevy::math::{Vec2, Vec3Swizzles};
 use bevy::prelude::*;
-use bevy_egui::egui::{pos2, Context, Id, InnerResponse, Pos2, Ui};
+use bevy_diagnostic::{Diagnostics, FrameTimeDiagnosticsPlugin};
 use bevy_egui::{egui, EguiContext};
+use bevy_egui::egui::{Context, Id, InnerResponse, pos2, Pos2, Ui};
 use bevy_mouse_tracking_plugin::{MainCamera, MousePosWorld};
 use bevy_rapier2d::plugin::RapierConfiguration;
 use derivative::Derivative;
-use std::time::Duration;
-use bevy_diagnostic::{Diagnostics, FrameTimeDiagnosticsPlugin};
+
+use windows::object::plot::PlotWindow;
+
+use crate::{demo, Despawn, UsedMouseButton};
+use crate::objects::laser::LaserRays;
+use crate::palette::{PaletteConfig, PaletteList};
+use crate::tools::ToolEnum;
+use crate::ui::windows::object::appearance::AppearanceWindow;
+use crate::ui::windows::object::laser::LaserWindow;
+use crate::ui::windows::object::material::MaterialWindow;
+use crate::ui::windows::scene::background::BackgroundWindow;
+
+use self::windows::menu::MenuWindow;
+use self::windows::object::collisions::CollisionsWindow;
+use self::windows::object::information::InformationWindow;
 
 pub mod cursor;
 mod icon_button;
@@ -20,18 +35,6 @@ mod separator_custom;
 mod toolbar;
 mod toolbox;
 mod windows;
-
-use self::windows::menu::MenuWindow;
-use self::windows::object::collisions::CollisionsWindow;
-use self::windows::object::information::InformationWindow;
-use crate::objects::laser::LaserRays;
-use crate::palette::{PaletteConfig, PaletteList};
-use crate::tools::ToolEnum;
-use crate::ui::windows::object::appearance::AppearanceWindow;
-use crate::ui::windows::object::laser::LaserWindow;
-use crate::ui::windows::object::material::MaterialWindow;
-use crate::ui::windows::scene::background::BackgroundWindow;
-use windows::object::plot::PlotWindow;
 
 pub struct GravitySetting {
     value: Vec2,
@@ -47,6 +50,9 @@ impl Default for GravitySetting {
     }
 }
 
+#[derive(Component)]
+pub struct Scene;
+
 pub fn ui_example(
     mut egui_ctx: ResMut<EguiContext>,
     ui_state: ResMut<UiState>,
@@ -58,7 +64,7 @@ pub fn ui_example(
     mut cmds: Commands,
     mouse: Res<MousePosWorld>,
     rapier: Res<RapierConfiguration>,
-    diag: Res<Diagnostics>
+    diag: Res<Diagnostics>,
 ) {
     if !*is_initialized {
         palette_config.current_palette = *assets
@@ -284,6 +290,7 @@ pub struct UiState {
     pub mouse_right: Option<ToolEnum>,
     pub mouse_right_pos: Option<(Duration, Vec2, Vec2)>,
     pub mouse_button: Option<UsedMouseButton>,
+    pub scene: Entity,
 }
 
 impl UiState {}
@@ -319,6 +326,10 @@ impl FromWorld for UiState {
             mouse_right: None,
             mouse_right_pos: None,
             mouse_button: None,
+            scene: _world.spawn((
+                Scene,
+                SpatialBundle::default()
+            )).id(),
         }
     }
 }

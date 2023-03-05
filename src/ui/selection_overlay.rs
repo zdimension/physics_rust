@@ -136,7 +136,6 @@ pub fn process_draw_overlay(
             ),
             Overlay::Rotate(_rot_value, scale, rot, click) => {
                 let start = -(click - pos).angle_between(Vec2::X);
-                //let end = -(mouse.xy() - pos).angle_between(Vec2::X);
                 let end = _rot_value - rot;
                 commands.entity(draw_ent).with_children(|builder|{
                     builder.spawn(ShapeBundle {

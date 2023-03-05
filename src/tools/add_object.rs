@@ -28,6 +28,7 @@ use bevy_rapier2d::pipeline::QueryFilter;
 use bevy_rapier2d::plugin::RapierContext;
 use bevy_turborand::RngComponent;
 use AddObjectEvent::*;
+use crate::ui::UiState;
 
 #[derive(Debug)]
 pub enum AddObjectEvent {
@@ -53,6 +54,7 @@ pub fn process_add_object(
     mut rng: Query<&mut RngComponent>,
     mut select_mouse: EventWriter<SelectUnderMouseEvent>,
     sensor: Query<&Sensor>,
+    ui_state: Res<UiState>
 ) {
     let palette = &palette_config.current_palette;
 
@@ -60,30 +62,42 @@ pub fn process_add_object(
         match *ev {
             Box { pos, size } => {
                 commands
-                    .spawn(PhysicalObject::rect(size, z.pos(pos)))
-                    .insert(
-                        ColorComponent(palette.get_color_hsva(&mut *rng.single_mut()))
-                            .update_from_this(),
-                    )
-                    .log_components();
+                    .entity(ui_state.scene)
+                    .add_children(|mut builder| {
+                        builder
+                            .spawn(PhysicalObject::rect(size, z.pos(pos)))
+                            .insert(
+                                ColorComponent(palette.get_color_hsva(&mut *rng.single_mut()))
+                                    .update_from_this(),
+                            )
+                            .log_components();
+                    });
             }
             Circle { center, radius } => {
                 commands
-                    .spawn(PhysicalObject::ball(radius, z.pos(center)))
-                    .insert(
-                        ColorComponent(palette.get_color_hsva(&mut *rng.single_mut()))
-                            .update_from_this(),
-                    )
-                    .log_components();
+                    .entity(ui_state.scene)
+                    .add_children(|mut builder| {
+                        builder
+                            .spawn(PhysicalObject::ball(radius, z.pos(center)))
+                            .insert(
+                                ColorComponent(palette.get_color_hsva(&mut *rng.single_mut()))
+                                    .update_from_this(),
+                            )
+                            .log_components();
+                    });
             }
             Polygon { pos, ref points } => {
                 commands
-                    .spawn(PhysicalObject::poly(points.clone(), z.pos(pos)))
-                    .insert(
-                        ColorComponent(palette.get_color_hsva(&mut *rng.single_mut()))
-                            .update_from_this(),
-                    )
-                    .log_components();
+                    .entity(ui_state.scene)
+                    .add_children(|mut builder| {
+                        builder
+                            .spawn(PhysicalObject::poly(points.clone(), z.pos(pos)))
+                            .insert(
+                                ColorComponent(palette.get_color_hsva(&mut *rng.single_mut()))
+                                    .update_from_this(),
+                            )
+                            .log_components();
+                    });
             }
             Fix(pos) => {
                 let (entity1, entity2) = {
@@ -129,15 +143,19 @@ pub fn process_add_object(
                                 .local_anchor2(anchor2),
                         ));
                     } else {
-                        commands.spawn((
-                            ImpulseJoint::new(
-                                entity1,
-                                FixedJointBuilder::new()
-                                    .local_anchor1(anchor1)
-                                    .local_anchor2(pos),
-                            ),
-                            RigidBody::Dynamic,
-                        ));
+                        commands
+                            .entity(ui_state.scene)
+                            .add_children(|mut builder| {
+                                builder.spawn((
+                                    ImpulseJoint::new(
+                                        entity1,
+                                        FixedJointBuilder::new()
+                                            .local_anchor1(anchor1)
+                                            .local_anchor2(pos),
+                                    ),
+                                    RigidBody::Dynamic,
+                                ));
+                            });
                     }
                 }
             }
@@ -198,15 +216,19 @@ pub fn process_add_object(
                             ActiveHooks::FILTER_CONTACT_PAIRS,
                         ));
                     } else {
-                        commands.spawn((
-                            ImpulseJoint::new(
-                                entity1,
-                                RevoluteJointBuilder::new()
-                                    .local_anchor1(anchor1)
-                                    .local_anchor2(pos),
-                            ),
-                            RigidBody::Dynamic,
-                        ));
+                        commands
+                            .entity(ui_state.scene)
+                            .add_children(|mut builder| {
+                                builder.spawn((
+                                    ImpulseJoint::new(
+                                        entity1,
+                                        RevoluteJointBuilder::new()
+                                            .local_anchor1(anchor1)
+                                            .local_anchor2(pos),
+                                    ),
+                                    RigidBody::Dynamic,
+                                ));
+                            });
                     }
 
                     const HINGE_RADIUS: f32 = DEFAULT_OBJ_SIZE / 2.0;
@@ -294,17 +316,21 @@ pub fn process_add_object(
 
                 let scale = cameras.single_mut().scale.x * DEFAULT_OBJ_SIZE;
                 let laser = commands
-                    .spawn((
-                        LaserBundle {
-                            fade_distance: 10.0,
-                        },
-                        ColorComponent(palette.get_color_hsva_opaque(&mut *rng.single_mut()))
-                            .update_from_this(),
-                        Collider::cuboid(0.5, 0.25),
-                        SizeComponent(scale),
-                        Sensor,
-                    ))
-                    .id();
+                    .entity(ui_state.scene)
+                    .add_children(|mut builder| {
+                        builder
+                            .spawn((
+                                LaserBundle {
+                                    fade_distance: 10.0,
+                                },
+                                ColorComponent(palette.get_color_hsva_opaque(&mut *rng.single_mut()))
+                                    .update_from_this(),
+                                Collider::cuboid(0.5, 0.25),
+                                SizeComponent(scale),
+                                Sensor,
+                            ))
+                            .id()
+                    });
 
                 let laser_pos = if let Some(entity) = entity {
                     commands.entity(entity).add_child(laser);

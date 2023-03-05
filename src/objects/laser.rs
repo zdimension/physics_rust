@@ -92,7 +92,7 @@ struct LaserCompute<'a, ObjInfo: Fn(Entity) -> ObjectInfo> {
     rays: Vec<LaserRay>,
 }
 
-const MAX_RAYS: usize = 100;
+const MAX_RAYS: usize = 1000;
 
 impl<'a, ObjInfo: Fn(Entity) -> ObjectInfo> LaserCompute<'a, ObjInfo> {
     fn new(laser: &'a LaserBundle, rapier: &'a RapierContext, object_info: ObjInfo) -> Self {
