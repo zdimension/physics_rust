@@ -1,8 +1,7 @@
+use crate::objects::phy_obj::RefractiveIndex;
 use crate::ui::{BevyIdThing, InitialPos, Subwindow};
-use crate::RefractiveIndex;
 use bevy::prelude::{Commands, Component, Entity, Parent, Query, ResMut, With};
 use bevy_egui::{egui, EguiContext};
-use bevy_rapier2d::na::DimAdd;
 use bevy_rapier2d::prelude::{Friction, Restitution};
 
 #[derive(Default, Component)]

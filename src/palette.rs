@@ -165,7 +165,10 @@ impl Palette {
     }
 
     pub fn get_color_hsva_opaque(&self, rng: &mut impl DelegatedRng) -> Hsva {
-        Hsva { a: 1.0, ..self.get_color_hsva(rng) }
+        Hsva {
+            a: 1.0,
+            ..self.get_color_hsva(rng)
+        }
     }
 
     fn get_draw_mode(&self, rng: &mut impl DelegatedRng) -> DrawMode {
@@ -177,6 +180,23 @@ impl Palette {
         DrawMode::Outlined {
             fill_mode: crate::make_fill(crate::hsva_to_rgba(color)),
             outline_mode: crate::make_stroke(crate::hsva_to_rgba(darkened), BORDER_THICKNESS),
+        }
+    }
+}
+
+#[derive(Resource)]
+pub struct PaletteConfig {
+    pub palettes: Handle<PaletteList>,
+    pub current_palette: Palette,
+}
+
+impl FromWorld for PaletteConfig {
+    fn from_world(world: &mut World) -> Self {
+        let asset_server = world.get_resource_mut::<AssetServer>().unwrap();
+        let palettes = asset_server.load("palettes.ron");
+        Self {
+            palettes,
+            current_palette: Palette::default(),
         }
     }
 }

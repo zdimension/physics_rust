@@ -1,12 +1,14 @@
 use crate::objects::laser::LaserBundle;
+use crate::objects::ColorComponent;
+use crate::ui::images::GuiIcons;
 use crate::ui::{InitialPos, Subwindow, TemporaryWindow};
-use crate::{ColorComponent, GuiIcons};
 use bevy::hierarchy::{BuildChildren, DespawnRecursiveExt, Parent};
 use bevy::prelude::*;
 use bevy_egui::egui::{pos2, Separator};
 use bevy_egui::{egui, EguiContext};
 use bevy_rapier2d::prelude::{CollisionGroups, RigidBody, Velocity};
 use std::time::Duration;
+use crate::Despawn;
 
 use crate::ui::windows::object::appearance::AppearanceWindow;
 use crate::ui::windows::object::collisions::CollisionsWindow;
@@ -19,7 +21,7 @@ use crate::ui::windows::object::material::MaterialWindow;
 use crate::ui::windows::object::plot::PlotWindow;
 use crate::ui::windows::object::script::ScriptMenuWindow;
 use crate::ui::windows::object::selection::SelectionWindow;
-use crate::ui::windows::object::text::TextWindow;
+
 use crate::ui::windows::object::velocities::VelocitiesWindow;
 
 use crate::ui::windows::scene::background::BackgroundWindow;
@@ -57,7 +59,7 @@ impl MenuWindow {
                 .subwindow(wnd_id, ctx, &mut initial_pos, &mut commands, |ui, commands| {
                     if let Some((_, id)) = info_wnd.selected_item {
                         if matches!(is_temp.get(id), Err(_) | Ok(None)) {
-                            commands.entity(wnd_id).despawn_recursive();
+                            commands.entity(wnd_id).insert(Despawn::Recursive);
                         }
                     }
 
@@ -89,7 +91,7 @@ impl MenuWindow {
                                         info!("clicked: {}", $text);
 
                                         if let Some((_, id)) = info_wnd.selected_item {
-                                            commands.get_entity(id).map(|ent| ent.despawn_recursive());
+                                            commands.get_entity(id).map(|mut ent| _ = ent.insert(Despawn::Recursive));
                                         }
 
                                         info!("rect: {:?}", menu.rect);
@@ -124,17 +126,17 @@ impl MenuWindow {
 
                     match entity {
                         Some(id) => {
-                            let info = entity_info.get(id).unwrap();
+                            let info = entity_info.get(id).expect("Missing entity info");
 
                             if item!("Erase", erase) {
-                                commands.entity(id).despawn_recursive();
+                                commands.entity(id).insert(Despawn::Recursive);
                             }
                             if item!("Mirror", mirror) {}
                             if item!("Show plot", plot) {
                                 commands.entity(id).with_children(|parent| {
                                     parent.spawn((PlotWindow::default(), InitialPos::persistent(pos2(100.0, 100.0))));
                                 });
-                                commands.entity(wnd_id).despawn_recursive();
+                                commands.entity(wnd_id).insert(Despawn::Recursive);
                             }
                             ui.add(Separator::default().horizontal());
 
@@ -142,7 +144,7 @@ impl MenuWindow {
                             if info.0.is_some() {
                                 menu!("Appearance", color, AppearanceWindow);
                             }
-                            menu!("Text", text, TextWindow);
+                            //menu!("Text", text, TextWindow);
                             if info.4.is_some() {
                                 menu!("Material", material, MaterialWindow);
                             }

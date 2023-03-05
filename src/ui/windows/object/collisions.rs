@@ -1,5 +1,5 @@
+use crate::ui::images::GuiIcons;
 use crate::ui::{BevyIdThing, InitialPos, Subwindow};
-use crate::GuiIcons;
 use bevy::hierarchy::Parent;
 use bevy::prelude::{Commands, Component, Entity, Query, Res, ResMut, With};
 use bevy_egui::{egui, EguiContext};

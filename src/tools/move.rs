@@ -13,3 +13,8 @@ pub fn process_move(mut events: EventReader<MoveEvent>, mut query: Query<&mut Tr
         transform.translation = pos.extend(transform.translation.z);
     }
 }
+
+#[derive(Copy, Clone, Debug)]
+pub struct MoveState {
+    pub obj_delta: Vec2,
+}

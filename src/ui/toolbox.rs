@@ -1,7 +1,7 @@
+use crate::tools::ToolIcons;
 use crate::ui::icon_button::IconButton;
 use crate::ui::separator_custom::SeparatorCustom;
-use crate::ui::RemoveTemporaryWindowsEvent;
-use crate::{ToolIcons, UiState};
+use crate::ui::{RemoveTemporaryWindowsEvent, UiState};
 use bevy::prelude::{EventWriter, Res, ResMut};
 use bevy_egui::egui::Align2;
 use bevy_egui::{egui, EguiContext};

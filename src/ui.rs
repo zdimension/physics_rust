@@ -1,4 +1,4 @@
-use crate::{demo, PaletteConfig, UiState};
+use crate::{demo, Despawn, UsedMouseButton};
 use bevy::log::info;
 use bevy::math::{Vec2, Vec3Swizzles};
 use bevy::prelude::*;
@@ -6,47 +6,32 @@ use bevy_egui::egui::{pos2, Context, Id, InnerResponse, Pos2, Ui};
 use bevy_egui::{egui, EguiContext};
 use bevy_mouse_tracking_plugin::{MainCamera, MousePosWorld};
 use bevy_rapier2d::plugin::RapierConfiguration;
-
 use derivative::Derivative;
+use std::time::Duration;
+use bevy_diagnostic::{Diagnostics, FrameTimeDiagnosticsPlugin};
 
+pub mod cursor;
 mod icon_button;
+pub mod images;
 mod menu_item;
 mod scene_actions;
+pub(crate) mod selection_overlay;
 mod separator_custom;
 mod toolbar;
 mod toolbox;
 mod windows;
 
+use self::windows::menu::MenuWindow;
 use self::windows::object::collisions::CollisionsWindow;
 use self::windows::object::information::InformationWindow;
-use self::windows::menu::MenuWindow;
 use crate::objects::laser::LaserRays;
-use crate::palette::PaletteList;
+use crate::palette::{PaletteConfig, PaletteList};
+use crate::tools::ToolEnum;
 use crate::ui::windows::object::appearance::AppearanceWindow;
 use crate::ui::windows::object::laser::LaserWindow;
 use crate::ui::windows::object::material::MaterialWindow;
-use windows::object::plot::PlotWindow;
 use crate::ui::windows::scene::background::BackgroundWindow;
-
-#[derive(Derivative)]
-#[derivative(Debug)]
-pub struct WindowData {
-    entity: Option<Entity>,
-    #[derivative(Debug = "ignore")]
-    handler: Box<dyn FnMut(&Context, &Time, &mut UiState, &mut Commands) + Sync + Send>,
-}
-
-impl WindowData {
-    fn new(
-        entity: Option<Entity>,
-        handler: impl FnMut(&Context, &Time, &mut UiState, &mut Commands) + Sync + Send + 'static,
-    ) -> Self {
-        Self {
-            entity,
-            handler: Box::new(handler),
-        }
-    }
-}
+use windows::object::plot::PlotWindow;
 
 pub struct GravitySetting {
     value: Vec2,
@@ -72,7 +57,8 @@ pub fn ui_example(
     laser: Query<&LaserRays>,
     mut cmds: Commands,
     mouse: Res<MousePosWorld>,
-    rapier: Res<RapierConfiguration>
+    rapier: Res<RapierConfiguration>,
+    diag: Res<Diagnostics>
 ) {
     if !*is_initialized {
         palette_config.current_palette = *assets
@@ -106,13 +92,19 @@ pub fn ui_example(
         });
         let tr = cameras.single();
         ui.collapsing("Camera", |ui| {
-            ui.monospace(format!("pos = {:.2} m\nscale = {:.2} m\n", tr.translation, tr.scale));
+            ui.monospace(format!(
+                "pos = {:.2} m\nscale = {:.2} m\n",
+                tr.translation, tr.scale
+            ));
         });
         ui.collapsing("UI state", |ui| {
             ui.monospace(format!("{:#?}", ui_state));
         });
         ui.collapsing("Rapier", |ui| {
             ui.monospace(format!("{:#?}", rapier));
+        });
+        ui.collapsing("FPS", |ui| {
+            ui.monospace(format!("{:.2}", diag.get(FrameTimeDiagnosticsPlugin::FPS).unwrap().value().unwrap_or(f64::NAN)));
         });
     });
 }
@@ -254,7 +246,7 @@ impl<'a> Subwindow for egui::Window<'a> {
             .map(|resp| initial_pos.1 = resp.response.rect.left_top());
         if !open {
             info!("closing window");
-            commands.entity(id).despawn_recursive();
+            commands.entity(id).insert(Despawn::Recursive);
         }
     }
 }
@@ -268,7 +260,65 @@ fn remove_temporary_windows(
 ) {
     for _ in events.iter() {
         for id in wnds.iter() {
-            commands.entity(id).despawn_recursive();
+            commands.entity(id).insert(Despawn::Recursive);
+        }
+    }
+}
+
+#[derive(Copy, Clone, PartialEq, Debug)]
+pub struct EntitySelection {
+    pub(crate) entity: Entity,
+}
+
+#[derive(Resource, Derivative)]
+#[derivative(Debug)]
+pub struct UiState {
+    pub(crate) selected_entity: Option<EntitySelection>,
+    #[derivative(Debug = "ignore")]
+    toolbox: Vec<Vec<ToolEnum>>,
+    #[derivative(Debug = "ignore")]
+    toolbox_bottom: Vec<ToolEnum>,
+    pub toolbox_selected: ToolEnum,
+    pub mouse_left: Option<ToolEnum>,
+    pub mouse_left_pos: Option<(Duration, Vec2, Vec2)>,
+    pub mouse_right: Option<ToolEnum>,
+    pub mouse_right_pos: Option<(Duration, Vec2, Vec2)>,
+    pub mouse_button: Option<UsedMouseButton>,
+}
+
+impl UiState {}
+
+impl FromWorld for UiState {
+    fn from_world(_world: &mut World) -> Self {
+        macro_rules! tool {
+            ($ty:ident) => {
+                ToolEnum::$ty(Default::default())
+            };
+        }
+
+        let pan = tool!(Pan);
+
+        Self {
+            selected_entity: None,
+            toolbox: vec![
+                vec![tool!(Move), tool!(Drag), tool!(Rotate)],
+                vec![tool!(Box), tool!(Circle)],
+                vec![
+                    tool!(Spring),
+                    tool!(Fix),
+                    tool!(Hinge),
+                    tool!(Thruster),
+                    tool!(Laser),
+                    tool!(Tracer),
+                ],
+            ],
+            toolbox_bottom: vec![tool!(Zoom), pan],
+            toolbox_selected: pan,
+            mouse_left: None,
+            mouse_left_pos: None,
+            mouse_right: None,
+            mouse_right_pos: None,
+            mouse_button: None,
         }
     }
 }

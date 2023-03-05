@@ -22,3 +22,8 @@ pub fn process_pan(
         camera.translation = (orig_camera_pos + delta * camera.scale.xy()).extend(CAMERA_Z);
     }
 }
+
+#[derive(Copy, Clone, Debug)]
+pub struct PanState {
+    pub orig_camera_pos: Vec2,
+}

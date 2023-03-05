@@ -1,9 +1,10 @@
+use crate::hsva_to_rgba;
+use crate::objects::ColorComponent;
+use crate::palette::PaletteConfig;
 use crate::ui::{BevyIdThing, InitialPos, Subwindow};
-use crate::{ColorComponent, hsva_to_rgba, PaletteConfig};
 use bevy::prelude::*;
-use bevy_egui::{egui, EguiContext};
 use bevy_egui::egui::ecolor::Hsva;
-
+use bevy_egui::{egui, EguiContext};
 
 #[derive(Default, Component)]
 pub struct BackgroundWindow;
@@ -14,7 +15,7 @@ impl BackgroundWindow {
         _ents: Query<&mut ColorComponent>,
         mut egui_ctx: ResMut<EguiContext>,
         mut commands: Commands,
-        mut palette: ResMut<PaletteConfig>
+        mut palette: ResMut<PaletteConfig>,
     ) {
         let ctx = egui_ctx.ctx_mut();
         for (id, mut initial_pos) in wnds.iter_mut() {

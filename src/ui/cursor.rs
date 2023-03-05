@@ -1,4 +1,5 @@
-use crate::{ToolIcons, UiState, UsedMouseButton, FOREGROUND_Z};
+use crate::ui::UiState;
+use crate::{tools::ToolIcons, UsedMouseButton, FOREGROUND_Z};
 use bevy::asset::Handle;
 use bevy::math::{Vec2, Vec3Swizzles};
 use bevy::prelude::{Component, Image, Query, Res, ResMut, Transform, Visibility, With, Without};

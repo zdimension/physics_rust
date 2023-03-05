@@ -1,6 +1,7 @@
+use crate::tools::ToolIcons;
 use crate::ui::icon_button::IconButton;
-use crate::ui::{GravitySetting, RemoveTemporaryWindowsEvent};
-use crate::{GuiIcons, ToolIcons, UiState};
+use crate::ui::images::GuiIcons;
+use crate::ui::{GravitySetting, RemoveTemporaryWindowsEvent, UiState};
 use bevy::math::Vec2;
 use bevy::prelude::{EventWriter, Local, Res, ResMut};
 use bevy_egui::egui::Align2;

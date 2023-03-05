@@ -1,5 +1,4 @@
-use crate::ui::{ContextMenuEvent, TemporaryWindow};
-use crate::{EntitySelection, UiState};
+use crate::ui::{ContextMenuEvent, EntitySelection, TemporaryWindow, UiState};
 use bevy::hierarchy::DespawnRecursiveExt;
 use bevy::log::info;
 use bevy::math::Vec2;
@@ -14,6 +13,7 @@ use bevy_rapier2d::pipeline::QueryFilter;
 use bevy_rapier2d::plugin::RapierContext;
 use derivative::Derivative;
 use std::collections::BTreeSet;
+use crate::Despawn;
 
 pub struct SelectEvent {
     pub(crate) entity: Option<Entity>,
@@ -58,7 +58,7 @@ pub fn find_under_mouse(
     pos: Vec2,
     filter: QueryFilter,
     mut z: impl FnMut(Entity) -> f32,
-) -> impl Iterator<Item=Entity> {
+) -> impl Iterator<Item = Entity> {
     #[derive(Derivative)]
     #[derivative(PartialEq, PartialOrd, Eq, Ord)]
     struct EntityZ {
@@ -96,7 +96,7 @@ pub fn process_select_under_mouse(
 ) {
     for SelectUnderMouseEvent { pos, open_menu } in events.iter().copied() {
         for id in wnds.iter() {
-            commands.entity(id).despawn_recursive();
+            commands.entity(id).insert(Despawn::Recursive);
         }
         let selected = find_under_mouse(&rapier, pos, QueryFilter::default(), |ent| {
             let Ok(transform) = query.get(ent) else {
@@ -104,7 +104,7 @@ pub fn process_select_under_mouse(
             };
             transform.translation.z
         })
-            .next();
+        .next();
         select.send(SelectEvent {
             entity: selected,
             open_menu,

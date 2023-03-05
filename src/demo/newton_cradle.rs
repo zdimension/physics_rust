@@ -1,4 +1,5 @@
-use crate::{HingeObject, PhysicalObject};
+use crate::objects::hinge::HingeObject;
+use crate::objects::phy_obj::PhysicalObject;
 use bevy::prelude::*;
 use bevy_rapier2d::prelude::*;
 

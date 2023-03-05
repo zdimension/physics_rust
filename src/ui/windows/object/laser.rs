@@ -1,6 +1,6 @@
 use crate::objects::laser::LaserBundle;
+use crate::objects::SizeComponent;
 use crate::ui::{BevyIdThing, InitialPos, Subwindow};
-use crate::SizeComponent;
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContext};
 

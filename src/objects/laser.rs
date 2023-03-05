@@ -1,4 +1,6 @@
-use crate::{AsMode, ColorComponent, RefractiveIndex};
+use crate::objects::phy_obj::RefractiveIndex;
+use crate::objects::ColorComponent;
+use crate::AsMode;
 use bevy::hierarchy::{BuildChildren, DespawnRecursiveExt};
 use bevy::math::{EulerRot, Vec2, Vec3, Vec3Swizzles};
 use bevy::prelude::*;
@@ -8,6 +10,7 @@ use bevy_prototype_lyon::shapes;
 use bevy_rapier2d::prelude::{QueryFilter, RapierContext, RayIntersection};
 use num_traits::float::FloatConst;
 use std::fmt::{Debug, Formatter};
+
 #[derive(Component)]
 pub struct LaserBundle {
     pub(crate) fade_distance: f32,
