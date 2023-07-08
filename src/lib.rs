@@ -232,9 +232,15 @@ pub fn app_main() {
         .add_system(update_draw_modes)
         .add_system(laser::draw_lasers)
         .add_system(objects::update_size_scales)
-        .add_system(despawn_entities.in_base_set(CoreSet::PostUpdate));
+        .configure_set(
+            AfterUpdate.after(CoreSet::Update).before(CoreSet::UpdateFlush)
+        ).add_system(despawn_entities.in_base_set(AfterUpdate));
     app.run();
 }
+
+#[derive(Debug, Hash, PartialEq, Eq, Clone, SystemSet)]
+#[system_set(base)]
+pub struct AfterUpdate;
 
 fn setup_rng(mut commands: Commands, mut global_rng: ResMut<GlobalRng>) {
     commands.spawn((RngComponent::from(&mut global_rng), ));
@@ -415,7 +421,7 @@ fn hsva_to_rgba(hsva: Hsva) -> Color {
 fn make_fill(color: Color) -> Fill {
     Fill {
         color,
-        options: FillOptions::default().with_tolerance(STROKE_TOLERANCE)
+        options: FillOptions::default().with_tolerance(STROKE_TOLERANCE),
     }
 }
 
