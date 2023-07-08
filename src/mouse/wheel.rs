@@ -1,14 +1,15 @@
 use bevy::input::mouse::MouseWheel;
 use bevy::math::{Vec2, Vec3};
-use bevy::prelude::{EventReader, Query, Res, Transform, Windows, With};
+use bevy::prelude::*;
+use bevy::window::PrimaryWindow;
 use bevy_mouse_tracking_plugin::MainCamera;
 
 pub fn mouse_wheel(
-    windows: Res<Windows>,
+    windows: Query<&Window, With<PrimaryWindow>>,
     mut mouse_wheel_events: EventReader<MouseWheel>,
     mut cameras: Query<&mut Transform, With<MainCamera>>,
 ) {
-    let prim = windows.get_primary().unwrap();
+    let prim = windows.get_single().unwrap();
     let pos = match prim.cursor_position() {
         Some(pos) => pos,
         None => return,

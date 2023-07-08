@@ -1,15 +1,16 @@
 use std::collections::HashMap;
 
-use crate::BORDER_THICKNESS;
 use bevy::asset::AssetLoader;
 use bevy::asset::LoadedAsset;
 use bevy::prelude::*;
 use bevy::reflect::TypeUuid;
 use bevy_egui::egui::epaint::Hsva;
-use bevy_prototype_lyon::draw::DrawMode;
+use bevy_prototype_lyon::prelude::*;
 use bevy_turborand::DelegatedRng;
 use serde;
 use serde::Deserialize;
+
+use crate::BORDER_THICKNESS;
 
 #[derive(Debug, Deserialize, Copy, Clone)]
 #[serde(default)]
@@ -46,8 +47,8 @@ pub struct HsvaRange(
 );
 
 fn deserialize_hsva<'a, D>(deserializer: D) -> Result<Hsva, D::Error>
-where
-    D: serde::Deserializer<'a>,
+    where
+        D: serde::Deserializer<'a>,
 {
     use serde::de::Error;
     let (h, s, v, a) = <(f32, f32, f32, f32)>::deserialize(deserializer)?;
@@ -59,8 +60,8 @@ where
 }
 
 fn deserialize_rgba<'a, D>(deserializer: D) -> Result<Color, D::Error>
-where
-    D: serde::Deserializer<'a>,
+    where
+        D: serde::Deserializer<'a>,
 {
     use serde::de::Error;
     let (r, g, b, a) = <(f32, f32, f32, f32)>::deserialize(deserializer)?;
@@ -171,17 +172,15 @@ impl Palette {
         }
     }
 
-    fn get_draw_mode(&self, rng: &mut impl DelegatedRng) -> DrawMode {
+    /*fn get_draw_mode(&self, rng: &mut impl DelegatedRng) -> (Fill, Stroke) {
         let color = self.color_range.rand_hsva(rng);
         let darkened = Hsva {
             v: color.v * 0.5,
             ..color
         };
-        DrawMode::Outlined {
-            fill_mode: crate::make_fill(crate::hsva_to_rgba(color)),
-            outline_mode: crate::make_stroke(crate::hsva_to_rgba(darkened), BORDER_THICKNESS),
-        }
-    }
+        (crate::make_fill(crate::hsva_to_rgba(color)),
+         crate::make_stroke(crate::hsva_to_rgba(darkened), BORDER_THICKNESS))
+    }*/
 }
 
 #[derive(Resource)]

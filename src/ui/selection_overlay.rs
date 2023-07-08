@@ -8,12 +8,12 @@ use bevy_prototype_lyon::geometry::GeometryBuilder;
 use bevy_prototype_lyon::prelude::{Geometry, Path, RectangleOrigin};
 use bevy_prototype_lyon::shapes;
 use lyon_path::geom::euclid::{Transform2D, Vector2D};
-use lyon_path::math::{Angle, vector};
+use lyon_path::math::vector;
 use lyon_path::path::Builder;
 use lyon_path::traits::PathBuilder;
-use num_traits::{FloatConst, Inv};
+use num_traits::FloatConst;
 
-use crate::{AsMode, FOREGROUND_Z};
+use crate::FOREGROUND_Z;
 use crate::tools::rotate::ROTATE_HELPER_RADIUS;
 
 #[derive(Copy, Clone)]
@@ -49,8 +49,7 @@ impl CircleSector {
         if total_angle < 0.0 {
             total_angle = -total_angle;
             xform = xform.then_scale(1.0, -1.0);
-        } else {
-        }
+        } else {}
         let mut builder = builder.transformed(xform);
 
         let total2 = total_angle;
@@ -137,17 +136,19 @@ pub fn process_draw_overlay(
             Overlay::Rotate(_rot_value, scale, rot, click) => {
                 let start = -(click - pos).angle_between(Vec2::X);
                 let end = _rot_value - rot;
-                commands.entity(draw_ent).with_children(|builder|{
-                    builder.spawn(ShapeBundle {
+                commands.entity(draw_ent).with_children(|builder| {
+                    builder.spawn((ShapeBundle {
                         path: Path(CircleSector {
                             radius: mouse.xy().distance(pos),
                             center: Vec2::ZERO,
                             end_angle: end,
                         }.add_geometry(Builder::new())),
-                        mode: crate::make_fill(Color::rgba_u8(0xff, 0x40, 0xff, 128)).as_mode(),
                         transform: Transform::from_rotation(Quat::from_rotation_z(start)),
                         ..Default::default()
-                    });});
+                    },
+                                   crate::make_fill(Color::rgba_u8(0xff, 0x40, 0xff, 128))
+                    ));
+                });
 
                 (
                     3.0,
@@ -160,9 +161,13 @@ pub fn process_draw_overlay(
             }
         };
         // todo: rotate helper 2
-        commands.entity(draw_ent).insert(builder.build(
-            crate::make_stroke(color, thickness * camera.scale.x).as_mode(),
-            Transform::from_translation(pos.extend(FOREGROUND_Z)),
+        commands.entity(draw_ent).insert((
+            ShapeBundle {
+                path: builder.build(),
+                transform: Transform::from_translation(pos.extend(FOREGROUND_Z)),
+                ..Default::default()
+            },
+            crate::make_stroke(color, thickness * camera.scale.x)
         ));
     }
 }

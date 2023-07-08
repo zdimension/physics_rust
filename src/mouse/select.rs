@@ -1,28 +1,20 @@
+use std::collections::btree_set::BTreeSet;
 use crate::ui::{ContextMenuEvent, EntitySelection, TemporaryWindow, UiState};
-use bevy::hierarchy::DespawnRecursiveExt;
+
 use bevy::log::info;
 use bevy::math::Vec2;
-use bevy::prelude::{
-    Commands, Component, Entity, EventReader, EventWriter, Query, Res, ResMut, Transform, Windows,
-    With,
-};
+use bevy::prelude::*;
 use bevy_egui::egui::epaint::util::{FloatOrd, OrderedFloat};
 use bevy_mouse_tracking_plugin::MousePos;
-use bevy_prototype_lyon::draw::DrawMode;
 use bevy_rapier2d::pipeline::QueryFilter;
 use bevy_rapier2d::plugin::RapierContext;
 use derivative::Derivative;
-use std::collections::BTreeSet;
+use bevy::window::PrimaryWindow;
 use crate::Despawn;
 
 pub struct SelectEvent {
     pub(crate) entity: Option<Entity>,
     pub(crate) open_menu: bool,
-}
-
-#[derive(Component)]
-struct UnselectedDrawMode {
-    draw_mode: DrawMode,
 }
 
 pub fn process_select(
@@ -31,11 +23,11 @@ pub fn process_select(
     mut commands: Commands,
     mut menu_event: EventWriter<ContextMenuEvent>,
     screen_pos: Res<MousePos>,
-    windows: Res<Windows>,
+    windows: Query<&Window, With<PrimaryWindow>>,
 ) {
     let screen_pos = Vec2::new(
         screen_pos.x,
-        windows.get_primary().unwrap().height() - screen_pos.y,
+        windows.get_single().unwrap().height() - screen_pos.y,
     );
 
     for SelectEvent { entity, open_menu } in events.iter() {

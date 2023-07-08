@@ -1,8 +1,8 @@
 use crate::ui::images::GuiIcons;
 use crate::ui::{BevyIdThing, InitialPos, Subwindow};
 use bevy::hierarchy::Parent;
-use bevy::prelude::{Commands, Component, Entity, Query, Res, ResMut, With};
-use bevy_egui::{egui, EguiContext};
+use bevy::prelude::{Commands, Component, Entity, Query, Res, With};
+use bevy_egui::{egui, EguiContexts};
 use bevy_rapier2d::geometry::{CollisionGroups, Group};
 
 #[derive(Default, Component)]
@@ -15,7 +15,7 @@ impl CollisionsWindow {
         mut wnds: Query<(Entity, &Parent, &mut InitialPos), With<CollisionsWindow>>,
         mut ents: Query<&mut CollisionGroups>,
         gui_icons: Res<GuiIcons>,
-        mut egui_ctx: ResMut<EguiContext>,
+        mut egui_ctx: EguiContexts,
         mut commands: Commands,
     ) {
         let ctx = egui_ctx.ctx_mut();

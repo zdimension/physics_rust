@@ -4,10 +4,10 @@ use crate::ui::separator_custom::SeparatorCustom;
 use crate::ui::{RemoveTemporaryWindowsEvent, UiState};
 use bevy::prelude::{EventWriter, Res, ResMut};
 use bevy_egui::egui::Align2;
-use bevy_egui::{egui, EguiContext};
+use bevy_egui::{egui, EguiContexts};
 
 pub fn draw_toolbox(
-    mut egui_ctx: ResMut<EguiContext>,
+    mut egui_ctx: EguiContexts,
     mut ui_state: ResMut<UiState>,
     tool_icons: Res<ToolIcons>,
     mut clear_tmp: EventWriter<RemoveTemporaryWindowsEvent>,
@@ -17,7 +17,7 @@ pub fn draw_toolbox(
         .title_bar(false)
         .resizable(false)
         .default_size(egui::Vec2::ZERO)
-        .show(egui_ctx.clone().ctx_mut(), |ui| {
+        .show(&mut egui_ctx.ctx_mut().clone(), |ui| {
             ui.vertical(|ui| {
                 let ui_state = &mut *ui_state;
                 for (i, category) in ui_state.toolbox.iter().enumerate() {

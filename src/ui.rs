@@ -4,7 +4,7 @@ use bevy::log::info;
 use bevy::math::{Vec2, Vec3Swizzles};
 use bevy::prelude::*;
 use bevy_diagnostic::{Diagnostics, FrameTimeDiagnosticsPlugin};
-use bevy_egui::{egui, EguiContext};
+use bevy_egui::{egui, EguiContexts};
 use bevy_egui::egui::{Context, Id, InnerResponse, pos2, Pos2, Ui};
 use bevy_mouse_tracking_plugin::{MainCamera, MousePosWorld};
 use bevy_rapier2d::plugin::RapierConfiguration;
@@ -52,12 +52,13 @@ impl Default for GravitySetting {
 pub struct Scene;
 
 pub fn ui_example(
-    mut egui_ctx: ResMut<EguiContext>,
+    mut egui_ctx: EguiContexts,
     ui_state: ResMut<UiState>,
     mut is_initialized: Local<bool>,
     cameras: Query<&mut Transform, With<MainCamera>>,
-    mut palette_config: ResMut<PaletteConfig>,
-    assets: Res<Assets<PaletteList>>,
+    mc: Query<Entity, With<MainCamera>>,
+    _palette_config: ResMut<PaletteConfig>,
+    _assets: Res<Assets<PaletteList>>,
     laser: Query<&LaserRays>,
     mut cmds: Commands,
     mouse: Res<MousePosWorld>,
@@ -65,14 +66,14 @@ pub fn ui_example(
     diag: Res<Diagnostics>,
 ) {
     if !*is_initialized {
-        palette_config.current_palette = *assets
+        /*palette_config.current_palette = *assets
             .get(&palette_config.palettes)
             .unwrap()
             .0
             .get("Optics")
-            .unwrap();
+            .unwrap();*/
 
-        demo::lasers::init(&mut cmds);
+        demo::newton_cradle::init(&mut cmds);
         *is_initialized = true;
     }
 
@@ -87,14 +88,18 @@ pub fn ui_example(
         });
     });
 
-    egui::Window::new("Debug").show(egui_ctx.clone().ctx_mut(), |ui| {
+    egui::Window::new("Debug").show(egui_ctx.ctx_mut(), |ui| {
         ui.collapsing("Mouse", |ui| {
             ui.label(format!("{:.2} m", mouse.xy()));
         });
         ui.collapsing("Laser", |ui| {
             ui.monospace(&laser.single().debug);
         });
-        let tr = cameras.single();
+        let Ok(tr) = cameras.get_single() else {
+            // dump all components
+
+            panic!("cams found={:#?}", mc.iter().count());
+        };
         ui.collapsing("Camera", |ui| {
             ui.monospace(format!(
                 "pos = {:.2} m\nscale = {:.2} m\n",
@@ -113,23 +118,24 @@ pub fn ui_example(
     });
 }
 
-pub fn draw_ui() -> SystemSet {
-    SystemSet::new()
-        .with_system(ui_example)
-        .with_system(toolbox::draw_toolbox)
-        .with_system(toolbar::draw_bottom_toolbar)
-        .with_system(scene_actions::draw_scene_actions)
-        .with_system(scene_actions::NewSceneWindow::show)
-        .with_system(process_temporary_windows)
-        .with_system(remove_temporary_windows)
-        .with_system(MenuWindow::show)
-        .with_system(InformationWindow::show)
-        .with_system(PlotWindow::show)
-        .with_system(CollisionsWindow::show)
-        .with_system(LaserWindow::show)
-        .with_system(MaterialWindow::show)
-        .with_system(AppearanceWindow::show)
-        .with_system(BackgroundWindow::show)
+pub fn add_ui_systems(app: &mut App) {
+    app.add_systems((
+        ui_example,
+        toolbox::draw_toolbox,
+        toolbar::draw_bottom_toolbar,
+        scene_actions::draw_scene_actions,
+        scene_actions::NewSceneWindow::show,
+        process_temporary_windows,
+        remove_temporary_windows,
+        MenuWindow::show,
+        InformationWindow::show,
+        PlotWindow::show,
+        CollisionsWindow::show,
+        LaserWindow::show,
+        MaterialWindow::show,
+        AppearanceWindow::show,
+        BackgroundWindow::show,
+    ));
 }
 
 trait AsPos2 {

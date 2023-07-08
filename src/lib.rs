@@ -1,15 +1,37 @@
-use crate::tools::ToolIcons;
+use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use bevy_diagnostic::FrameTimeDiagnosticsPlugin;
+use bevy_egui::{egui::{self}, EguiContexts, EguiPlugin};
 use bevy_egui::egui::epaint::Hsva;
-use bevy_egui::{
-    egui::{self},
-    EguiContext, EguiPlugin,
-};
-use bevy_mouse_tracking_plugin::{prelude::*, MainCamera};
+use bevy_mouse_tracking_plugin::{MainCamera, prelude::*};
 use bevy_prototype_lyon::prelude::*;
-use bevy_prototype_lyon::prelude::{DrawMode, FillMode, ShapePlugin};
+//use bevy_prototype_lyon::prelude::{DrawMode, FillMode, ShapePlugin};
 use bevy_rapier2d::prelude::*;
+use bevy_turborand::{DelegatedRng, GlobalRng, RngComponent, RngPlugin};
+pub use egui::egui_assert;
+
+use mouse::{button, wheel};
+use objects::{ColorComponent, laser, SettingComponent};
+use objects::hinge::HingeObject;
+use objects::laser::LaserRays;
+use palette::{PaletteConfig, PaletteList, PaletteLoader};
+use tools::{add_object, pan, r#move, rotate};
+use tools::add_object::AddObjectEvent;
+use tools::pan::PanEvent;
+use tools::rotate::RotateEvent;
+use ui::{ContextMenuEvent, cursor, EntitySelection, selection_overlay, UiState};
+use ui::cursor::ToolCursor;
+use ui::selection_overlay::OverlayState;
+use update_from::UpdateFrom;
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen::prelude::*;
+
+use crate::mouse::r#move::{MouseLongOrMoved, MouseLongOrMovedWriteback};
+use crate::mouse::select::{SelectEvent, SelectUnderMouseEvent};
+use crate::tools::r#move::MoveEvent;
+use crate::tools::ToolIcons;
+use crate::ui::images::{AppIcons, GuiIcons};
+use crate::ui::RemoveTemporaryWindowsEvent;
 
 mod demo;
 mod measures;
@@ -20,49 +42,22 @@ mod tools;
 mod ui;
 mod update_from;
 
-pub use egui::egui_assert;
-
-use crate::mouse::r#move::{MouseLongOrMoved, MouseLongOrMovedWriteback};
-use crate::mouse::select::{SelectEvent, SelectUnderMouseEvent};
-
-
-use crate::tools::r#move::MoveEvent;
-use crate::ui::RemoveTemporaryWindowsEvent;
-use bevy_turborand::{DelegatedRng, GlobalRng, RngComponent, RngPlugin};
-use mouse::{button, wheel};
-use objects::laser::LaserRays;
-use objects::{laser, ColorComponent, SettingComponent};
-use palette::{PaletteConfig, PaletteList, PaletteLoader};
-use ui::cursor::ToolCursor;
-
-use objects::hinge::HingeObject;
-use tools::add_object::AddObjectEvent;
-use tools::pan::PanEvent;
-
-use tools::rotate::RotateEvent;
-
-use crate::ui::images::{AppIcons, GuiIcons};
-use tools::{add_object, pan, r#move, rotate};
-use ui::selection_overlay::OverlayState;
-use ui::{cursor, selection_overlay, ContextMenuEvent, EntitySelection, UiState};
-use update_from::UpdateFrom;
-#[cfg(target_arch = "wasm32")]
-use wasm_bindgen::prelude::*;
-
 const BORDER_THICKNESS: f32 = 0.03;
 const CAMERA_FAR: f32 = 1e6f32;
 const CAMERA_Z: f32 = CAMERA_FAR - 0.1;
 const FOREGROUND_Z: f32 = CAMERA_Z - 0.2;
 
-struct CollideHooks;
+#[derive(SystemParam)]
+struct CollideHooks<'w, 's> {
+    query: Query<'w, 's, CollideHookData<'static>>,
+}
 
 type CollideHookData<'a> = (&'a HingeObject, &'a MultibodyJoint);
 
-impl<'a> PhysicsHooksWithQuery<CollideHookData<'a>> for CollideHooks {
+impl<'w, 's> BevyPhysicsHooks for CollideHooks<'w, 's> {
     fn filter_contact_pair(
         &self,
         context: PairFilterContextView,
-        user_data: &Query<CollideHookData<'a>>,
     ) -> Option<SolverFlags> {
         fn check_hinge_contains(
             query: &Query<CollideHookData<'_>>,
@@ -79,8 +74,8 @@ impl<'a> PhysicsHooksWithQuery<CollideHookData<'a>> for CollideHooks {
         let first = context.collider1();
         let second = context.collider2();
 
-        let hinge_between = check_hinge_contains(user_data, first, second)
-            || check_hinge_contains(user_data, second, first);
+        let hinge_between = check_hinge_contains(&self.query, first, second)
+            || check_hinge_contains(&self.query, second, first);
 
         if hinge_between {
             None
@@ -95,7 +90,7 @@ mod stages {
 
     pub(crate) const DESPAWN: &str = "despawn";
 }
-
+/*
 struct BevyAppExtHelper<'a, L: StageLabel + Copy> {
     app: &'a mut App,
     stage: L
@@ -139,7 +134,7 @@ impl BevyAppExt for App {
         self
     }
 }
-
+*/
 trait ToRot {
     fn to_rot(&self) -> f32;
 }
@@ -152,9 +147,10 @@ impl ToRot for Quat {
 }
 
 pub fn app_main() {
-    App::new()
+    let mut app = App::new();
+    app
         .insert_resource(ClearColor(Color::rgb(0.0, 0.0, 0.0)))
-        .insert_resource(Msaa { samples: 4 })
+        .insert_resource(Msaa::Sample4)
         .add_plugins(DefaultPlugins)
         .add_plugin(EguiPlugin)
         .add_plugin(RngPlugin::default())
@@ -170,9 +166,8 @@ pub fn app_main() {
             physics_pipeline_active: false,
             ..Default::default()
         })
-        .insert_resource(PhysicsHooksWithQueryResource(Box::new(CollideHooks)))
         .insert_resource(OverlayState::default())
-        .add_plugin(RapierPhysicsPlugin::<CollideHookData>::pixels_per_meter(
+        .add_plugin(RapierPhysicsPlugin::<CollideHooks>::pixels_per_meter(
             1.0,
         ))
         .add_plugin(RapierDebugRenderPlugin {
@@ -196,21 +191,25 @@ pub fn app_main() {
         .add_event::<SelectEvent>()
         .add_event::<ContextMenuEvent>()
         .add_event::<RemoveTemporaryWindowsEvent>()
-        .add_startup_system(configure_visuals)
-        .add_startup_system(setup_graphics)
-        .add_startup_system(setup_physics.after(setup_graphics))
-        .add_startup_system(setup_rng)
-        .add_system(update_from_palette)
-        .add_system_set(ui::draw_ui())
-        .add_system_set(measures::compute_measures())
-        .add_system_set(
-            SystemSet::new()
-                .with_system(wheel::mouse_wheel)
-                .with_system(button::left_pressed)
-                .with_system(button::left_release)
-                .with_system(add_object::process_add_object)
-                .with_system(mouse::r#move::mouse_long_or_moved)
-                .with_system(mouse::r#move::mouse_long_or_moved_writeback),
+        .add_startup_systems((
+            configure_visuals,
+            setup_graphics,
+            setup_physics,
+            setup_rng
+        ).chain())
+        .add_system(update_from_palette);
+    ui::add_ui_systems(&mut app);
+    measures::add_measure_systems(&mut app);
+    app
+        .add_systems(
+            (
+                wheel::mouse_wheel,
+                button::left_pressed,
+                button::left_release,
+                add_object::process_add_object,
+                mouse::r#move::mouse_long_or_moved,
+                mouse::r#move::mouse_long_or_moved_writeback,
+            ).chain()
         )
         .add_system(pan::process_pan)
         .add_system(r#move::process_move)
@@ -233,54 +232,18 @@ pub fn app_main() {
         .add_system(update_draw_modes)
         .add_system(laser::draw_lasers)
         .add_system(objects::update_size_scales)
-        .add_stage_after(CoreStage::Update, stages::DESPAWN, SystemStage::single(despawn_entities))
-        /*.add_stage_after_with(CoreStage::Update, stages::MAIN, SystemStage::parallel(),
-        |mut stage| {
-            stage
-                .add_system(update_from_palette)
-                .add_system_set(ui::draw_ui())
-                .add_system_set(measures::compute_measures())
-                .add_system_set(
-                    SystemSet::new()
-                        .with_system(wheel::mouse_wheel)
-                        .with_system(button::left_pressed)
-                        .with_system(button::left_release)
-                        .with_system(add_object::process_add_object)
-                        .with_system(mouse::r#move::mouse_long_or_moved)
-                        .with_system(mouse::r#move::mouse_long_or_moved_writeback),
-                )
-                .add_system(pan::process_pan)
-                .add_system(r#move::process_move)
-                .add_system(process_unfreeze_entity)
-                .add_system(rotate::process_rotate)
-                .add_system(selection_overlay::process_draw_overlay.after(button::left_release))
-                .add_system(mouse::select::process_select_under_mouse.before(mouse::select::process_select))
-                .add_system(
-                    mouse::select::process_select
-                        .before(ui::handle_context_menu)
-                        .after(button::left_release),
-                )
-                .add_system(
-                    ui::handle_context_menu
-                        .after(mouse::select::process_select_under_mouse)
-                        .after(mouse::select::process_select),
-                )
-                .add_system(cursor::show_current_tool_icon.after(wheel::mouse_wheel))
-                .add_system(objects::update_sprites_color)
-                .add_system(update_draw_modes)
-                .add_system(laser::draw_lasers)
-                .add_system(objects::update_size_scales);
-        })*/
-        .run();
+        .add_system(despawn_entities.in_base_set(CoreSet::PostUpdate));
+    app.run();
 }
 
 fn setup_rng(mut commands: Commands, mut global_rng: ResMut<GlobalRng>) {
-    commands.spawn((RngComponent::from(&mut global_rng),));
+    commands.spawn((RngComponent::from(&mut global_rng), ));
 }
 
 #[derive(Component)]
 struct DrawObject;
 
+/*
 trait DrawModeExt {
     fn get_fill_color(&self) -> Color;
     fn get_outline_color(&self) -> Color;
@@ -309,12 +272,14 @@ impl DrawModeExt for DrawMode {
         }
     }
 }
+*/
+
 
 #[derive(Component)]
 pub enum Despawn {
     Single,
     Recursive,
-    Descendants
+    Descendants,
 }
 
 fn despawn_entities(
@@ -338,14 +303,14 @@ fn despawn_entities(
 }
 
 fn update_draw_modes(
-    mut draws: Query<(Entity, &mut DrawMode, &UpdateFrom<ColorComponent>)>,
+    mut draws: Query<(Entity, &mut Fill, &mut Stroke, &UpdateFrom<ColorComponent>)>,
     parents: Query<(Option<&Parent>, Option<&ColorComponent>)>,
     ui_state: Res<UiState>,
 ) {
-    for (entity, mut draw, update_source) in draws.iter_mut() {
+    for (entity, mut fill, mut stroke, update_source) in draws.iter_mut() {
         let (entity, color) = update_source.find_component(entity, &parents);
 
-        *draw = match *draw {
+        /*draw = match *draw {
             DrawMode::Outlined { .. } | DrawMode::Fill(_) => DrawMode::Outlined {
                 fill_mode: make_fill(hsva_to_rgba(color)),
                 outline_mode: {
@@ -369,7 +334,18 @@ fn update_draw_modes(
                 };
                 make_stroke(stroke, BORDER_THICKNESS).as_mode()
             }
-        }
+        }*/
+        // TODO: correct?
+        fill.color = hsva_to_rgba(color);
+        stroke.color = if ui_state.selected_entity == Some(EntitySelection { entity }) {
+            Color::WHITE
+        } else {
+            hsva_to_rgba(Hsva {
+                v: color.v * 0.5,
+                a: 1.0,
+                ..color
+            })
+        };
     }
 }
 
@@ -388,6 +364,7 @@ fn process_unfreeze_entity(
     }
 }
 
+/*
 trait AsMode {
     fn as_mode(&self) -> DrawMode;
 }
@@ -403,8 +380,9 @@ impl AsMode for FillMode {
         DrawMode::Fill(*self)
     }
 }
-
-fn setup_graphics(mut commands: Commands, _egui_ctx: ResMut<EguiContext>) {
+*/
+fn setup_graphics(mut commands: Commands) {
+    info!("Setting up graphics");
     // Add a camera so we can see the debug-render.
     // note: camera's scale means meters per pixel
     commands
@@ -414,13 +392,16 @@ fn setup_graphics(mut commands: Commands, _egui_ctx: ResMut<EguiContext>) {
                 .with_translation(Vec3::new(0.0, 0.0, CAMERA_FAR - 0.1))
                 .with_scale(Vec3::new(0.01, 0.01, 1.0)),
         ))
-        .add_world_tracking();
+        .add(InitWorldTracking)
+        .add(|id: Entity, world: &mut World| {
+            info!("Added main camera with {id:?}");
+        });
 
     commands.spawn((ToolCursor, SpriteBundle::default()));
 
     commands.spawn((
         LaserRays::default(),
-        Visibility::VISIBLE,
+        Visibility::Visible,
         ComputedVisibility::default(),
         TransformBundle::default(),
     ));
@@ -431,15 +412,37 @@ fn hsva_to_rgba(hsva: Hsva) -> Color {
     Color::rgba_linear(color[0], color[1], color[2], color[3])
 }
 
-fn make_fill(color: Color) -> FillMode {
-    FillMode {
+fn make_fill(color: Color) -> Fill {
+    Fill {
         color,
-        options: FillOptions::default().with_tolerance(STROKE_TOLERANCE),
+        options: FillOptions::default().with_tolerance(STROKE_TOLERANCE)
     }
 }
 
-fn make_stroke(color: Color, thickness: f32) -> StrokeMode {
-    StrokeMode {
+#[derive(Bundle)]
+struct FillStroke {
+    fill: Fill,
+    stroke: Stroke,
+}
+
+impl Default for FillStroke {
+    fn default() -> Self {
+        Self {
+            fill: Fill {
+                color: Color::rgba(0.0, 0.0, 0.0, 0.0),
+                options: FillOptions::default().with_tolerance(STROKE_TOLERANCE),
+            },
+            stroke: Stroke {
+                color: Color::rgba(0.0, 0.0, 0.0, 0.0),
+                options: StrokeOptions::default().with_tolerance(STROKE_TOLERANCE)
+                    .with_line_width(BORDER_THICKNESS),
+            },
+        }
+    }
+}
+
+fn make_stroke(color: Color, thickness: f32) -> Stroke {
+    Stroke {
         color,
         options: StrokeOptions::default()
             .with_tolerance(STROKE_TOLERANCE)
@@ -501,7 +504,7 @@ impl From<UsedMouseButton> for MouseButton {
     }
 }
 
-fn configure_visuals(mut egui_ctx: ResMut<EguiContext>) {
+fn configure_visuals(mut egui_ctx: EguiContexts) {
     let ctx = egui_ctx.ctx_mut();
     ctx.set_visuals(egui::Visuals {
         window_rounding: 4.0.into(),

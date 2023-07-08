@@ -2,8 +2,8 @@ use crate::ui::UiState;
 use crate::{tools::ToolIcons, UsedMouseButton, FOREGROUND_Z};
 use bevy::asset::Handle;
 use bevy::math::{Vec2, Vec3Swizzles};
-use bevy::prelude::{Component, Image, Query, Res, ResMut, Transform, Visibility, With, Without};
-use bevy_egui::EguiContext;
+use bevy::prelude::{Component, Image, Query, Res, Transform, Visibility, With, Without};
+use bevy_egui::{EguiContexts};
 use bevy_mouse_tracking_plugin::{MainCamera, MousePosWorld};
 
 #[derive(Component)]
@@ -15,13 +15,13 @@ pub fn show_current_tool_icon(
     mut icon: Query<(&mut Handle<Image>, &mut Transform, &mut Visibility), With<ToolCursor>>,
     camera: Query<&Transform, (With<MainCamera>, Without<ToolCursor>)>,
     tool_icons: Res<ToolIcons>,
-    mut egui_ctx: ResMut<EguiContext>,
+    mut egui_ctx: EguiContexts,
 ) {
     let (mut icon, mut transform, mut vis) = icon.single_mut();
     if egui_ctx.ctx_mut().wants_pointer_input() {
-        *vis = Visibility::INVISIBLE;
+        *vis = Visibility::Hidden;
     } else {
-        *vis = Visibility::VISIBLE;
+        *vis = Visibility::Visible;
         let current_tool = match ui_state.mouse_button {
             Some(UsedMouseButton::Left) => ui_state.mouse_left,
             Some(UsedMouseButton::Right) => ui_state.mouse_right,

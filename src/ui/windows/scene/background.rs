@@ -4,7 +4,7 @@ use crate::palette::PaletteConfig;
 use crate::ui::{BevyIdThing, InitialPos, Subwindow};
 use bevy::prelude::*;
 use bevy_egui::egui::ecolor::Hsva;
-use bevy_egui::{egui, EguiContext};
+use bevy_egui::{egui, EguiContexts};
 
 #[derive(Default, Component)]
 pub struct BackgroundWindow;
@@ -13,7 +13,7 @@ impl BackgroundWindow {
     pub fn show(
         mut wnds: Query<(Entity, &mut InitialPos), With<BackgroundWindow>>,
         _ents: Query<&mut ColorComponent>,
-        mut egui_ctx: ResMut<EguiContext>,
+        mut egui_ctx: EguiContexts,
         mut commands: Commands,
         mut palette: ResMut<PaletteConfig>,
     ) {

@@ -1,10 +1,7 @@
-use crate::objects::ColorComponent;
-use crate::update_from::UpdateFrom;
-use crate::BORDER_THICKNESS;
 use bevy::math::{Vec2, Vec3};
-use bevy::prelude::{Bundle, Color, Component, Transform};
+use bevy::prelude::*;
 use bevy_egui::egui::ecolor::Hsva;
-use bevy_prototype_lyon::draw::DrawMode;
+use bevy_prototype_lyon::draw::{Fill, Stroke};
 use bevy_prototype_lyon::entity::ShapeBundle;
 use bevy_prototype_lyon::geometry::GeometryBuilder;
 use bevy_prototype_lyon::prelude::RectangleOrigin;
@@ -13,6 +10,10 @@ use bevy_rapier2d::dynamics::{ReadMassProperties, RigidBody, Velocity};
 use bevy_rapier2d::geometry::{
     Collider, ColliderMassProperties, CollisionGroups, Friction, Group, Restitution,
 };
+
+use crate::{BORDER_THICKNESS, FillStroke};
+use crate::objects::ColorComponent;
+use crate::update_from::UpdateFrom;
 
 #[derive(Bundle)]
 pub struct PhysicalObject {
@@ -28,6 +29,7 @@ pub struct PhysicalObject {
     refractive_index: RefractiveIndex,
     color: ColorComponent,
     color_upd: UpdateFrom<ColorComponent>,
+    fill_stroke: FillStroke
 }
 
 impl PhysicalObject {
@@ -45,6 +47,7 @@ impl PhysicalObject {
             refractive_index: RefractiveIndex::default(),
             color: ColorComponent(Hsva::new(0.0, 1.0, 1.0, 1.0)),
             color_upd: UpdateFrom::This,
+            fill_stroke: FillStroke::default()
         }
     }
 
@@ -52,17 +55,16 @@ impl PhysicalObject {
         let radius = radius.abs();
         Self::make(
             Collider::ball(radius),
-            GeometryBuilder::build_as(
-                &shapes::Circle {
-                    radius,
-                    ..Default::default()
-                },
-                DrawMode::Outlined {
-                    fill_mode: crate::make_fill(Color::CYAN),
-                    outline_mode: crate::make_stroke(Color::BLACK, BORDER_THICKNESS),
-                },
-                Transform::from_translation(pos),
-            ),
+            ShapeBundle {
+                path: GeometryBuilder::build_as(
+                    &shapes::Circle {
+                        radius,
+                        ..Default::default()
+                    },
+                ),
+                transform: Transform::from_translation(pos),
+                ..Default::default()
+            },
         )
     }
 
@@ -77,34 +79,31 @@ impl PhysicalObject {
         }
         Self::make(
             Collider::cuboid(size.x / 2.0, size.y / 2.0),
-            GeometryBuilder::build_as(
-                &shapes::Rectangle {
-                    extents: size,
-                    origin: RectangleOrigin::Center,
-                },
-                DrawMode::Outlined {
-                    fill_mode: crate::make_fill(Color::CYAN),
-                    outline_mode: crate::make_stroke(Color::BLACK, BORDER_THICKNESS),
-                },
-                Transform::from_translation(pos + (size / 2.0).extend(0.0)),
-            ),
+            ShapeBundle {
+                path: GeometryBuilder::build_as(
+                    &shapes::Rectangle {
+                        extents: size,
+                        origin: RectangleOrigin::Center,
+                    }),
+                transform: Transform::from_translation(pos + (size / 2.0).extend(0.0)),
+                ..Default::default()
+            },
         )
     }
 
     pub fn poly(points: Vec<Vec2>, pos: Vec3) -> Self {
         Self::make(
             Collider::convex_hull(&points).unwrap(),
-            GeometryBuilder::build_as(
-                &shapes::Polygon {
-                    points,
-                    closed: true,
-                },
-                DrawMode::Outlined {
-                    fill_mode: crate::make_fill(Color::CYAN),
-                    outline_mode: crate::make_stroke(Color::BLACK, BORDER_THICKNESS),
-                },
-                Transform::from_translation(pos),
-            ),
+            ShapeBundle {
+                path: GeometryBuilder::build_as(
+                    &shapes::Polygon {
+                        points,
+                        closed: true,
+                    },
+                ),
+                transform: Transform::from_translation(pos),
+                ..Default::default()
+            },
         )
     }
 }

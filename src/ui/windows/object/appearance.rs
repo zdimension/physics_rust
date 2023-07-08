@@ -1,7 +1,7 @@
 use crate::objects::ColorComponent;
 use crate::ui::{BevyIdThing, InitialPos, Subwindow};
 use bevy::prelude::*;
-use bevy_egui::{egui, EguiContext};
+use bevy_egui::{egui, EguiContexts};
 
 #[derive(Default, Component)]
 pub struct AppearanceWindow;
@@ -10,7 +10,7 @@ impl AppearanceWindow {
     pub fn show(
         mut wnds: Query<(Entity, &Parent, &mut InitialPos), With<AppearanceWindow>>,
         mut ents: Query<&mut ColorComponent>,
-        mut egui_ctx: ResMut<EguiContext>,
+        mut egui_ctx: EguiContexts,
         mut commands: Commands,
     ) {
         let ctx = egui_ctx.ctx_mut();

@@ -1,7 +1,7 @@
 use crate::objects::phy_obj::RefractiveIndex;
 use crate::ui::{BevyIdThing, InitialPos, Subwindow};
-use bevy::prelude::{Commands, Component, Entity, Parent, Query, ResMut, With};
-use bevy_egui::{egui, EguiContext};
+use bevy::prelude::{Commands, Component, Entity, Parent, Query, With};
+use bevy_egui::{egui, EguiContexts};
 use bevy_rapier2d::prelude::{Friction, Restitution};
 
 #[derive(Default, Component)]
@@ -11,7 +11,7 @@ impl MaterialWindow {
     pub fn show(
         mut wnds: Query<(Entity, &Parent, &mut InitialPos), With<MaterialWindow>>,
         mut ents: Query<(&mut Restitution, &mut RefractiveIndex, &mut Friction)>,
-        mut egui_ctx: ResMut<EguiContext>,
+        mut egui_ctx: EguiContexts,
         mut commands: Commands,
     ) {
         let ctx = egui_ctx.ctx_mut();

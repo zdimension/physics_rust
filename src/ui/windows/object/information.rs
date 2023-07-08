@@ -1,9 +1,9 @@
 use crate::measures::KineticEnergy;
 use crate::ui::{BevyIdThing, InitialPos, Subwindow};
 use bevy::hierarchy::Parent;
-use bevy::prelude::{Commands, Component, Entity, Query, Res, ResMut, Transform, With};
+use bevy::prelude::{Commands, Component, Entity, Query, Res, Transform, With};
 use bevy_egui::egui::Ui;
-use bevy_egui::{egui, EguiContext};
+use bevy_egui::{egui, EguiContexts};
 use bevy_rapier2d::dynamics::{ReadMassProperties, Velocity};
 use bevy_rapier2d::geometry::ColliderMassProperties;
 use bevy_rapier2d::plugin::RapierConfiguration;
@@ -22,7 +22,7 @@ impl InformationWindow {
             Option<&KineticEnergy>,
         )>,
         rapier_conf: Res<RapierConfiguration>,
-        mut egui_ctx: ResMut<EguiContext>,
+        mut egui_ctx: EguiContexts,
         mut commands: Commands,
     ) {
         let ctx = egui_ctx.ctx_mut();

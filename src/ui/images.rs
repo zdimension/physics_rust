@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 use bevy_egui::egui::TextureId;
-use bevy_egui::EguiContext;
+use bevy_egui::{EguiUserTextures};
 
 pub struct LoadedImage {
     bevy: Handle<Image>,
@@ -24,8 +24,9 @@ macro_rules! icon_set {
 
         impl FromWorld for $type {
             fn from_world(world: &mut World) -> Self {
-                let mut egui_ctx = unsafe { world.get_resource_unchecked_mut::<EguiContext>().unwrap() };
-                let asset_server = world.get_resource::<AssetServer>().unwrap();
+                let unsafe_world = world.as_unsafe_world_cell();
+                let mut egui_ctx = unsafe { unsafe_world.get_resource_mut::<EguiUserTextures>().unwrap() };
+                let asset_server = unsafe { unsafe_world.get_resource::<AssetServer>().unwrap() };
                 Self {
                     $(
                         $name: {
@@ -51,8 +52,9 @@ macro_rules! image_set {
 
         impl FromWorld for $type {
             fn from_world(world: &mut World) -> Self {
-                let mut egui_ctx = unsafe { world.get_resource_unchecked_mut::<EguiContext>().unwrap() };
-                let asset_server = world.get_resource::<AssetServer>().unwrap();
+                let unsafe_world = world.as_unsafe_world_cell();
+                let mut egui_ctx = unsafe { unsafe_world.get_resource_mut::<EguiUserTextures>().unwrap() };
+                let asset_server = unsafe { unsafe_world.get_resource::<AssetServer>().unwrap() };
                 Self {
                     $(
                         $name: {

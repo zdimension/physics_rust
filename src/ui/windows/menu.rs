@@ -2,10 +2,10 @@ use crate::objects::laser::LaserBundle;
 use crate::objects::ColorComponent;
 use crate::ui::images::GuiIcons;
 use crate::ui::{InitialPos, Subwindow, TemporaryWindow};
-use bevy::hierarchy::{BuildChildren, DespawnRecursiveExt, Parent};
+use bevy::hierarchy::{BuildChildren, Parent};
 use bevy::prelude::*;
 use bevy_egui::egui::{pos2, Separator};
-use bevy_egui::{egui, EguiContext};
+use bevy_egui::{egui, EguiContexts};
 use bevy_rapier2d::prelude::{CollisionGroups, RigidBody, Velocity};
 use std::time::Duration;
 use crate::Despawn;
@@ -39,7 +39,7 @@ impl MenuWindow {
         mut wnds: Query<(Entity, Option<&Parent>, &mut MenuWindow, &mut InitialPos)>,
         is_temp: Query<Option<&TemporaryWindow>>,
         time: Res<Time>,
-        mut egui_ctx: ResMut<EguiContext>,
+        mut egui_ctx: EguiContexts,
         icons: Res<GuiIcons>,
         mut commands: Commands,
         entity_info: Query<(

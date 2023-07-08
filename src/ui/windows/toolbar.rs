@@ -5,11 +5,11 @@ use crate::ui::{GravitySetting, RemoveTemporaryWindowsEvent, UiState};
 use bevy::math::Vec2;
 use bevy::prelude::{EventWriter, Local, Res, ResMut};
 use bevy_egui::egui::Align2;
-use bevy_egui::{egui, EguiContext};
+use bevy_egui::{egui, EguiContexts};
 use bevy_rapier2d::plugin::{RapierConfiguration, TimestepMode};
 
 pub fn draw_bottom_toolbar(
-    mut egui_ctx: ResMut<EguiContext>,
+    mut egui_ctx: EguiContexts,
     mut ui_state: ResMut<UiState>,
     mut rapier: ResMut<RapierConfiguration>,
     mut gravity_conf: Local<GravitySetting>,
@@ -21,7 +21,7 @@ pub fn draw_bottom_toolbar(
         .anchor(Align2::CENTER_BOTTOM, [0.0, 0.0])
         .title_bar(false)
         .resizable(false)
-        .show(egui_ctx.clone().ctx_mut(), |ui| {
+        .show(&mut egui_ctx.ctx_mut().clone(), |ui| {
             ui.horizontal(|ui| {
                 let ui_state = &mut *ui_state;
                 for def in ui_state.toolbox_bottom.iter() {

@@ -4,21 +4,21 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-serde = { version = "1.0.152", features = ["derive"] }
-bevy = "0.9.1"
-bevy_egui = "0.19.0"
+serde = { version = "1.0.154", features = ["derive"] }
+bevy = "0.10.0"
+bevy_egui = "0.20.0"
 #bevy-inspector-egui = "0.14.0"
-bevy_rapier2d = { version = "0.20.0", features = ["simd-stable", "wasm-bindgen"] }
-bevy_mouse_tracking_plugin = "0.5.3"
-bevy_prototype_lyon = "0.7.2"
-bevy_turborand = "0.4.3"
+bevy_rapier2d = { version = "0.21.0", features = ["simd-stable", "wasm-bindgen"] }
+bevy_mouse_tracking_plugin = { version = "0.6.0", git = "https://github.com/JoJoJet/bevy-mouse-tracking.git", rev="e1bebec" }
+bevy_prototype_lyon = "0.8.0"
+bevy_turborand = "0.5.0"
 ron = "0.8.0"
 lyon_path = "1.0.3"
-paste = "1.0.11"
+paste = "1.0.12"
 derivative = "2.2.0"
 itertools = "0.10.5"
 num-traits = "0.2.15"
-bevy_diagnostic = "0.9.1"
+bevy_diagnostic = "0.10.0"
 
 [package.metadata.patch.egui]
 patches = [
@@ -26,7 +26,7 @@ patches = [
 ]
 
 [patch.crates-io]
-egui = { path = './target/patch/egui-0.20.1' }
+egui = { path = './target/patch/egui-0.21.0' }
 
 # native:
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]

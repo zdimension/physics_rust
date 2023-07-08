@@ -2,9 +2,9 @@ use crate::measures::{GravityEnergy, KineticEnergy, Momentum};
 use crate::ui::images::GuiIcons;
 use crate::ui::{BevyIdThing, InitialPos, Subwindow};
 use bevy::hierarchy::Parent;
-use bevy::prelude::{Commands, Component, Entity, Query, Res, ResMut, Time, Transform};
+use bevy::prelude::{Commands, Component, Entity, Query, Res, Time, Transform};
 use bevy_egui::egui::plot::{Line, Plot, PlotPoint, PlotPoints};
-use bevy_egui::{egui, EguiContext};
+use bevy_egui::{egui, EguiContexts};
 use bevy_rapier2d::dynamics::Velocity;
 use bevy_rapier2d::plugin::RapierConfiguration;
 use itertools::Itertools;
@@ -171,7 +171,7 @@ impl PlotWindow {
     pub(crate) fn show(
         mut wnds: Query<(Entity, &Parent, &mut InitialPos, &mut PlotWindow)>,
         ents: Query<PlotQuery>,
-        mut egui_ctx: ResMut<EguiContext>,
+        mut egui_ctx: EguiContexts,
         mut commands: Commands,
         rapier_conf: Res<RapierConfiguration>,
         time: Res<Time>,

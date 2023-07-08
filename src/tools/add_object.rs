@@ -7,7 +7,7 @@ use crate::objects::{ColorComponent, SettingComponent, SizeComponent};
 use crate::palette::PaletteConfig;
 use crate::ui::images::AppIcons;
 use crate::update_from::UpdateFrom;
-use crate::{AsMode, BORDER_THICKNESS};
+use crate::{BORDER_THICKNESS};
 use bevy::hierarchy::BuildChildren;
 use bevy::log::info;
 use bevy::math::{Vec2, Vec3, Vec3Swizzles};
@@ -17,6 +17,7 @@ use bevy::prelude::{
 };
 use bevy_mouse_tracking_plugin::MainCamera;
 use bevy_prototype_lyon::geometry::GeometryBuilder;
+use bevy_prototype_lyon::prelude::ShapeBundle;
 use bevy_prototype_lyon::shapes;
 use bevy_rapier2d::dynamics::RigidBody;
 use bevy_rapier2d::dynamics::{
@@ -62,42 +63,32 @@ pub fn process_add_object(
         match *ev {
             Box { pos, size } => {
                 commands
-                    .entity(ui_state.scene)
-                    .add_children(|mut builder| {
-                        builder
-                            .spawn(PhysicalObject::rect(size, z.pos(pos)))
-                            .insert(
-                                ColorComponent(palette.get_color_hsva(&mut *rng.single_mut()))
-                                    .update_from_this(),
-                            )
-                            .log_components();
-                    });
+                    .spawn(PhysicalObject::rect(size, z.pos(pos)))
+                    .set_parent(ui_state.scene)
+                    .insert(
+                        ColorComponent(palette.get_color_hsva(&mut *rng.single_mut()))
+                            .update_from_this(),
+                    )
+                    .log_components();
             }
             Circle { center, radius } => {
                 commands
-                    .entity(ui_state.scene)
-                    .add_children(|mut builder| {
-                        builder
-                            .spawn(PhysicalObject::ball(radius, z.pos(center)))
-                            .insert(
-                                ColorComponent(palette.get_color_hsva(&mut *rng.single_mut()))
-                                    .update_from_this(),
-                            )
-                            .log_components();
-                    });
+                    .spawn(PhysicalObject::ball(radius, z.pos(center)))
+                    .set_parent(ui_state.scene)
+                    .insert(
+                        ColorComponent(palette.get_color_hsva(&mut *rng.single_mut()))
+                            .update_from_this(),
+                    )
+                    .log_components();
             }
             Polygon { pos, ref points } => {
                 commands
-                    .entity(ui_state.scene)
-                    .add_children(|mut builder| {
-                        builder
-                            .spawn(PhysicalObject::poly(points.clone(), z.pos(pos)))
-                            .insert(
-                                ColorComponent(palette.get_color_hsva(&mut *rng.single_mut()))
-                                    .update_from_this(),
-                            )
-                            .log_components();
-                    });
+                    .spawn(PhysicalObject::poly(points.clone(), z.pos(pos))).set_parent(ui_state.scene)
+                    .insert(
+                        ColorComponent(palette.get_color_hsva(&mut *rng.single_mut()))
+                            .update_from_this(),
+                    )
+                    .log_components();
             }
             Fix(pos) => {
                 let (entity1, entity2) = {
@@ -144,18 +135,16 @@ pub fn process_add_object(
                         ));
                     } else {
                         commands
-                            .entity(ui_state.scene)
-                            .add_children(|mut builder| {
-                                builder.spawn((
-                                    ImpulseJoint::new(
-                                        entity1,
-                                        FixedJointBuilder::new()
-                                            .local_anchor1(anchor1)
-                                            .local_anchor2(pos),
-                                    ),
-                                    RigidBody::Dynamic,
-                                ));
-                            });
+                            .spawn((
+                                ImpulseJoint::new(
+                                    entity1,
+                                    FixedJointBuilder::new()
+                                        .local_anchor1(anchor1)
+                                        .local_anchor2(pos),
+                                ),
+                                RigidBody::Dynamic,
+                            ))
+                            .set_parent(ui_state.scene);
                     }
                 }
             }
@@ -217,18 +206,15 @@ pub fn process_add_object(
                         ));
                     } else {
                         commands
-                            .entity(ui_state.scene)
-                            .add_children(|mut builder| {
-                                builder.spawn((
-                                    ImpulseJoint::new(
-                                        entity1,
-                                        RevoluteJointBuilder::new()
-                                            .local_anchor1(anchor1)
-                                            .local_anchor2(pos),
-                                    ),
-                                    RigidBody::Dynamic,
-                                ));
-                            });
+                            .spawn((
+                                ImpulseJoint::new(
+                                    entity1,
+                                    RevoluteJointBuilder::new()
+                                        .local_anchor1(anchor1)
+                                        .local_anchor2(pos),
+                                ),
+                                RigidBody::Dynamic,
+                            )).set_parent(ui_state.scene);
                     }
 
                     const HINGE_RADIUS: f32 = DEFAULT_OBJ_SIZE / 2.0;
@@ -236,21 +222,22 @@ pub fn process_add_object(
                     const IMAGE_SCALE: f32 = 1.0 / 256.0;
                     const IMAGE_SCALE_VEC: Vec3 = Vec3::new(IMAGE_SCALE, IMAGE_SCALE, 1.0);
                     // group the three sprites in an entity containing the transform
-                    commands.entity(entity1).add_children(|builder| {
+                    commands.entity(entity1).with_children(|builder| {
                         builder
                             .spawn((
-                                GeometryBuilder::build_as(
-                                    &shapes::Circle {
-                                        radius: 0.5 * 1.1, // make selection display a bit bigger
-                                        ..Default::default()
-                                    },
-                                    crate::make_stroke(
-                                        Color::rgba(0.0, 0.0, 0.0, 0.0),
-                                        BORDER_THICKNESS,
-                                    )
-                                    .as_mode(),
-                                    Transform::from_translation(hinge_pos)
+                                ShapeBundle {
+                                    path: GeometryBuilder::build_as(
+                                        &shapes::Circle {
+                                            radius: 0.5 * 1.1, // make selection display a bit bigger
+                                            ..Default::default()
+                                        }),
+                                    transform: Transform::from_translation(hinge_pos)
                                         .with_scale(Vec3::new(scale, scale, 1.0)),
+                                    ..Default::default()
+                                },
+                                crate::make_stroke(
+                                    Color::rgba(0.0, 0.0, 0.0, 0.0),
+                                    BORDER_THICKNESS,
                                 ),
                                 Collider::ball(0.5),
                                 Sensor,
@@ -259,7 +246,7 @@ pub fn process_add_object(
                                 )
                                 .update_from_this(),
                             ))
-                            .add_children(|builder| {
+                            .with_children(|builder| {
                                 builder
                                     .spawn(SpatialBundle::from_transform(Transform::from_scale(
                                         IMAGE_SCALE_VEC,
@@ -316,21 +303,18 @@ pub fn process_add_object(
 
                 let scale = cameras.single_mut().scale.x * DEFAULT_OBJ_SIZE;
                 let laser = commands
-                    .entity(ui_state.scene)
-                    .add_children(|mut builder| {
-                        builder
-                            .spawn((
-                                LaserBundle {
-                                    fade_distance: 10.0,
-                                },
-                                ColorComponent(palette.get_color_hsva_opaque(&mut *rng.single_mut()))
-                                    .update_from_this(),
-                                Collider::cuboid(0.5, 0.25),
-                                SizeComponent(scale),
-                                Sensor,
-                            ))
-                            .id()
-                    });
+                    .spawn((
+                        LaserBundle {
+                            fade_distance: 10.0,
+                        },
+                        ColorComponent(palette.get_color_hsva_opaque(&mut *rng.single_mut()))
+                            .update_from_this(),
+                        Collider::cuboid(0.5, 0.25),
+                        SizeComponent(scale),
+                        Sensor,
+                    ))
+                    .set_parent(ui_state.scene)
+                    .id();
 
                 let laser_pos = if let Some(entity) = entity {
                     commands.entity(entity).add_child(laser);
@@ -341,15 +325,16 @@ pub fn process_add_object(
                 commands
                     .entity(laser)
                     .insert((
-                        GeometryBuilder::build_as(
-                            &shapes::Rectangle {
-                                extents: Vec2::new(1.0, 0.5) * 1.1, // make selection display a bit bigger
-                                ..Default::default()
-                            },
-                            crate::make_stroke(Color::rgba(0.0, 0.0, 0.0, 0.0), BORDER_THICKNESS)
-                                .as_mode(),
-                            Transform::from_translation(z.pos(laser_pos)),
-                        ),
+                        ShapeBundle {
+                            path: GeometryBuilder::build_as(
+                                &shapes::Rectangle {
+                                    extents: Vec2::new(1.0, 0.5) * 1.1, // make selection display a bit bigger
+                                    ..Default::default()
+                                }),
+                            transform: Transform::from_translation(z.pos(laser_pos)),
+                            ..Default::default()
+                        },
+                        crate::make_stroke(Color::rgba(0.0, 0.0, 0.0, 0.0), BORDER_THICKNESS),
                         UpdateFrom::<SizeComponent>::This,
                     ))
                     .with_children(|builder| {

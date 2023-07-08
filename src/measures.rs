@@ -1,12 +1,13 @@
 use bevy::prelude::*;
 use bevy_rapier2d::prelude::*;
 
-pub fn compute_measures() -> SystemSet {
-    SystemSet::new()
-        .with_system(KineticEnergy::compute)
-        .with_system(GravityEnergy::compute)
-        .with_system(Momentum::compute)
-        .with_system(Forces::compute)
+pub fn add_measure_systems(app: &mut App) {
+    app.add_systems((
+        KineticEnergy::compute,
+        GravityEnergy::compute,
+        Momentum::compute,
+        Forces::compute,
+    ));
 }
 
 #[derive(Component)]
@@ -17,7 +18,7 @@ pub struct KineticEnergy {
 // todo sometimes it crashes it we delete an entity during a frame because
 // it tries to insert a component on a despawned entity
 impl KineticEnergy {
-    fn compute(bodies: Query<(Entity, &ReadMassProperties, &Velocity)>, mut commands: Commands) {
+    pub(crate) fn compute(bodies: Query<(Entity, &ReadMassProperties, &Velocity)>, mut commands: Commands) {
         for (id, ReadMassProperties(mass), vel) in bodies.iter() {
             let linear = mass.mass * vel.linvel.length_squared() / 2.0;
             let angular = mass.principal_inertia * vel.angvel * vel.angvel / 2.0;
@@ -38,7 +39,7 @@ pub struct GravityEnergy {
 }
 
 impl GravityEnergy {
-    fn compute(
+    pub(crate) fn compute(
         bodies: Query<(Entity, &ReadMassProperties, &Transform)>,
         rapier_conf: Res<RapierConfiguration>,
         mut commands: Commands,
@@ -57,7 +58,7 @@ pub struct Momentum {
 }
 
 impl Momentum {
-    fn compute(bodies: Query<(Entity, &ReadMassProperties, &Velocity)>, mut commands: Commands) {
+    pub(crate) fn compute(bodies: Query<(Entity, &ReadMassProperties, &Velocity)>, mut commands: Commands) {
         for (id, ReadMassProperties(mass), vel) in bodies.iter() {
             let linear = mass.mass * vel.linvel;
             let angular = mass.principal_inertia * vel.angvel;
@@ -104,7 +105,7 @@ impl Forces {
         Self { forces: Vec::new() }
     }
 
-    fn compute(
+    pub(crate) fn compute(
         bodies: Query<(Entity, &ReadMassProperties, &Velocity)>,
         mut commands: Commands,
         rapier_conf: Res<RapierConfiguration>,

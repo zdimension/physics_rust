@@ -2,7 +2,7 @@ use crate::objects::laser::LaserBundle;
 use crate::objects::SizeComponent;
 use crate::ui::{BevyIdThing, InitialPos, Subwindow};
 use bevy::prelude::*;
-use bevy_egui::{egui, EguiContext};
+use bevy_egui::{egui, EguiContexts};
 
 #[derive(Default, Component)]
 pub struct LaserWindow;
@@ -11,7 +11,7 @@ impl LaserWindow {
     pub fn show(
         mut wnds: Query<(Entity, &Parent, &mut InitialPos), With<LaserWindow>>,
         mut ents: Query<(&mut LaserBundle, &mut SizeComponent)>,
-        mut egui_ctx: ResMut<EguiContext>,
+        mut egui_ctx: EguiContexts,
         mut commands: Commands,
     ) {
         let ctx = egui_ctx.ctx_mut();

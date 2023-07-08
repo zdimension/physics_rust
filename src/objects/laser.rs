@@ -1,15 +1,17 @@
-use crate::objects::phy_obj::RefractiveIndex;
-use crate::objects::ColorComponent;
-use crate::AsMode;
+use std::fmt::{Debug, Formatter};
+
 use bevy::hierarchy::{BuildChildren, DespawnRecursiveExt};
 use bevy::math::{EulerRot, Vec2, Vec3, Vec3Swizzles};
 use bevy::prelude::*;
 use bevy_egui::egui::ecolor::Hsva;
 use bevy_prototype_lyon::geometry::GeometryBuilder;
+use bevy_prototype_lyon::prelude::ShapeBundle;
 use bevy_prototype_lyon::shapes;
 use bevy_rapier2d::prelude::{QueryFilter, RapierContext, RayIntersection};
 use num_traits::float::FloatConst;
-use std::fmt::{Debug, Formatter};
+
+use crate::objects::ColorComponent;
+use crate::objects::phy_obj::RefractiveIndex;
 
 #[derive(Component)]
 pub struct LaserBundle {
@@ -140,14 +142,14 @@ impl<'a, ObjInfo: Fn(Entity) -> ObjectInfo> LaserCompute<'a, ObjInfo> {
         );
 
         if let Some((
-            ent,
-            RayIntersection {
-                toi,
-                point,
-                normal,
-                feature: _,
-            },
-        )) = intersection
+                        ent,
+                        RayIntersection {
+                            toi,
+                            point,
+                            normal,
+                            feature: _,
+                        },
+                    )) = intersection
         {
             ray.length = toi;
 
@@ -333,7 +335,7 @@ pub fn draw_lasers(
             false
         });
         let start_index = match object_other {
-            Some(ent) => refr.get(ent).unwrap().0 .0,
+            Some(ent) => refr.get(ent).unwrap().0.0,
             None => 1.0,
         };
 
@@ -368,38 +370,33 @@ pub fn draw_lasers(
 
         let mut debug = String::new();
 
-        commands.entity(rays).add_children(|builder| {
-            for ray in ray_list {
-                debug.push_str(&format!("{:?}\n", ray));
-                let start = ray.start;
-                let end = ray.end();
-                let thick = ray.width; // todo: lazer_fuzziness
-                let halfthick = thick / 2.0;
-                let dir = (end - start).normalize();
-                let norm = dir.perp() * halfthick;
-                let diff_start = dir * halfthick * ray.start_angle.tan();
-                let diff_end = dir * halfthick * ray.end_angle.tan();
-                let poly = shapes::Polygon {
-                    points: vec![
-                        start + norm + diff_start,
-                        start - norm - diff_start,
-                        end - norm - diff_end,
-                        end + norm + diff_end,
-                    ],
-                    closed: true,
-                };
-                /*builder.spawn(GeometryBuilder::build_as(
-                    &shapes::Line(ray.start, ray.end()),
-                    crate::make_stroke(crate::hsva_to_rgba(ray.color_blended()), ray.width).as_mode(),
-                    Transform::from_translation(Vec3::new(0.0, 0.0, transform.translation.z - 0.1)),
-                ));*/
-                builder.spawn(GeometryBuilder::build_as(
-                    &poly,
-                    crate::make_fill(crate::hsva_to_rgba(ray.color_blended())).as_mode(),
-                    Transform::from_translation(Vec3::new(0.0, 0.0, transform.translation.z - 0.1)),
-                ));
-            }
-        });
+        for ray in ray_list {
+            debug.push_str(&format!("{:?}\n", ray));
+            let start = ray.start;
+            let end = ray.end();
+            let thick = ray.width; // todo: lazer_fuzziness
+            let halfthick = thick / 2.0;
+            let dir = (end - start).normalize();
+            let norm = dir.perp() * halfthick;
+            let diff_start = dir * halfthick * ray.start_angle.tan();
+            let diff_end = dir * halfthick * ray.end_angle.tan();
+            let poly = shapes::Polygon {
+                points: vec![
+                    start + norm + diff_start,
+                    start - norm - diff_start,
+                    end - norm - diff_end,
+                    end + norm + diff_end,
+                ],
+                closed: true,
+            };
+            commands.spawn((ShapeBundle {
+                path: GeometryBuilder::build_as(&poly),
+                transform: Transform::from_translation(Vec3::new(0.0, 0.0, transform.translation.z - 0.1)),
+                ..Default::default()
+            },
+                           crate::make_fill(crate::hsva_to_rgba(ray.color_blended()))
+            )).set_parent(rays);
+        }
 
         rays_obj.debug = debug;
     }
