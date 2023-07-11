@@ -74,7 +74,10 @@ pub fn ui_example(
             .get("Optics")
             .unwrap();*/
 
-        demo::newton_cradle::init(&mut cmds);
+        cmds.entity(ui_state.scene)
+            .with_children(|parent| {
+                demo::newton_cradle::init(parent);
+            });
         *is_initialized = true;
     }
 

@@ -232,7 +232,7 @@ pub fn app_main() {
         .add_system(update_draw_modes)
         .add_system(laser::draw_lasers)
         .configure_set(
-            AfterUpdate.after(CoreSet::Update).before(CoreSet::UpdateFlush)
+            AfterUpdate.after(CoreSet::UpdateFlush).before(PhysicsSet::SyncBackend)
         ).add_system(despawn_entities.in_base_set(AfterUpdate));
     objects::add_update_systems(&mut app);
     app.run();

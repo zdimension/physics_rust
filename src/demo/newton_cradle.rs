@@ -3,7 +3,7 @@ use crate::objects::phy_obj::PhysicalObject;
 use bevy::prelude::*;
 use bevy_rapier2d::prelude::*;
 
-pub fn init(commands: &mut Commands) {
+pub fn init(commands: &mut ChildBuilder) {
     let mut z = 1.0;
     let mut z = || {
         z += 0.1;
