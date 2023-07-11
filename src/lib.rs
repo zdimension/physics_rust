@@ -28,6 +28,7 @@ use wasm_bindgen::prelude::*;
 
 use crate::mouse::r#move::{MouseLongOrMoved, MouseLongOrMovedWriteback};
 use crate::mouse::select::{SelectEvent, SelectUnderMouseEvent};
+use crate::objects::SpriteOnly;
 use crate::tools::r#move::MoveEvent;
 use crate::tools::ToolIcons;
 use crate::ui::images::{AppIcons, GuiIcons};
@@ -228,13 +229,12 @@ pub fn app_main() {
                 .after(mouse::select::process_select),
         )
         .add_system(cursor::show_current_tool_icon.after(wheel::mouse_wheel))
-        .add_system(objects::update_sprites_color)
         .add_system(update_draw_modes)
         .add_system(laser::draw_lasers)
-        .add_system(objects::update_size_scales)
         .configure_set(
             AfterUpdate.after(CoreSet::Update).before(CoreSet::UpdateFlush)
         ).add_system(despawn_entities.in_base_set(AfterUpdate));
+    objects::add_update_systems(&mut app);
     app.run();
 }
 
@@ -309,12 +309,12 @@ fn despawn_entities(
 }
 
 fn update_draw_modes(
-    mut draws: Query<(Entity, &mut Fill, &mut Stroke, &UpdateFrom<ColorComponent>)>,
-    parents: Query<(Option<&Parent>, Option<&ColorComponent>)>,
+    mut draws: Query<(Entity, Option<&mut Fill>, &mut Stroke, &UpdateFrom<ColorComponent>, Option<&SpriteOnly>)>,
+    parents: Query<(Option<&Parent>, Option<Ref<ColorComponent>>)>,
     ui_state: Res<UiState>,
 ) {
-    for (entity, mut fill, mut stroke, update_source) in draws.iter_mut() {
-        let (entity, color) = update_source.find_component(entity, &parents);
+    for (entity, mut fill, mut stroke, update_source, sprite_only) in draws.iter_mut() {
+        let (entity, color) = update_source.find_component(entity, &parents).expect("no color component found");
 
         /*draw = match *draw {
             DrawMode::Outlined { .. } | DrawMode::Fill(_) => DrawMode::Outlined {
@@ -342,13 +342,15 @@ fn update_draw_modes(
             }
         }*/
         // TODO: correct?
-        fill.color = hsva_to_rgba(color);
+        if let Some(mut fill) = fill {
+            fill.color = hsva_to_rgba(color);
+        }
         stroke.color = if ui_state.selected_entity == Some(EntitySelection { entity }) {
             Color::WHITE
         } else {
             hsva_to_rgba(Hsva {
                 v: color.v * 0.5,
-                a: 1.0,
+                a: if sprite_only.is_some() { 0.0 } else { 1.0 },
                 ..color
             })
         };

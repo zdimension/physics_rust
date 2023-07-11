@@ -3,7 +3,7 @@ use crate::mouse::select::SelectUnderMouseEvent;
 use crate::objects::hinge::HingeObject;
 use crate::objects::laser::LaserBundle;
 use crate::objects::phy_obj::PhysicalObject;
-use crate::objects::{ColorComponent, SettingComponent, SizeComponent};
+use crate::objects::{ColorComponent, MotorComponent, SettingComponent, SizeComponent, SpriteOnly};
 use crate::palette::PaletteConfig;
 use crate::ui::images::AppIcons;
 use crate::update_from::UpdateFrom;
@@ -11,7 +11,7 @@ use crate::{BORDER_THICKNESS};
 use bevy::hierarchy::BuildChildren;
 use bevy::log::info;
 use bevy::math::{Vec2, Vec3, Vec3Swizzles};
-use bevy::prelude::{Color, SpatialBundle, Sprite, SpriteBundle};
+use bevy::prelude::{Color, Entity, SpatialBundle, Sprite, SpriteBundle};
 use bevy::prelude::{
     Commands, EventReader, EventWriter, Local, Query, Res, Transform, With, Without,
 };
@@ -32,8 +32,14 @@ use AddObjectEvent::*;
 use crate::ui::UiState;
 
 #[derive(Debug)]
+pub enum AddHingeEvent {
+    Mouse(Vec2),
+    AddCenter(Entity),
+}
+
+#[derive(Debug)]
 pub enum AddObjectEvent {
-    Hinge(Vec2),
+    Hinge(AddHingeEvent),
     Fix(Vec2),
     Circle { center: Vec2, radius: f32 },
     Box { pos: Vec2, size: Vec2 },
@@ -148,41 +154,146 @@ pub fn process_add_object(
                     }
                 }
             }
-            Hinge(pos) => {
-                let (entity1, entity2) = {
-                    let mut entities = select::find_under_mouse(
-                        &rapier,
-                        pos,
-                        QueryFilter::only_dynamic(),
-                        |ent| {
-                            let (transform, _) = query.get(ent).unwrap();
-                            transform.translation.z
-                        },
-                    );
-                    (entities.next(), entities.next())
+            Hinge(ref ev) => {
+                let (entity1, anchor1, entity1z, entity2, pos) = match *ev {
+                    AddHingeEvent::Mouse(pos) => {
+                        let mut entities = select::find_under_mouse(
+                            &rapier,
+                            pos,
+                            QueryFilter::only_dynamic(),
+                            |ent| {
+                                let (transform, _) = query.get(ent).unwrap();
+                                transform.translation.z
+                            },
+                        );
+                        let (entity1, entity2) = (entities.next(), entities.next());
+                        let Some(entity1) = entity1 else {
+                            info!("Add hinge: no entity under mouse");
+                            return;
+                        };
+                        if sensor.get(entity1).is_ok() {
+                            info!("Add hinge on sensor; selecting");
+                            select_mouse.send(SelectUnderMouseEvent {
+                                pos,
+                                open_menu: false,
+                            });
+                            return;
+                        }
+                        let Ok((transform, _)) = query.get(entity1) else {
+                            info!("Can't find transform for entity under mouse");
+                            commands.entity(entity1).log_components();
+                            continue;
+                        };
+                        let anchor1 = transform
+                            .compute_affine()
+                            .inverse()
+                            .transform_point3(pos.extend(0.0))
+                            .xy();
+                        (entity1, anchor1, transform.translation.z, entity2, pos)
+                    },
+                    AddHingeEvent::AddCenter(ent) => {
+                        let entity1 = ent;
+                        let anchor1 = Vec2::ZERO;
+                        let Ok((transform, _)) = query.get(entity1) else {
+                            info!("Can't find transform for entity (add center axle)");
+                            commands.entity(entity1).log_components();
+                            continue;
+                        };
+                        let pos = transform.translation.xy();
+                        let entity2 = select::find_under_mouse(
+                            &rapier,
+                            pos,
+                            QueryFilter::only_dynamic().exclude_collider(entity1),
+                            |ent| {
+                                let (transform, _) = query.get(ent).unwrap();
+                                transform.translation.z
+                            },
+                        ).next();
+                        (entity1, anchor1, transform.translation.z, entity2, pos)
+                    }
                 };
 
-                if let Some(entity1) = entity1 {
-                    if sensor.get(entity1).is_ok() {
-                        select_mouse.send(SelectUnderMouseEvent {
-                            pos,
-                            open_menu: false,
-                        });
-                        return;
-                    }
-
-                    let Ok((transform, _)) = query.get_mut(entity1) else {
-                        commands.entity(entity1).log_components();
-                        continue;
-                    };
-                    let anchor1 = transform
-                        .compute_affine()
-                        .inverse()
-                        .transform_point3(pos.extend(0.0))
-                        .xy();
+                {
                     let hinge_z = z.next();
-                    let hinge_delta = hinge_z - transform.translation.z;
+                    let hinge_delta = hinge_z - entity1z;
                     let hinge_pos = anchor1.extend(hinge_delta);
+                    const HINGE_RADIUS: f32 = DEFAULT_OBJ_SIZE / 2.0;
+                    let scale = cameras.single_mut().scale.x * DEFAULT_OBJ_SIZE;
+                    const IMAGE_SCALE: f32 = 1.0 / 256.0;
+                    const IMAGE_SCALE_VEC: Vec3 = Vec3::new(IMAGE_SCALE, IMAGE_SCALE, 1.0);
+                    // group the three sprites in an entity containing the transform
+                    let hinge_real_ent = commands
+                        .spawn((
+                            ShapeBundle {
+                                path: GeometryBuilder::build_as(
+                                    &shapes::Circle {
+                                        radius: 0.5 * 1.1, // make selection display a bit bigger
+                                        ..Default::default()
+                                    }),
+                                transform: Transform::from_translation(hinge_pos)
+                                    .with_scale(Vec3::new(scale, scale, 1.0)),
+                                ..Default::default()
+                            },
+                            crate::make_stroke(
+                                Color::rgba(0.0, 0.0, 0.0, 0.0),
+                                BORDER_THICKNESS,
+                            ),
+                            SpriteOnly,
+                            Collider::ball(0.5),
+                            Sensor,
+                            ColorComponent(
+                                palette.get_color_hsva_opaque(&mut *rng.single_mut()),
+                            )
+                                .update_from_this(),
+                            MotorComponent::default()
+                        ))
+                        .set_parent(entity1)
+                        .with_children(|builder| {
+                            builder
+                                .spawn(SpatialBundle::from_transform(Transform::from_scale(
+                                    IMAGE_SCALE_VEC,
+                                )))
+                                .with_children(|builder| {
+                                    builder.spawn((
+                                        SpriteBundle {
+                                            texture: images.hinge_balls.clone(),
+                                            sprite: Sprite {
+                                                ..Default::default()
+                                            },
+                                            ..Default::default()
+                                        },
+                                        UpdateFrom::<ColorComponent>::entity(entity1),
+                                    ));
+                                })
+                                .with_children(|builder| {
+                                    builder.spawn((
+                                        SpriteBundle {
+                                            texture: images.hinge_background.clone(),
+                                            sprite: Sprite {
+                                                ..Default::default()
+                                            },
+                                            ..Default::default()
+                                        },
+                                        UpdateFrom::<ColorComponent>::This,
+                                    ));
+                                })
+                                .with_children(|builder| {
+                                    let mut sprite = builder.spawn(SpriteBundle {
+                                        texture: images.hinge_inner.clone(),
+                                        sprite: Sprite {
+                                            color: palette.sky_color,
+                                            ..Default::default()
+                                        },
+                                        ..Default::default()
+                                    });
+                                    if let Some(entity2) = entity2 {
+                                        sprite.insert(UpdateFrom::<ColorComponent>::entity(
+                                            entity2,
+                                        ));
+                                    }
+                                });
+                        })
+                        .id();
                     if let Some(entity2) = entity2 {
                         let (transform, _) = query.get_mut(entity2).unwrap();
                         let anchor2 = transform
@@ -196,6 +307,7 @@ pub fn process_add_object(
                         );
                         commands.entity(entity2).insert((
                             HingeObject,
+                            UpdateFrom::<MotorComponent>::entity(hinge_real_ent),
                             MultibodyJoint::new(
                                 entity1,
                                 RevoluteJointBuilder::new()
@@ -207,6 +319,8 @@ pub fn process_add_object(
                     } else {
                         commands
                             .spawn((
+                                HingeObject,
+                                UpdateFrom::<MotorComponent>::entity(hinge_real_ent),
                                 ImpulseJoint::new(
                                     entity1,
                                     RevoluteJointBuilder::new()
@@ -216,82 +330,6 @@ pub fn process_add_object(
                                 RigidBody::Dynamic,
                             )).set_parent(ui_state.scene);
                     }
-
-                    const HINGE_RADIUS: f32 = DEFAULT_OBJ_SIZE / 2.0;
-                    let scale = cameras.single_mut().scale.x * DEFAULT_OBJ_SIZE;
-                    const IMAGE_SCALE: f32 = 1.0 / 256.0;
-                    const IMAGE_SCALE_VEC: Vec3 = Vec3::new(IMAGE_SCALE, IMAGE_SCALE, 1.0);
-                    // group the three sprites in an entity containing the transform
-                    commands.entity(entity1).with_children(|builder| {
-                        builder
-                            .spawn((
-                                ShapeBundle {
-                                    path: GeometryBuilder::build_as(
-                                        &shapes::Circle {
-                                            radius: 0.5 * 1.1, // make selection display a bit bigger
-                                            ..Default::default()
-                                        }),
-                                    transform: Transform::from_translation(hinge_pos)
-                                        .with_scale(Vec3::new(scale, scale, 1.0)),
-                                    ..Default::default()
-                                },
-                                crate::make_stroke(
-                                    Color::rgba(0.0, 0.0, 0.0, 0.0),
-                                    BORDER_THICKNESS,
-                                ),
-                                Collider::ball(0.5),
-                                Sensor,
-                                ColorComponent(
-                                    palette.get_color_hsva_opaque(&mut *rng.single_mut()),
-                                )
-                                .update_from_this(),
-                            ))
-                            .with_children(|builder| {
-                                builder
-                                    .spawn(SpatialBundle::from_transform(Transform::from_scale(
-                                        IMAGE_SCALE_VEC,
-                                    )))
-                                    .with_children(|builder| {
-                                        builder.spawn((
-                                            SpriteBundle {
-                                                texture: images.hinge_balls.clone(),
-                                                sprite: Sprite {
-                                                    ..Default::default()
-                                                },
-                                                ..Default::default()
-                                            },
-                                            UpdateFrom::<ColorComponent>::entity(entity1),
-                                        ));
-                                    })
-                                    .with_children(|builder| {
-                                        builder.spawn((
-                                            SpriteBundle {
-                                                texture: images.hinge_background.clone(),
-                                                sprite: Sprite {
-                                                    ..Default::default()
-                                                },
-                                                ..Default::default()
-                                            },
-                                            UpdateFrom::<ColorComponent>::This,
-                                        ));
-                                    })
-                                    .with_children(|builder| {
-                                        let mut sprite = builder.spawn(SpriteBundle {
-                                            texture: images.hinge_inner.clone(),
-                                            sprite: Sprite {
-                                                color: palette.sky_color,
-                                                ..Default::default()
-                                            },
-                                            ..Default::default()
-                                        });
-                                        if let Some(entity2) = entity2 {
-                                            sprite.insert(UpdateFrom::<ColorComponent>::entity(
-                                                entity2,
-                                            ));
-                                        }
-                                    });
-                            });
-                    });
                 }
             }
             Laser(pos) => {

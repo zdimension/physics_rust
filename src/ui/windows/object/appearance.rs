@@ -21,11 +21,14 @@ impl AppearanceWindow {
                 .default_size(egui::Vec2::ZERO)
                 .id_bevy(id)
                 .subwindow(id, ctx, &mut initial_pos, &mut commands, |ui, _commands| {
-                    egui::color_picker::color_picker_hsva_2d(
+                    let mut hsva = color.0;
+                    if egui::color_picker::color_picker_hsva_2d(
                         ui,
-                        &mut color.0,
+                        &mut hsva,
                         egui::color_picker::Alpha::OnlyBlend,
-                    );
+                    ) {
+                        color.0 = hsva;
+                    }
                 });
         }
     }

@@ -16,11 +16,12 @@ use crate::{demo, Despawn, UsedMouseButton};
 use crate::objects::laser::LaserRays;
 use crate::palette::{PaletteConfig, PaletteList};
 use crate::tools::ToolEnum;
+use crate::ui::windows::{scene_actions, toolbar, toolbox};
 use crate::ui::windows::object::appearance::AppearanceWindow;
+use crate::ui::windows::object::hinge::HingeWindow;
 use crate::ui::windows::object::laser::LaserWindow;
 use crate::ui::windows::object::material::MaterialWindow;
 use crate::ui::windows::scene::background::BackgroundWindow;
-use crate::ui::windows::{scene_actions, toolbar, toolbox};
 
 use self::windows::menu::MenuWindow;
 use self::windows::object::collisions::CollisionsWindow;
@@ -115,16 +116,10 @@ pub fn add_ui_systems(app: &mut App) {
         scene_actions::draw_scene_actions,
         scene_actions::NewSceneWindow::show,
         process_temporary_windows,
-        remove_temporary_windows,
-        MenuWindow::show,
-        InformationWindow::show,
-        PlotWindow::show,
-        CollisionsWindow::show,
-        LaserWindow::show,
-        MaterialWindow::show,
-        AppearanceWindow::show,
-        BackgroundWindow::show,
+        remove_temporary_windows
     ));
+    windows::object::add_ui_systems(app);
+    windows::scene::add_ui_systems(app);
 }
 
 trait AsPos2 {

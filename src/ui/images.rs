@@ -85,6 +85,7 @@ icon_set!(
         csg,
         erase,
         gravity,
+        hinge,
         info,
         lasermenu,
         material,

@@ -68,7 +68,7 @@ fn deserialize_rgba<'a, D>(deserializer: D) -> Result<Color, D::Error>
     if r < 0.0 || r > 1.0 || g < 0.0 || g > 1.0 || b < 0.0 || b > 1.0 || a < 0.0 || a > 1.0 {
         return Err(D::Error::custom("RGBA is invalid"));
     }
-    Ok(Color::rgba_linear(r, g, b, a))
+    Ok(Color::rgba(r, g, b, a))
 }
 
 fn f32_between(rng: &mut impl DelegatedRng, min: f32, max: f32) -> f32 {
@@ -85,8 +85,8 @@ pub trait ToRgba {
 
 impl ToRgba for Hsva {
     fn to_rgba(&self) -> Color {
-        let [r, g, b, a] = self.to_rgba_unmultiplied();
-        Color::rgba_linear(r, g, b, a)
+        let [r, g, b, a] = self.to_srgba_unmultiplied();
+        Color::rgba_u8(r, g, b, a)
     }
 }
 
@@ -122,7 +122,7 @@ impl Default for Palette {
             object_appearance: ObjectAppearance::default(),
             draw_clouds: true,
             sky_color: Color::rgba(0.44999999, 0.55000001, 1.0000000, 1.0000000),
-            selection_color: Color::rgb(0.0, 0.0, 0.0),
+            selection_color: Color::rgba(0.0, 0.0, 0.0, 0.0),
             color_range: HsvaRange(
                 Hsva::new(0.0, 0.0, 0.0, 1.0),
                 Hsva::new(359.9, 1.0, 1.0, 1.0),

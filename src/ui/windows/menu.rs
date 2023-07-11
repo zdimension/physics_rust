@@ -1,5 +1,5 @@
 use crate::objects::laser::LaserBundle;
-use crate::objects::ColorComponent;
+use crate::objects::{ColorComponent, MotorComponent};
 use crate::ui::images::GuiIcons;
 use crate::ui::{InitialPos, Subwindow, TemporaryWindow};
 use bevy::hierarchy::{BuildChildren, Parent};
@@ -27,6 +27,7 @@ use crate::ui::windows::object::velocities::VelocitiesWindow;
 use crate::ui::windows::scene::background::BackgroundWindow;
 
 use crate::ui::menu_item::MenuItem;
+use crate::ui::windows::object::hinge::HingeWindow;
 
 #[derive(Default, Component)]
 pub struct MenuWindow {
@@ -48,6 +49,7 @@ impl MenuWindow {
             Option<&CollisionGroups>,
             Option<&LaserBundle>,
             Option<&RigidBody>,
+            Option<&MotorComponent>
         )>,
     ) {
         let ctx = egui_ctx.ctx_mut();
@@ -101,6 +103,8 @@ impl MenuWindow {
                                             InitialPos::initial(menu.rect.right_top())
                                         )).id();
 
+                                        info!("new wnd: {:?}", new_wnd);
+
                                         if let Some(id) = entity {
                                             commands.entity(id).push_children(&[new_wnd]);
                                         }
@@ -151,14 +155,19 @@ impl MenuWindow {
                             if info.1.is_some() {
                                 menu!("Velocities", velocity, VelocitiesWindow);
                             }
-                            menu!("Information", info, InformationWindow);
-                            if info.2.is_some() {
-                                menu!("Collision layers", collisions, CollisionsWindow);
+                            if info.5.is_some() {
+                                menu!("Axles", hinge, HingeWindow);
                             }
                             if info.3.is_some() {
                                 menu!("Laser pens", lasermenu, LaserWindow);
                             }
-                            menu!("Geometry actions", /, GeometryActionsWindow);
+                            menu!("Information", info, InformationWindow);
+                            if info.2.is_some() {
+                                menu!("Collision layers", collisions, CollisionsWindow);
+                            }
+                            if info.4.is_some() {
+                                menu!("Geometry actions", /, GeometryActionsWindow);
+                            }
                             menu!("Combine shapes", csg, CombineShapesWindow);
                             menu!("Controller", controller, ControllerWindow);
                             menu!("Script menu", /, ScriptMenuWindow);

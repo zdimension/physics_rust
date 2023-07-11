@@ -11,7 +11,7 @@ use crate::Despawn;
 use crate::mouse::r#move::MouseLongOrMoved;
 use crate::mouse::select::SelectUnderMouseEvent;
 use crate::tools::pan;
-use crate::tools::add_object::AddObjectEvent;
+use crate::tools::add_object::{AddHingeEvent, AddObjectEvent};
 use crate::tools::pan::PanEvent;
 use crate::tools::r#move::MoveEvent;
 use crate::tools::rotate::RotateEvent;
@@ -113,7 +113,7 @@ pub fn left_release(
                     add_obj.send(AddObjectEvent::Fix(pos));
                 }
                 Hinge(()) => {
-                    add_obj.send(AddObjectEvent::Hinge(pos));
+                    add_obj.send(AddObjectEvent::Hinge(AddHingeEvent::Mouse(pos)));
                 }
                 Laser(()) => {
                     add_obj.send(AddObjectEvent::Laser(pos));

@@ -10,6 +10,7 @@ use bevy_rapier2d::dynamics::{ReadMassProperties, RigidBody, Velocity};
 use bevy_rapier2d::geometry::{
     Collider, ColliderMassProperties, CollisionGroups, Friction, Group, Restitution,
 };
+use bevy_rapier2d::prelude::Sleeping;
 
 use crate::{BORDER_THICKNESS, FillStroke};
 use crate::objects::ColorComponent;
@@ -29,7 +30,8 @@ pub struct PhysicalObject {
     refractive_index: RefractiveIndex,
     color: ColorComponent,
     color_upd: UpdateFrom<ColorComponent>,
-    fill_stroke: FillStroke
+    fill_stroke: FillStroke,
+    sleeping: Sleeping
 }
 
 impl PhysicalObject {
@@ -47,7 +49,8 @@ impl PhysicalObject {
             refractive_index: RefractiveIndex::default(),
             color: ColorComponent(Hsva::new(0.0, 1.0, 1.0, 1.0)),
             color_upd: UpdateFrom::This,
-            fill_stroke: FillStroke::default()
+            fill_stroke: FillStroke::default(),
+            sleeping: Sleeping::disabled() // todo: better
         }
     }
 
