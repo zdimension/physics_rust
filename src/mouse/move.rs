@@ -8,13 +8,12 @@ use crate::tools::ToolEnum;
 use crate::ui::UiState;
 use crate::UsedMouseButton;
 use bevy::math::Vec2;
-use bevy::prelude::{
-    Commands, EventReader, EventWriter, Query, Res, ResMut, Transform, With, Without,
-};
+use bevy::prelude::{Commands, Event, EventReader, EventWriter, Query, Res, ResMut, Transform, With, Without};
 use bevy_mouse_tracking_plugin::{MainCamera, MousePosWorld};
 use bevy_rapier2d::dynamics::RigidBody;
 use bevy_rapier2d::plugin::RapierContext;
 
+#[derive(Event)]
 pub struct MouseLongOrMovedWriteback {
     event: MouseLongOrMoved,
 }
@@ -148,5 +147,5 @@ pub fn mouse_long_or_moved(
     }
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Event)]
 pub struct MouseLongOrMoved(pub ToolEnum, pub Vec2, pub UsedMouseButton);

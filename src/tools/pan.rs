@@ -1,9 +1,9 @@
 use crate::CAMERA_Z;
 use bevy::math::{Vec2, Vec3Swizzles};
-use bevy::prelude::{EventReader, Query, Transform, With};
+use bevy::prelude::{Event, EventReader, Query, Transform, With};
 use bevy_mouse_tracking_plugin::MainCamera;
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Event)]
 pub struct PanEvent {
     pub orig_camera_pos: Vec2,
     pub delta: Vec2,

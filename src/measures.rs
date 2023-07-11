@@ -2,7 +2,7 @@ use bevy::prelude::*;
 use bevy_rapier2d::prelude::*;
 
 pub fn add_measure_systems(app: &mut App) {
-    app.add_systems((
+    app.add_systems(Update, (
         KineticEnergy::compute,
         GravityEnergy::compute,
         Momentum::compute,

@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use bevy::asset::AssetLoader;
 use bevy::asset::LoadedAsset;
 use bevy::prelude::*;
-use bevy::reflect::TypeUuid;
+use bevy::reflect::{TypePath, TypeUuid};
 use bevy_egui::egui::epaint::Hsva;
 use bevy_prototype_lyon::prelude::*;
 use bevy_turborand::DelegatedRng;
@@ -131,8 +131,9 @@ impl Default for Palette {
     }
 }
 
-#[derive(Debug, Deserialize, TypeUuid)]
+#[derive(Debug, Deserialize, TypeUuid, TypePath)]
 #[uuid = "005a11ae-18b1-4c47-9f2e-21827d204835"]
+#[type_path = "physics_rust::palette"]
 pub struct PaletteList(pub HashMap<String, Palette>);
 
 #[derive(Default)]

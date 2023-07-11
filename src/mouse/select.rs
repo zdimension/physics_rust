@@ -12,6 +12,7 @@ use derivative::Derivative;
 use bevy::window::PrimaryWindow;
 use crate::Despawn;
 
+#[derive(Event)]
 pub struct SelectEvent {
     pub(crate) entity: Option<Entity>,
     pub(crate) open_menu: bool,
@@ -72,7 +73,7 @@ pub fn find_under_mouse(
     set.into_iter().rev().map(|EntityZ { entity, .. }| entity)
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Event)]
 pub struct SelectUnderMouseEvent {
     pub(crate) pos: Vec2,
     pub(crate) open_menu: bool,

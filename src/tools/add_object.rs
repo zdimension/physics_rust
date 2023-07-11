@@ -11,7 +11,7 @@ use crate::{BORDER_THICKNESS};
 use bevy::hierarchy::BuildChildren;
 use bevy::log::info;
 use bevy::math::{Vec2, Vec3, Vec3Swizzles};
-use bevy::prelude::{Color, Entity, SpatialBundle, Sprite, SpriteBundle};
+use bevy::prelude::{Color, Entity, Event, SpatialBundle, Sprite, SpriteBundle};
 use bevy::prelude::{
     Commands, EventReader, EventWriter, Local, Query, Res, Transform, With, Without,
 };
@@ -31,13 +31,13 @@ use bevy_turborand::RngComponent;
 use AddObjectEvent::*;
 use crate::ui::UiState;
 
-#[derive(Debug)]
+#[derive(Debug, Event)]
 pub enum AddHingeEvent {
     Mouse(Vec2),
     AddCenter(Entity),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Event)]
 pub enum AddObjectEvent {
     Hinge(AddHingeEvent),
     Fix(Vec2),

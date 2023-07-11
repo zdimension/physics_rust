@@ -1,8 +1,8 @@
 use bevy::math::{Quat, Vec2, Vec3Swizzles};
-use bevy::prelude::{Entity, EventReader, Query, Transform};
+use bevy::prelude::{Entity, Event, EventReader, Query, Transform};
 use crate::ToRot;
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Event)]
 pub struct RotateEvent {
     pub entity: Entity,
     pub orig_obj_rot: Quat,

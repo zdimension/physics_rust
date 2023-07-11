@@ -3,7 +3,7 @@ use std::time::Duration;
 use bevy::log::info;
 use bevy::math::{Vec2, Vec3Swizzles};
 use bevy::prelude::*;
-use bevy_diagnostic::{Diagnostics, FrameTimeDiagnosticsPlugin};
+use bevy_diagnostic::{Diagnostics, DiagnosticsStore, FrameTimeDiagnosticsPlugin};
 use bevy_egui::{egui, EguiContexts};
 use bevy_egui::egui::{Context, Id, InnerResponse, pos2, Pos2, Ui};
 use bevy_mouse_tracking_plugin::{MainCamera, MousePosWorld};
@@ -64,7 +64,7 @@ pub fn ui_example(
     mut cmds: Commands,
     mouse: Res<MousePosWorld>,
     rapier: Res<RapierConfiguration>,
-    diag: Res<Diagnostics>,
+    diag: Res<DiagnosticsStore>,
 ) {
     if !*is_initialized {
         /*palette_config.current_palette = *assets
@@ -112,7 +112,7 @@ pub fn ui_example(
 }
 
 pub fn add_ui_systems(app: &mut App) {
-    app.add_systems((
+    app.add_systems(Update, (
         ui_example,
         toolbox::draw_toolbox,
         toolbar::draw_bottom_toolbar,
@@ -162,6 +162,7 @@ impl InitialPos {
 #[derive(Component)]
 pub struct TemporaryWindow;
 
+#[derive(Event)]
 pub struct ContextMenuEvent {
     pub screen_pos: Vec2,
 }
@@ -249,6 +250,7 @@ impl<'a> Subwindow for egui::Window<'a> {
     }
 }
 
+#[derive(Event)]
 pub struct RemoveTemporaryWindowsEvent;
 
 fn remove_temporary_windows(

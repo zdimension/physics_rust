@@ -5,9 +5,9 @@ use bevy_egui::{egui::{self}, EguiContexts, EguiPlugin};
 use bevy_egui::egui::epaint::Hsva;
 use bevy_mouse_tracking_plugin::{MainCamera, prelude::*};
 use bevy_prototype_lyon::prelude::*;
-//use bevy_prototype_lyon::prelude::{DrawMode, FillMode, ShapePlugin};
 use bevy_rapier2d::prelude::*;
-use bevy_turborand::{DelegatedRng, GlobalRng, RngComponent, RngPlugin};
+//use bevy_prototype_lyon::prelude::{DrawMode, FillMode, ShapePlugin};
+use bevy_turborand::prelude::*;
 pub use egui::egui_assert;
 
 use mouse::{button, wheel};
@@ -153,8 +153,8 @@ pub fn app_main() {
         .insert_resource(ClearColor(Color::rgb(0.0, 0.0, 0.0)))
         .insert_resource(Msaa::Sample4)
         .add_plugins(DefaultPlugins)
-        .add_plugin(EguiPlugin)
-        .add_plugin(RngPlugin::default())
+        .add_plugins(EguiPlugin)
+        .add_plugins(RngPlugin::default())
         .add_asset::<PaletteList>()
         .init_asset_loader::<PaletteLoader>()
         .init_resource::<PaletteConfig>()
@@ -168,10 +168,10 @@ pub fn app_main() {
             ..Default::default()
         })
         .insert_resource(OverlayState::default())
-        .add_plugin(RapierPhysicsPlugin::<CollideHooks>::pixels_per_meter(
+        .add_plugins(RapierPhysicsPlugin::<CollideHooks>::pixels_per_meter(
             1.0,
         ))
-        .add_plugin(RapierDebugRenderPlugin {
+        .add_plugins(RapierDebugRenderPlugin {
             style: DebugRenderStyle {
                 rigid_body_axes_length: 1.0,
                 ..Default::default()
@@ -192,17 +192,17 @@ pub fn app_main() {
         .add_event::<SelectEvent>()
         .add_event::<ContextMenuEvent>()
         .add_event::<RemoveTemporaryWindowsEvent>()
-        .add_startup_systems((
+        .add_systems(Startup, (
             configure_visuals,
             setup_graphics,
             setup_physics,
             setup_rng
         ).chain())
-        .add_system(update_from_palette);
+        .add_systems(Update, update_from_palette);
     ui::add_ui_systems(&mut app);
     measures::add_measure_systems(&mut app);
     app
-        .add_systems(
+        .add_systems(Update,
             (
                 wheel::mouse_wheel,
                 button::left_pressed,
@@ -212,10 +212,10 @@ pub fn app_main() {
                 mouse::r#move::mouse_long_or_moved_writeback,
             ).chain()
         )
-        .add_system(pan::process_pan)
-        .add_system(r#move::process_move)
-        .add_system(process_unfreeze_entity)
-        .add_system(rotate::process_rotate)
+        .add_systems(Update, (pan::process_pan,
+        r#move::process_move,
+        process_unfreeze_entity,
+        rotate::process_rotate))
         .add_system(selection_overlay::process_draw_overlay.after(button::left_release))
         .add_system(mouse::select::process_select_under_mouse.before(mouse::select::process_select))
         .add_system(
@@ -231,15 +231,13 @@ pub fn app_main() {
         .add_system(cursor::show_current_tool_icon.after(wheel::mouse_wheel))
         .add_system(update_draw_modes)
         .add_system(laser::draw_lasers)
-        .configure_set(
-            AfterUpdate.after(CoreSet::UpdateFlush).before(PhysicsSet::SyncBackend)
-        ).add_system(despawn_entities.in_base_set(AfterUpdate));
+        .add_systems(PostUpdate, despawn_entities);
     objects::add_update_systems(&mut app);
     app.run();
 }
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, SystemSet)]
-#[system_set(base)]
+//#[system_set(base)]
 pub struct AfterUpdate;
 
 fn setup_rng(mut commands: Commands, mut global_rng: ResMut<GlobalRng>) {
@@ -357,7 +355,7 @@ fn update_draw_modes(
     }
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Event)]
 pub struct UnfreezeEntityEvent {
     entity: Entity,
 }

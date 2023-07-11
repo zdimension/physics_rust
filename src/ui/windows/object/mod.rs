@@ -1,5 +1,4 @@
-use bevy::app::IntoSystemAppConfigs;
-use bevy::prelude::App;
+use bevy::prelude::{App, Update};
 use crate::ui::windows::menu::MenuWindow;
 use crate::ui::windows::object::appearance::AppearanceWindow;
 use crate::ui::windows::object::collisions::CollisionsWindow;
@@ -27,7 +26,7 @@ pub mod velocities;
 
 
 pub fn add_ui_systems(app: &mut App) {
-    app.add_systems((MenuWindow::show,
+    app.add_systems(Update, (MenuWindow::show,
             InformationWindow::show,
             PlotWindow::show,
             CollisionsWindow::show,

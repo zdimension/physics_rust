@@ -1,7 +1,7 @@
 use bevy::math::Vec2;
-use bevy::prelude::{Entity, EventReader, Query, Transform};
+use bevy::prelude::{Entity, Event, EventReader, Query, Transform};
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Event)]
 pub struct MoveEvent {
     pub entity: Entity,
     pub pos: Vec2,
