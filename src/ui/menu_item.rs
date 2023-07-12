@@ -7,7 +7,7 @@ use bevy_egui::egui::{
 
 pub struct MenuItem {
     icon: Option<egui::widgets::Image>,
-    text: String,
+    text: WidgetText,
     icon_right: Option<egui::widgets::Image>,
     selected: bool,
 }
@@ -19,16 +19,16 @@ impl MenuItem {
         egui::widgets::Image::new(icon, Vec2::splat(Self::ICON_SIZE).to_array())
     }
 
-    pub fn button(icon: Option<TextureId>, text: String) -> Self {
+    pub fn button(icon: Option<TextureId>, text: impl Into<WidgetText>) -> Self {
         Self {
             icon: icon.map(Self::gen_image),
-            text,
+            text: text.into(),
             icon_right: None,
             selected: false,
         }
     }
 
-    pub fn menu(icon: Option<TextureId>, text: String, icon_right: TextureId) -> Self {
+    pub fn menu(icon: Option<TextureId>, text: impl Into<WidgetText>, icon_right: TextureId) -> Self {
         Self {
             icon_right: Some(Self::gen_image(icon_right)),
             ..Self::button(icon, text)
@@ -55,7 +55,6 @@ impl Widget for MenuItem {
         let icon_width_total = icon_width * icon_count as f32;
         let text_wrap_width = ui.available_width() - button_padding.x * 2.0 - icon_width_total;
 
-        let text: WidgetText = text.into();
         let text = text.into_galley(ui, Some(false), text_wrap_width, TextStyle::Button);
         let mut desired_size = text.size();
         desired_size.x += icon_width_total;

@@ -119,7 +119,8 @@ impl Default for Palette {
         Self {
             object_appearance: ObjectAppearance::default(),
             draw_clouds: true,
-            sky_color: Color::rgba(0.44999999, 0.55000001, 1.0000000, 1.0000000),
+            //sky_color: Color::rgba(0.44999999, 0.55000001, 1.0000000, 1.0000000),
+            sky_color: Color::WHITE,
             selection_color: Color::rgba(0.0, 0.0, 0.0, 0.0),
             color_range: HsvaRange(
                 Hsva::new(0.0, 0.0, 0.0, 1.0),

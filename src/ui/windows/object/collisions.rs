@@ -4,6 +4,9 @@ use bevy::hierarchy::Parent;
 use bevy::prelude::{Commands, Component, Entity, Query, Res, With};
 use bevy_egui::{egui, EguiContexts};
 use bevy_rapier2d::geometry::{CollisionGroups, Group};
+use crate::systems;
+
+systems!(CollisionsWindow::show);
 
 #[derive(Default, Component)]
 pub struct CollisionsWindow;

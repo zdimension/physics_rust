@@ -3,6 +3,9 @@ use crate::ui::{BevyIdThing, InitialPos, Subwindow};
 use bevy::prelude::{Commands, Component, Entity, Parent, Query, With};
 use bevy_egui::{egui, EguiContexts};
 use bevy_rapier2d::prelude::{Friction, Restitution};
+use crate::systems;
+
+systems!(MaterialWindow::show);
 
 #[derive(Default, Component)]
 pub struct MaterialWindow;

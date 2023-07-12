@@ -13,6 +13,9 @@ use std::borrow::Borrow;
 use std::collections::{HashMap, HashSet};
 use std::fmt::{Debug, Display, Formatter};
 use std::hash::{Hash, Hasher};
+use crate::systems;
+
+systems!(PlotWindow::show);
 
 #[derive(Component)]
 pub struct PlotWindow {

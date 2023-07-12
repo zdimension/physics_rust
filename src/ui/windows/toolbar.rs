@@ -7,6 +7,7 @@ use bevy::prelude::{EventWriter, Local, Res, ResMut};
 use bevy_egui::egui::Align2;
 use bevy_egui::{egui, EguiContexts};
 use bevy_rapier2d::plugin::{RapierConfiguration, TimestepMode};
+use crate::systems;
 
 pub fn draw_bottom_toolbar(
     mut egui_ctx: EguiContexts,
@@ -87,3 +88,5 @@ pub fn draw_bottom_toolbar(
             })
         });
 }
+
+systems!(draw_bottom_toolbar);

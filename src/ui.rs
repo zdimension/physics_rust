@@ -1,12 +1,12 @@
 use std::time::Duration;
 
 use bevy::log::info;
-use bevy::math::{Vec2, Vec3Swizzles};
+use bevy::math::{Vec2, Vec2Swizzles, Vec3Swizzles};
 use bevy::prelude::*;
 use bevy_diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin};
 use bevy_egui::egui::{pos2, Context, Id, InnerResponse, Pos2, Ui};
 use bevy_egui::{egui, EguiContexts};
-use bevy_mouse_tracking_plugin::{MainCamera, MousePosWorld};
+use bevy_mouse_tracking_plugin::{MainCamera, MousePos, MousePosWorld};
 use bevy_rapier2d::plugin::RapierConfiguration;
 use derivative::Derivative;
 
@@ -15,7 +15,8 @@ use crate::palette::{PaletteConfig, PaletteList};
 use crate::tools::ToolEnum;
 
 use crate::ui::windows::{scene_actions, toolbar, toolbox};
-use crate::{demo, Despawn, UsedMouseButton};
+use crate::{demo, Despawn, systems, UsedMouseButton};
+use crate::ui::windows::menubar::draw_menubar;
 
 use self::windows::menu::MenuWindow;
 
@@ -25,7 +26,15 @@ pub mod images;
 mod menu_item;
 pub(crate) mod selection_overlay;
 mod separator_custom;
-mod windows;
+mod text_button;
+
+systems! {
+    mod windows,
+    ui_example,
+    draw_menubar,
+    process_temporary_windows,
+    remove_temporary_windows,
+}
 
 pub struct GravitySetting {
     value: Vec2,
@@ -55,6 +64,7 @@ pub fn ui_example(
     laser: Query<&LaserRays>,
     mut cmds: Commands,
     mouse: Res<MousePosWorld>,
+    mouse_sc: Res<MousePos>,
     rapier: Res<RapierConfiguration>,
     diag: Res<DiagnosticsStore>,
 ) {
@@ -74,7 +84,8 @@ pub fn ui_example(
 
     egui::Window::new("Debug").show(egui_ctx.ctx_mut(), |ui| {
         ui.collapsing("Mouse", |ui| {
-            ui.label(format!("{:.2} m", mouse.xy()));
+            ui.label(format!("World: {:.2} m", mouse.xy()));
+            ui.label(format!("Screen: {:.2} px", mouse_sc.xy()));
         });
         ui.collapsing("Laser", |ui| {
             ui.monospace(&laser.single().debug);
@@ -106,23 +117,6 @@ pub fn ui_example(
             ));
         });
     });
-}
-
-pub fn add_ui_systems(app: &mut App) {
-    app.add_systems(
-        Update,
-        (
-            ui_example,
-            toolbox::draw_toolbox,
-            toolbar::draw_bottom_toolbar,
-            scene_actions::draw_scene_actions,
-            scene_actions::NewSceneWindow::show,
-            process_temporary_windows,
-            remove_temporary_windows,
-        ),
-    );
-    windows::object::add_ui_systems(app);
-    windows::scene::add_ui_systems(app);
 }
 
 trait AsPos2 {

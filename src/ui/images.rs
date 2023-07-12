@@ -92,6 +92,7 @@ icon_set!(
         mirror,
         new,
         open,
+        options,
         pause,
         play,
         plot,

@@ -7,6 +7,9 @@ use bevy_egui::{egui, EguiContexts};
 use bevy_rapier2d::dynamics::{ReadMassProperties, Velocity};
 use bevy_rapier2d::geometry::ColliderMassProperties;
 use bevy_rapier2d::plugin::RapierConfiguration;
+use crate::systems;
+
+systems!(InformationWindow::show);
 
 #[derive(Default, Component)]
 pub struct InformationWindow;

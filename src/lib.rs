@@ -8,6 +8,7 @@ use bevy_egui::{
     egui::{self},
     EguiContexts, EguiPlugin,
 };
+use bevy_egui::egui::style::Widgets;
 use bevy_mouse_tracking_plugin::{prelude::*, MainCamera};
 use bevy_prototype_lyon::prelude::*;
 use bevy_rapier2d::prelude::*;
@@ -203,8 +204,8 @@ pub fn app_main() {
                 .chain(),
         )
         .add_systems(Update, update_from_palette);
-    ui::add_ui_systems(&mut app);
-    measures::add_measure_systems(&mut app);
+    ui::add_systems(&mut app);
+    measures::add_systems(&mut app);
     app.add_systems(
         Update,
         (
@@ -451,6 +452,13 @@ fn configure_visuals(mut egui_ctx: EguiContexts) {
             extrusion: 10.0,
             color: Color32::from_black_alpha(96),
         },
+        window_fill: Color32::from_rgb(134, 140, 147),
+        panel_fill: Color32::from_rgb(134, 140, 147),
+        override_text_color: Some(Color32::from_rgb(249, 249, 249)),
+        widgets: Widgets {
+
+            ..Default::default()
+        },
         ..Default::default()
     });
     let mut style: egui::Style = (*ctx.style()).clone();
@@ -462,4 +470,26 @@ fn update_from_palette(palette: Res<PaletteConfig>, mut clear_color: ResMut<Clea
     if palette.is_changed() {
         clear_color.0 = palette.current_palette.sky_color;
     }
+}
+
+#[macro_export]
+macro_rules! systems {
+    (@ [$($($p:path),+$(,)*)?] [$($f:ident),*$(,)*] $(,)?) => {
+        $(pub mod $f;)*
+
+        pub fn add_systems(app: &mut bevy::prelude::App) {
+            $($f::add_systems(app);)*
+
+            $(app.add_systems(bevy::prelude::Update, ($($p),*));)?
+        }
+    };
+    (@ [$($p:tt)*] [$($f:tt)*] mod $system:ident $(, $($x:tt)*)?) => {
+        systems!(@ [$($p)*] [$system, $($f)*] $($($x)*)?);
+    };
+    (@ [$($p:tt)*] [$($f:tt)*] $first:ident $(:: $next:ident)* $(, $($x:tt)*)?) => {
+        systems!(@ [$first $(:: $next)*, $($p)*] [$($f)*] $($($x)*)?);
+    };
+    ($($x:tt)*) => {
+        systems!(@ [] [] $($x)*);
+    };
 }

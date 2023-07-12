@@ -3,6 +3,9 @@ use crate::objects::SizeComponent;
 use crate::ui::{BevyIdThing, InitialPos, Subwindow};
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts};
+use crate::systems;
+
+systems!(LaserWindow::show);
 
 #[derive(Default, Component)]
 pub struct LaserWindow;

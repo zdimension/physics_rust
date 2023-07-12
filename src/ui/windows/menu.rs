@@ -2,7 +2,7 @@ use crate::objects::laser::LaserBundle;
 use crate::objects::{ColorComponent, MotorComponent};
 use crate::ui::images::GuiIcons;
 use crate::ui::{InitialPos, Subwindow, TemporaryWindow};
-use crate::Despawn;
+use crate::{Despawn, systems};
 use bevy::hierarchy::{BuildChildren, Parent};
 use bevy::prelude::*;
 use bevy_egui::egui::{pos2, Separator};
@@ -28,6 +28,8 @@ use crate::ui::windows::scene::background::BackgroundWindow;
 
 use crate::ui::menu_item::MenuItem;
 use crate::ui::windows::object::hinge::HingeWindow;
+
+systems!(MenuWindow::show);
 
 #[derive(Default, Component)]
 pub struct MenuWindow {

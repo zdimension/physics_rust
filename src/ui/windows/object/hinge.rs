@@ -2,6 +2,9 @@ use crate::objects::MotorComponent;
 use crate::ui::{BevyIdThing, InitialPos, Subwindow};
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts};
+use crate::systems;
+
+systems!(HingeWindow::show);
 
 #[derive(Default, Component)]
 pub struct HingeWindow;

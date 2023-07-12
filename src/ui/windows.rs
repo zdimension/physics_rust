@@ -1,6 +1,14 @@
-pub mod menu;
-pub mod object;
-pub mod scene;
-pub mod scene_actions;
-pub mod toolbar;
-pub mod toolbox;
+use bevy::prelude::*;
+
+use crate::systems;
+
+systems! {
+    mod menu,
+    mod object,
+    mod scene,
+    mod scene_actions,
+    mod toolbar,
+    mod toolbox,
+    mod menubar,
+    mod options,
+}

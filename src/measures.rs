@@ -1,16 +1,12 @@
 use bevy::prelude::*;
 use bevy_rapier2d::prelude::*;
+use crate::systems;
 
-pub fn add_measure_systems(app: &mut App) {
-    app.add_systems(
-        Update,
-        (
-            KineticEnergy::compute,
-            GravityEnergy::compute,
-            Momentum::compute,
-            Forces::compute,
-        ),
-    );
+systems! {
+    KineticEnergy::compute,
+    GravityEnergy::compute,
+    Momentum::compute,
+    Forces::compute,
 }
 
 #[derive(Component)]

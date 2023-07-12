@@ -3,7 +3,7 @@ use std::collections::btree_set::BTreeSet;
 
 use crate::Despawn;
 use bevy::log::info;
-use bevy::math::Vec2;
+use bevy::math::{Vec2, Vec2Swizzles};
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 use bevy_egui::egui::epaint::util::{FloatOrd, OrderedFloat};
@@ -24,13 +24,7 @@ pub fn process_select(
     mut commands: Commands,
     mut menu_event: EventWriter<ContextMenuEvent>,
     screen_pos: Res<MousePos>,
-    windows: Query<&Window, With<PrimaryWindow>>,
 ) {
-    let screen_pos = Vec2::new(
-        screen_pos.x,
-        windows.get_single().unwrap().height() - screen_pos.y,
-    );
-
     for SelectEvent { entity, open_menu } in events.iter() {
         if let Some(entity) = entity {
             info!("Selecting entity: {:?}", entity);
@@ -41,7 +35,7 @@ pub fn process_select(
 
         state.selected_entity = entity.map(|entity| EntitySelection { entity });
         if *open_menu {
-            menu_event.send(ContextMenuEvent { screen_pos });
+            menu_event.send(ContextMenuEvent { screen_pos: screen_pos.xy() });
         }
     }
 }
