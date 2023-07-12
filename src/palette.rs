@@ -47,8 +47,8 @@ pub struct HsvaRange(
 );
 
 fn deserialize_hsva<'a, D>(deserializer: D) -> Result<Hsva, D::Error>
-    where
-        D: serde::Deserializer<'a>,
+where
+    D: serde::Deserializer<'a>,
 {
     use serde::de::Error;
     let (h, s, v, a) = <(f32, f32, f32, f32)>::deserialize(deserializer)?;
@@ -60,8 +60,8 @@ fn deserialize_hsva<'a, D>(deserializer: D) -> Result<Hsva, D::Error>
 }
 
 fn deserialize_rgba<'a, D>(deserializer: D) -> Result<Color, D::Error>
-    where
-        D: serde::Deserializer<'a>,
+where
+    D: serde::Deserializer<'a>,
 {
     use serde::de::Error;
     let (r, g, b, a) = <(f32, f32, f32, f32)>::deserialize(deserializer)?;

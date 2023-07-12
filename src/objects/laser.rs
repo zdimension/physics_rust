@@ -10,8 +10,8 @@ use bevy_prototype_lyon::shapes;
 use bevy_rapier2d::prelude::{QueryFilter, RapierContext, RayIntersection};
 use num_traits::float::FloatConst;
 
-use crate::objects::ColorComponent;
 use crate::objects::phy_obj::RefractiveIndex;
+use crate::objects::ColorComponent;
 
 #[derive(Component)]
 pub struct LaserBundle {
@@ -142,14 +142,14 @@ impl<'a, ObjInfo: Fn(Entity) -> ObjectInfo> LaserCompute<'a, ObjInfo> {
         );
 
         if let Some((
-                        ent,
-                        RayIntersection {
-                            toi,
-                            point,
-                            normal,
-                            feature: _,
-                        },
-                    )) = intersection
+            ent,
+            RayIntersection {
+                toi,
+                point,
+                normal,
+                feature: _,
+            },
+        )) = intersection
         {
             ray.length = toi;
 
@@ -335,7 +335,7 @@ pub fn draw_lasers(
             false
         });
         let start_index = match object_other {
-            Some(ent) => refr.get(ent).unwrap().0.0,
+            Some(ent) => refr.get(ent).unwrap().0 .0,
             None => 1.0,
         };
 
@@ -389,13 +389,20 @@ pub fn draw_lasers(
                 ],
                 closed: true,
             };
-            commands.spawn((ShapeBundle {
-                path: GeometryBuilder::build_as(&poly),
-                transform: Transform::from_translation(Vec3::new(0.0, 0.0, transform.translation.z - 0.1)),
-                ..Default::default()
-            },
-                           crate::make_fill(crate::hsva_to_rgba(ray.color_blended()))
-            )).set_parent(rays);
+            commands
+                .spawn((
+                    ShapeBundle {
+                        path: GeometryBuilder::build_as(&poly),
+                        transform: Transform::from_translation(Vec3::new(
+                            0.0,
+                            0.0,
+                            transform.translation.z - 0.1,
+                        )),
+                        ..Default::default()
+                    },
+                    crate::make_fill(crate::hsva_to_rgba(ray.color_blended())),
+                ))
+                .set_parent(rays);
         }
 
         rays_obj.debug = debug;

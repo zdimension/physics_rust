@@ -1,4 +1,3 @@
-use bevy::prelude::{App, Update};
 use crate::ui::windows::menu::MenuWindow;
 use crate::ui::windows::object::appearance::AppearanceWindow;
 use crate::ui::windows::object::collisions::CollisionsWindow;
@@ -8,6 +7,7 @@ use crate::ui::windows::object::information::InformationWindow;
 use crate::ui::windows::object::laser::LaserWindow;
 use crate::ui::windows::object::material::MaterialWindow;
 use crate::ui::windows::object::plot::PlotWindow;
+use bevy::prelude::{App, Update};
 
 pub mod appearance;
 pub mod collisions;
@@ -24,9 +24,11 @@ pub mod selection;
 pub mod text;
 pub mod velocities;
 
-
 pub fn add_ui_systems(app: &mut App) {
-    app.add_systems(Update, (MenuWindow::show,
+    app.add_systems(
+        Update,
+        (
+            MenuWindow::show,
             InformationWindow::show,
             PlotWindow::show,
             CollisionsWindow::show,
@@ -34,5 +36,7 @@ pub fn add_ui_systems(app: &mut App) {
             MaterialWindow::show,
             AppearanceWindow::show,
             HingeWindow::show,
-    GeometryActionsWindow::show));
+            GeometryActionsWindow::show,
+        ),
+    );
 }

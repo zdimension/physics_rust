@@ -12,9 +12,9 @@ use bevy_rapier2d::geometry::{
 };
 use bevy_rapier2d::prelude::Sleeping;
 
-use crate::{BORDER_THICKNESS, FillStroke};
 use crate::objects::ColorComponent;
 use crate::update_from::UpdateFrom;
+use crate::{FillStroke, BORDER_THICKNESS};
 
 #[derive(Bundle)]
 pub struct PhysicalObject {
@@ -31,7 +31,7 @@ pub struct PhysicalObject {
     color: ColorComponent,
     color_upd: UpdateFrom<ColorComponent>,
     fill_stroke: FillStroke,
-    sleeping: Sleeping
+    sleeping: Sleeping,
 }
 
 impl PhysicalObject {
@@ -50,7 +50,7 @@ impl PhysicalObject {
             color: ColorComponent(Hsva::new(0.0, 1.0, 1.0, 1.0)),
             color_upd: UpdateFrom::This,
             fill_stroke: FillStroke::default(),
-            sleeping: Sleeping::disabled() // todo: better
+            sleeping: Sleeping::disabled(), // todo: better
         }
     }
 
@@ -59,12 +59,10 @@ impl PhysicalObject {
         Self::make(
             Collider::ball(radius),
             ShapeBundle {
-                path: GeometryBuilder::build_as(
-                    &shapes::Circle {
-                        radius,
-                        ..Default::default()
-                    },
-                ),
+                path: GeometryBuilder::build_as(&shapes::Circle {
+                    radius,
+                    ..Default::default()
+                }),
                 transform: Transform::from_translation(pos),
                 ..Default::default()
             },
@@ -83,11 +81,10 @@ impl PhysicalObject {
         Self::make(
             Collider::cuboid(size.x / 2.0, size.y / 2.0),
             ShapeBundle {
-                path: GeometryBuilder::build_as(
-                    &shapes::Rectangle {
-                        extents: size,
-                        origin: RectangleOrigin::Center,
-                    }),
+                path: GeometryBuilder::build_as(&shapes::Rectangle {
+                    extents: size,
+                    origin: RectangleOrigin::Center,
+                }),
                 transform: Transform::from_translation(pos + (size / 2.0).extend(0.0)),
                 ..Default::default()
             },
@@ -98,12 +95,10 @@ impl PhysicalObject {
         Self::make(
             Collider::convex_hull(&points).unwrap(),
             ShapeBundle {
-                path: GeometryBuilder::build_as(
-                    &shapes::Polygon {
-                        points,
-                        closed: true,
-                    },
-                ),
+                path: GeometryBuilder::build_as(&shapes::Polygon {
+                    points,
+                    closed: true,
+                }),
                 transform: Transform::from_translation(pos),
                 ..Default::default()
             },

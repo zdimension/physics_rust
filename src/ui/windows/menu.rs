@@ -2,13 +2,13 @@ use crate::objects::laser::LaserBundle;
 use crate::objects::{ColorComponent, MotorComponent};
 use crate::ui::images::GuiIcons;
 use crate::ui::{InitialPos, Subwindow, TemporaryWindow};
+use crate::Despawn;
 use bevy::hierarchy::{BuildChildren, Parent};
 use bevy::prelude::*;
 use bevy_egui::egui::{pos2, Separator};
 use bevy_egui::{egui, EguiContexts};
 use bevy_rapier2d::prelude::{CollisionGroups, RigidBody, Velocity};
 use std::time::Duration;
-use crate::Despawn;
 
 use crate::ui::windows::object::appearance::AppearanceWindow;
 use crate::ui::windows::object::collisions::CollisionsWindow;
@@ -49,7 +49,7 @@ impl MenuWindow {
             Option<&CollisionGroups>,
             Option<&LaserBundle>,
             Option<&RigidBody>,
-            Option<&MotorComponent>
+            Option<&MotorComponent>,
         )>,
     ) {
         let ctx = egui_ctx.ctx_mut();

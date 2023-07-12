@@ -1,5 +1,5 @@
-use bevy::prelude::{App, Update};
 use crate::ui::windows::scene::background::BackgroundWindow;
+use bevy::prelude::{App, Update};
 
 pub mod background;
 

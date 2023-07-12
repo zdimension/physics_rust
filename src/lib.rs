@@ -3,9 +3,12 @@ use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use bevy::render::view::RenderLayers;
 use bevy_diagnostic::FrameTimeDiagnosticsPlugin;
-use bevy_egui::{egui::{self}, EguiContexts, EguiPlugin};
 use bevy_egui::egui::epaint::Hsva;
-use bevy_mouse_tracking_plugin::{MainCamera, prelude::*};
+use bevy_egui::{
+    egui::{self},
+    EguiContexts, EguiPlugin,
+};
+use bevy_mouse_tracking_plugin::{prelude::*, MainCamera};
 use bevy_prototype_lyon::prelude::*;
 use bevy_rapier2d::prelude::*;
 //use bevy_prototype_lyon::prelude::{DrawMode, FillMode, ShapePlugin};
@@ -13,17 +16,17 @@ use bevy_turborand::prelude::*;
 pub use egui::egui_assert;
 
 use mouse::{button, wheel};
-use objects::{ColorComponent, laser, SettingComponent};
 use objects::hinge::HingeObject;
 use objects::laser::LaserRays;
+use objects::{laser, ColorComponent, SettingComponent};
 use palette::{PaletteConfig, PaletteList, PaletteLoader};
-use tools::{add_object, pan, r#move, rotate};
 use tools::add_object::AddObjectEvent;
 use tools::pan::PanEvent;
 use tools::rotate::RotateEvent;
-use ui::{ContextMenuEvent, cursor, EntitySelection, selection_overlay, UiState};
+use tools::{add_object, pan, r#move, rotate};
 use ui::cursor::ToolCursor;
 use ui::selection_overlay::OverlayState;
+use ui::{cursor, selection_overlay, ContextMenuEvent, EntitySelection, UiState};
 use update_from::UpdateFrom;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
@@ -58,10 +61,7 @@ struct CollideHooks<'w, 's> {
 type CollideHookData<'a> = (&'a HingeObject, &'a MultibodyJoint);
 
 impl<'w, 's> BevyPhysicsHooks for CollideHooks<'w, 's> {
-    fn filter_contact_pair(
-        &self,
-        context: PairFilterContextView,
-    ) -> Option<SolverFlags> {
+    fn filter_contact_pair(&self, context: PairFilterContextView) -> Option<SolverFlags> {
         fn check_hinge_contains(
             query: &Query<CollideHookData<'_>>,
             first: Entity,
@@ -151,8 +151,7 @@ impl ToRot for Quat {
 
 pub fn app_main() {
     let mut app = App::new();
-    app
-        .insert_resource(ClearColor(Color::rgb(0.0, 0.0, 0.0)))
+    app.insert_resource(ClearColor(Color::rgb(0.0, 0.0, 0.0)))
         .insert_resource(Msaa::Sample4)
         .add_plugins(DefaultPlugins)
         .add_plugins(EguiPlugin)
@@ -170,9 +169,8 @@ pub fn app_main() {
             ..Default::default()
         })
         .insert_resource(OverlayState::default())
-        .add_plugins(RapierPhysicsPlugin::<CollideHooks>::pixels_per_meter(
-            1.0,
-        ))
+        .insert_resource(cursor::EguiWantsFocus::default())
+        .add_plugins(RapierPhysicsPlugin::<CollideHooks>::pixels_per_meter(1.0))
         .add_plugins(RapierDebugRenderPlugin {
             style: DebugRenderStyle {
                 rigid_body_axes_length: 1.0,
@@ -194,46 +192,55 @@ pub fn app_main() {
         .add_event::<SelectEvent>()
         .add_event::<ContextMenuEvent>()
         .add_event::<RemoveTemporaryWindowsEvent>()
-        .add_systems(Startup, (
-            configure_visuals,
-            setup_graphics,
-            setup_physics,
-            setup_rng
-        ).chain())
+        .add_systems(
+            Startup,
+            (configure_visuals, setup_graphics, setup_physics, setup_rng).chain(),
+        )
         .add_systems(Update, update_from_palette);
     ui::add_ui_systems(&mut app);
     measures::add_measure_systems(&mut app);
-    app
-        .add_systems(Update,
-            (
-                wheel::mouse_wheel,
-                button::left_pressed,
-                button::left_release,
-                add_object::process_add_object,
-                mouse::r#move::mouse_long_or_moved,
-                mouse::r#move::mouse_long_or_moved_writeback,
-            ).chain()
+    app.add_systems(
+        Update,
+        (
+            wheel::mouse_wheel,
+            button::left_pressed,
+            button::left_release,
+            add_object::process_add_object,
+            mouse::r#move::mouse_long_or_moved,
+            mouse::r#move::mouse_long_or_moved_writeback,
         )
-        .add_systems(Update, (pan::process_pan,
-        r#move::process_move,
-        process_unfreeze_entity,
-        rotate::process_rotate))
-        .add_system(selection_overlay::process_draw_overlay.after(button::left_release))
-        .add_system(mouse::select::process_select_under_mouse.before(mouse::select::process_select))
-        .add_system(
-            mouse::select::process_select
-                .before(ui::handle_context_menu)
-                .after(button::left_release),
-        )
-        .add_system(
-            ui::handle_context_menu
-                .after(mouse::select::process_select_under_mouse)
-                .after(mouse::select::process_select),
-        )
-        .add_system(cursor::show_current_tool_icon.after(wheel::mouse_wheel))
-        .add_system(update_draw_modes)
-        .add_system(laser::draw_lasers)
-        .add_systems(PostUpdate, despawn_entities);
+            .chain(),
+    )
+    .add_systems(
+        Update,
+        (
+            pan::process_pan,
+            r#move::process_move,
+            process_unfreeze_entity,
+            rotate::process_rotate,
+        ),
+    )
+    .add_system(selection_overlay::process_draw_overlay.after(button::left_release))
+    .add_system(mouse::select::process_select_under_mouse.before(mouse::select::process_select))
+    .add_system(
+        mouse::select::process_select
+            .before(ui::handle_context_menu)
+            .after(button::left_release),
+    )
+    .add_system(
+        ui::handle_context_menu
+            .after(mouse::select::process_select_under_mouse)
+            .after(mouse::select::process_select),
+    )
+    .add_system(cursor::check_egui_wants_focus)
+    .add_system(
+        cursor::show_current_tool_icon
+            .after(wheel::mouse_wheel)
+            .after(cursor::check_egui_wants_focus),
+    )
+    .add_system(update_draw_modes)
+    .add_system(laser::draw_lasers)
+    .add_systems(PostUpdate, despawn_entities);
     objects::add_update_systems(&mut app);
     app.run();
 }
@@ -243,7 +250,7 @@ pub fn app_main() {
 pub struct AfterUpdate;
 
 fn setup_rng(mut commands: Commands, mut global_rng: ResMut<GlobalRng>) {
-    commands.spawn((RngComponent::from(&mut global_rng), ));
+    commands.spawn((RngComponent::from(&mut global_rng),));
 }
 
 #[derive(Component)]
@@ -280,7 +287,6 @@ impl DrawModeExt for DrawMode {
 }
 */
 
-
 #[derive(Component)]
 pub enum Despawn {
     Single,
@@ -288,10 +294,7 @@ pub enum Despawn {
     Descendants,
 }
 
-fn despawn_entities(
-    entities: Query<(Entity, &Despawn)>,
-    mut commands: Commands,
-) {
+fn despawn_entities(entities: Query<(Entity, &Despawn)>, mut commands: Commands) {
     for (entity, despawn) in entities.iter() {
         match despawn {
             Despawn::Single => {
@@ -309,12 +312,20 @@ fn despawn_entities(
 }
 
 fn update_draw_modes(
-    mut draws: Query<(Entity, Option<&mut Fill>, &mut Stroke, &UpdateFrom<ColorComponent>, Option<&SpriteOnly>)>,
+    mut draws: Query<(
+        Entity,
+        Option<&mut Fill>,
+        &mut Stroke,
+        &UpdateFrom<ColorComponent>,
+        Option<&SpriteOnly>,
+    )>,
     parents: Query<(Option<&Parent>, Option<Ref<ColorComponent>>)>,
     ui_state: Res<UiState>,
 ) {
     for (entity, mut fill, mut stroke, update_source, sprite_only) in draws.iter_mut() {
-        let (entity, color) = update_source.find_component(entity, &parents).expect("no color component found");
+        let (entity, color) = update_source
+            .find_component(entity, &parents)
+            .expect("no color component found");
 
         /*draw = match *draw {
             DrawMode::Outlined { .. } | DrawMode::Fill(_) => DrawMode::Outlined {
@@ -409,24 +420,24 @@ fn setup_graphics(mut commands: Commands) {
             info!("Added main camera with {id:?}");
         });
     /*commands
-        .spawn((
-            {
-                let mut bundle =  OrthographicCameraBundle {
-                    camera_2d: Camera2d {
-                        clear_color: ClearColorConfig::None,
-                        ..default()
-                    },
-                    camera: Camera {
-                        order: 1,
-                        ..default()
-                    },
+    .spawn((
+        {
+            let mut bundle =  OrthographicCameraBundle {
+                camera_2d: Camera2d {
+                    clear_color: ClearColorConfig::None,
                     ..default()
-                };
-                bundle.projection.
-                bundle
-            },
-                UiCamera,
-                RenderLayers::layer(1)));*/
+                },
+                camera: Camera {
+                    order: 1,
+                    ..default()
+                },
+                ..default()
+            };
+            bundle.projection.
+            bundle
+        },
+            UiCamera,
+            RenderLayers::layer(1)));*/
 
     let mut cursor_bundle = ImageBundle::default();
     cursor_bundle.style.position_type = PositionType::Absolute;
@@ -470,7 +481,8 @@ impl Default for FillStroke {
             },
             stroke: Stroke {
                 color: Color::rgba(0.0, 0.0, 0.0, 0.0),
-                options: StrokeOptions::default().with_tolerance(STROKE_TOLERANCE)
+                options: StrokeOptions::default()
+                    .with_tolerance(STROKE_TOLERANCE)
                     .with_line_width(BORDER_THICKNESS),
             },
         }

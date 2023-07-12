@@ -2,22 +2,22 @@ use bevy::input::Input;
 use bevy::log::info;
 use bevy::prelude::{Commands, EventWriter, MouseButton, Query, Res, ResMut, Time, Transform};
 use bevy::utils::Duration;
-use bevy_egui::{EguiContexts};
+use bevy_egui::EguiContexts;
 use bevy_mouse_tracking_plugin::{MousePos, MousePosWorld};
 
 use pan::PanState;
 
-use crate::Despawn;
 use crate::mouse::r#move::MouseLongOrMoved;
 use crate::mouse::select::SelectUnderMouseEvent;
-use crate::tools::pan;
 use crate::tools::add_object::{AddHingeEvent, AddObjectEvent};
+use crate::tools::pan;
 use crate::tools::pan::PanEvent;
 use crate::tools::r#move::MoveEvent;
 use crate::tools::rotate::RotateEvent;
-use crate::ToRot;
-use crate::ui::{EntitySelection, UiState};
 use crate::ui::selection_overlay::{Overlay, OverlayState};
+use crate::ui::{EntitySelection, UiState};
+use crate::Despawn;
+use crate::ToRot;
 use crate::UnfreezeEntityEvent;
 use crate::UsedMouseButton;
 
@@ -46,7 +46,7 @@ pub fn left_release(
             SelectUnderMouseEvent {
                 pos,
                 open_menu: false,
-            }
+            },
         ),
         (
             UsedMouseButton::Right,
@@ -55,8 +55,8 @@ pub fn left_release(
             SelectUnderMouseEvent {
                 pos,
                 open_menu: true,
-            }
-        )
+            },
+        ),
     ] {
         'thing: {
             let pressed = mouse_button_input.pressed(button.into());
@@ -81,7 +81,9 @@ pub fn left_release(
                     commands.entity(ent).insert(Despawn::Single);
                 }
                 Rotate(Some(state)) => {
-                    commands.entity(state.overlay_ent).insert(Despawn::Recursive);
+                    commands
+                        .entity(state.overlay_ent)
+                        .insert(Despawn::Recursive);
                 }
                 _ => {}
             }
@@ -127,7 +129,7 @@ pub fn left_release(
                 _ => {
                     info!("selecting under mouse");
                     select_mouse.send(sel_ev);
-                },
+                }
             }
         }
     }
@@ -174,14 +176,14 @@ pub fn left_pressed(
             UsedMouseButton::Left,
             left_tool_if_right,
             &mut ui_state.mouse_left_pos,
-            &mut ui_state.mouse_left
+            &mut ui_state.mouse_left,
         ),
         (
             UsedMouseButton::Right,
             right_tool_if_left,
             &mut ui_state.mouse_right_pos,
-            &mut ui_state.mouse_right
-        )
+            &mut ui_state.mouse_right,
+        ),
     ] {
         'thing: {
             let pressed = mouse_button_input.pressed(button.into());
@@ -221,7 +223,12 @@ pub fn left_pressed(
                             *overlay = OverlayState {
                                 draw_ent: Some((
                                     state.overlay_ent,
-                                    Overlay::Rotate(xf.rotation.to_rot(), state.scale, state.orig_obj_rot.to_rot(), click_pos),
+                                    Overlay::Rotate(
+                                        xf.rotation.to_rot(),
+                                        state.scale,
+                                        state.orig_obj_rot.to_rot(),
+                                        click_pos,
+                                    ),
                                     xf.translation.xy(),
                                 )),
                             };

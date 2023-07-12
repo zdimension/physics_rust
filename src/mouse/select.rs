@@ -1,16 +1,16 @@
-use std::collections::btree_set::BTreeSet;
 use crate::ui::{ContextMenuEvent, EntitySelection, TemporaryWindow, UiState};
+use std::collections::btree_set::BTreeSet;
 
+use crate::Despawn;
 use bevy::log::info;
 use bevy::math::Vec2;
 use bevy::prelude::*;
+use bevy::window::PrimaryWindow;
 use bevy_egui::egui::epaint::util::{FloatOrd, OrderedFloat};
 use bevy_mouse_tracking_plugin::MousePos;
 use bevy_rapier2d::pipeline::QueryFilter;
 use bevy_rapier2d::plugin::RapierContext;
 use derivative::Derivative;
-use bevy::window::PrimaryWindow;
-use crate::Despawn;
 
 #[derive(Event)]
 pub struct SelectEvent {

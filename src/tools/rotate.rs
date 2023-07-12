@@ -1,6 +1,6 @@
+use crate::ToRot;
 use bevy::math::{Quat, Vec2, Vec3Swizzles};
 use bevy::prelude::{Entity, Event, EventReader, Query, Transform};
-use crate::ToRot;
 
 #[derive(Copy, Clone, Event)]
 pub struct RotateEvent {
@@ -8,7 +8,7 @@ pub struct RotateEvent {
     pub orig_obj_rot: Quat,
     pub click_pos: Vec2,
     pub mouse_pos: Vec2,
-    pub scale: f32
+    pub scale: f32,
 }
 
 pub fn process_rotate(mut events: EventReader<RotateEvent>, mut query: Query<&mut Transform>) {
@@ -17,7 +17,7 @@ pub fn process_rotate(mut events: EventReader<RotateEvent>, mut query: Query<&mu
         orig_obj_rot,
         click_pos,
         mouse_pos,
-        scale
+        scale,
     } in events.iter().copied()
     {
         let Ok(mut transform) = query.get_mut(entity) else { continue };

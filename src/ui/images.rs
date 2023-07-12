@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 use bevy_egui::egui::TextureId;
-use bevy_egui::{EguiUserTextures};
+use bevy_egui::EguiUserTextures;
 
 pub struct LoadedImage {
     bevy: Handle<Image>,

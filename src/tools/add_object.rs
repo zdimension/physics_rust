@@ -6,8 +6,9 @@ use crate::objects::phy_obj::PhysicalObject;
 use crate::objects::{ColorComponent, MotorComponent, SettingComponent, SizeComponent, SpriteOnly};
 use crate::palette::PaletteConfig;
 use crate::ui::images::AppIcons;
+use crate::ui::UiState;
 use crate::update_from::UpdateFrom;
-use crate::{BORDER_THICKNESS};
+use crate::BORDER_THICKNESS;
 use bevy::hierarchy::BuildChildren;
 use bevy::log::info;
 use bevy::math::{Vec2, Vec3, Vec3Swizzles};
@@ -29,7 +30,6 @@ use bevy_rapier2d::pipeline::QueryFilter;
 use bevy_rapier2d::plugin::RapierContext;
 use bevy_turborand::RngComponent;
 use AddObjectEvent::*;
-use crate::ui::UiState;
 
 #[derive(Debug, Event)]
 pub enum AddHingeEvent {
@@ -61,7 +61,7 @@ pub fn process_add_object(
     mut rng: Query<&mut RngComponent>,
     mut select_mouse: EventWriter<SelectUnderMouseEvent>,
     sensor: Query<&Sensor>,
-    ui_state: Res<UiState>
+    ui_state: Res<UiState>,
 ) {
     let palette = &palette_config.current_palette;
 
@@ -89,7 +89,8 @@ pub fn process_add_object(
             }
             Polygon { pos, ref points } => {
                 commands
-                    .spawn(PhysicalObject::poly(points.clone(), z.pos(pos))).set_parent(ui_state.scene)
+                    .spawn(PhysicalObject::poly(points.clone(), z.pos(pos)))
+                    .set_parent(ui_state.scene)
                     .insert(
                         ColorComponent(palette.get_color_hsva(&mut *rng.single_mut()))
                             .update_from_this(),
@@ -190,7 +191,7 @@ pub fn process_add_object(
                             .transform_point3(pos.extend(0.0))
                             .xy();
                         (entity1, anchor1, transform.translation.z, entity2, pos)
-                    },
+                    }
                     AddHingeEvent::AddCenter(ent) => {
                         let entity1 = ent;
                         let anchor1 = Vec2::ZERO;
@@ -208,7 +209,8 @@ pub fn process_add_object(
                                 let (transform, _) = query.get(ent).unwrap();
                                 transform.translation.z
                             },
-                        ).next();
+                        )
+                        .next();
                         (entity1, anchor1, transform.translation.z, entity2, pos)
                     }
                 };
@@ -225,27 +227,21 @@ pub fn process_add_object(
                     let hinge_real_ent = commands
                         .spawn((
                             ShapeBundle {
-                                path: GeometryBuilder::build_as(
-                                    &shapes::Circle {
-                                        radius: 0.5 * 1.1, // make selection display a bit bigger
-                                        ..Default::default()
-                                    }),
+                                path: GeometryBuilder::build_as(&shapes::Circle {
+                                    radius: 0.5 * 1.1, // make selection display a bit bigger
+                                    ..Default::default()
+                                }),
                                 transform: Transform::from_translation(hinge_pos)
                                     .with_scale(Vec3::new(scale, scale, 1.0)),
                                 ..Default::default()
                             },
-                            crate::make_stroke(
-                                Color::rgba(0.0, 0.0, 0.0, 0.0),
-                                BORDER_THICKNESS,
-                            ),
+                            crate::make_stroke(Color::rgba(0.0, 0.0, 0.0, 0.0), BORDER_THICKNESS),
                             SpriteOnly,
                             Collider::ball(0.5),
                             Sensor,
-                            ColorComponent(
-                                palette.get_color_hsva_opaque(&mut *rng.single_mut()),
-                            )
+                            ColorComponent(palette.get_color_hsva_opaque(&mut *rng.single_mut()))
                                 .update_from_this(),
-                            MotorComponent::default()
+                            MotorComponent::default(),
                         ))
                         .set_parent(entity1)
                         .with_children(|builder| {
@@ -287,9 +283,8 @@ pub fn process_add_object(
                                         ..Default::default()
                                     });
                                     if let Some(entity2) = entity2 {
-                                        sprite.insert(UpdateFrom::<ColorComponent>::entity(
-                                            entity2,
-                                        ));
+                                        sprite
+                                            .insert(UpdateFrom::<ColorComponent>::entity(entity2));
                                     }
                                 });
                         })
@@ -328,7 +323,8 @@ pub fn process_add_object(
                                         .local_anchor2(pos),
                                 ),
                                 RigidBody::Dynamic,
-                            )).set_parent(ui_state.scene);
+                            ))
+                            .set_parent(ui_state.scene);
                     }
                 }
             }
@@ -364,11 +360,10 @@ pub fn process_add_object(
                     .entity(laser)
                     .insert((
                         ShapeBundle {
-                            path: GeometryBuilder::build_as(
-                                &shapes::Rectangle {
-                                    extents: Vec2::new(1.0, 0.5) * 1.1, // make selection display a bit bigger
-                                    ..Default::default()
-                                }),
+                            path: GeometryBuilder::build_as(&shapes::Rectangle {
+                                extents: Vec2::new(1.0, 0.5) * 1.1, // make selection display a bit bigger
+                                ..Default::default()
+                            }),
                             transform: Transform::from_translation(z.pos(laser_pos)),
                             ..Default::default()
                         },

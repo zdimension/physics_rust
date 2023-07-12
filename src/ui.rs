@@ -4,24 +4,24 @@ use bevy::log::info;
 use bevy::math::{Vec2, Vec3Swizzles};
 use bevy::prelude::*;
 use bevy_diagnostic::{Diagnostics, DiagnosticsStore, FrameTimeDiagnosticsPlugin};
+use bevy_egui::egui::{pos2, Context, Id, InnerResponse, Pos2, Ui};
 use bevy_egui::{egui, EguiContexts};
-use bevy_egui::egui::{Context, Id, InnerResponse, pos2, Pos2, Ui};
 use bevy_mouse_tracking_plugin::{MainCamera, MousePosWorld};
 use bevy_rapier2d::plugin::RapierConfiguration;
 use derivative::Derivative;
 
 use windows::object::plot::PlotWindow;
 
-use crate::{demo, Despawn, UsedMouseButton};
 use crate::objects::laser::LaserRays;
 use crate::palette::{PaletteConfig, PaletteList};
 use crate::tools::ToolEnum;
-use crate::ui::windows::{scene_actions, toolbar, toolbox};
 use crate::ui::windows::object::appearance::AppearanceWindow;
 use crate::ui::windows::object::hinge::HingeWindow;
 use crate::ui::windows::object::laser::LaserWindow;
 use crate::ui::windows::object::material::MaterialWindow;
 use crate::ui::windows::scene::background::BackgroundWindow;
+use crate::ui::windows::{scene_actions, toolbar, toolbox};
+use crate::{demo, Despawn, UsedMouseButton};
 
 use self::windows::menu::MenuWindow;
 use self::windows::object::collisions::CollisionsWindow;
@@ -68,16 +68,15 @@ pub fn ui_example(
 ) {
     if !*is_initialized {
         /*palette_config.current_palette = *assets
-            .get(&palette_config.palettes)
-            .unwrap()
-            .0
-            .get("Optics")
-            .unwrap();*/
+        .get(&palette_config.palettes)
+        .unwrap()
+        .0
+        .get("Optics")
+        .unwrap();*/
 
-        cmds.entity(ui_state.scene)
-            .with_children(|parent| {
-                demo::newton_cradle::init(parent);
-            });
+        cmds.entity(ui_state.scene).with_children(|parent| {
+            demo::newton_cradle::init(parent);
+        });
         *is_initialized = true;
     }
 
@@ -106,21 +105,30 @@ pub fn ui_example(
             ui.monospace(format!("{:#?}", rapier));
         });
         ui.collapsing("FPS", |ui| {
-            ui.monospace(format!("{:.2}", diag.get(FrameTimeDiagnosticsPlugin::FPS).unwrap().value().unwrap_or(f64::NAN)));
+            ui.monospace(format!(
+                "{:.2}",
+                diag.get(FrameTimeDiagnosticsPlugin::FPS)
+                    .unwrap()
+                    .value()
+                    .unwrap_or(f64::NAN)
+            ));
         });
     });
 }
 
 pub fn add_ui_systems(app: &mut App) {
-    app.add_systems(Update, (
-        ui_example,
-        toolbox::draw_toolbox,
-        toolbar::draw_bottom_toolbar,
-        scene_actions::draw_scene_actions,
-        scene_actions::NewSceneWindow::show,
-        process_temporary_windows,
-        remove_temporary_windows
-    ));
+    app.add_systems(
+        Update,
+        (
+            ui_example,
+            toolbox::draw_toolbox,
+            toolbar::draw_bottom_toolbar,
+            scene_actions::draw_scene_actions,
+            scene_actions::NewSceneWindow::show,
+            process_temporary_windows,
+            remove_temporary_windows,
+        ),
+    );
     windows::object::add_ui_systems(app);
     windows::scene::add_ui_systems(app);
 }
@@ -320,10 +328,7 @@ impl FromWorld for UiState {
             mouse_right: None,
             mouse_right_pos: None,
             mouse_button: None,
-            scene: _world.spawn((
-                Scene,
-                SpatialBundle::default()
-            )).id(),
+            scene: _world.spawn((Scene, SpatialBundle::default())).id(),
         }
     }
 }

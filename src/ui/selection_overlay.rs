@@ -1,7 +1,10 @@
 use std::ops::Neg;
 
 use bevy::math::{Quat, Vec2, Vec3Swizzles};
-use bevy::prelude::{BuildChildren, Color, Commands, DespawnRecursiveExt, Entity, Query, Res, ResMut, Resource, Transform, With};
+use bevy::prelude::{
+    BuildChildren, Color, Commands, DespawnRecursiveExt, Entity, Query, Res, ResMut, Resource,
+    Transform, With,
+};
 use bevy_mouse_tracking_plugin::{MainCamera, MousePosWorld};
 use bevy_prototype_lyon::entity::ShapeBundle;
 use bevy_prototype_lyon::geometry::GeometryBuilder;
@@ -13,8 +16,8 @@ use lyon_path::path::Builder;
 use lyon_path::traits::PathBuilder;
 use num_traits::FloatConst;
 
-use crate::FOREGROUND_Z;
 use crate::tools::rotate::ROTATE_HELPER_RADIUS;
+use crate::FOREGROUND_Z;
 
 #[derive(Copy, Clone)]
 pub enum Overlay {
@@ -44,12 +47,12 @@ impl CircleSector {
         }
         let mut xform = Transform2D::default()
             .then_translate(vector(self.center.x, self.center.y))
-            .then_scale(scale, scale)
-            ;
+            .then_scale(scale, scale);
         if total_angle < 0.0 {
             total_angle = -total_angle;
             xform = xform.then_scale(1.0, -1.0);
-        } else {}
+        } else {
+        }
         let mut builder = builder.transformed(xform);
 
         let total2 = total_angle;
@@ -63,7 +66,8 @@ impl CircleSector {
             builder.cubic_bezier_to(
                 point(1.0, CONSTANT_FACTOR2),
                 point(CONSTANT_FACTOR2, 1.0),
-                current);
+                current,
+            );
             total_angle -= f32::FRAC_PI_2();
         }
         if total_angle > f32::FRAC_PI_2() {
@@ -71,7 +75,8 @@ impl CircleSector {
             builder.cubic_bezier_to(
                 point(-CONSTANT_FACTOR2, 1.0),
                 point(-1.0, CONSTANT_FACTOR2),
-                current);
+                current,
+            );
             total_angle -= f32::FRAC_PI_2();
         }
         if total_angle > f32::FRAC_PI_2() {
@@ -79,7 +84,8 @@ impl CircleSector {
             builder.cubic_bezier_to(
                 point(-1.0, -CONSTANT_FACTOR2),
                 point(-CONSTANT_FACTOR2, -1.0),
-                current);
+                current,
+            );
             total_angle -= f32::FRAC_PI_2();
         }
 
@@ -88,9 +94,9 @@ impl CircleSector {
         let k = 4.0 / 3.0 * ((2.0 * q2).sqrt() - q2) / current.to_vector().cross(end);
 
         fn perp<T, U>(v: Vector2D<T, U>) -> Vector2D<T, U>
-            where
-                T: Copy + Neg<Output=T>,
-                U: Copy,
+        where
+            T: Copy + Neg<Output = T>,
+            U: Copy,
         {
             Vector2D::new(-v.y, v.x)
         }
@@ -98,7 +104,8 @@ impl CircleSector {
         builder.cubic_bezier_to(
             current + perp(current.to_vector()) * k,
             end.to_point() - perp(end) * k,
-            end.to_point());
+            end.to_point(),
+        );
 
         builder.close();
 
@@ -137,16 +144,20 @@ pub fn process_draw_overlay(
                 let start = -(click - pos).angle_between(Vec2::X);
                 let end = _rot_value - rot;
                 commands.entity(draw_ent).with_children(|builder| {
-                    builder.spawn((ShapeBundle {
-                        path: Path(CircleSector {
-                            radius: mouse.xy().distance(pos),
-                            center: Vec2::ZERO,
-                            end_angle: end,
-                        }.add_geometry(Builder::new())),
-                        transform: Transform::from_rotation(Quat::from_rotation_z(start)),
-                        ..Default::default()
-                    },
-                                   crate::make_fill(Color::rgba_u8(0xff, 0x40, 0xff, 128))
+                    builder.spawn((
+                        ShapeBundle {
+                            path: Path(
+                                CircleSector {
+                                    radius: mouse.xy().distance(pos),
+                                    center: Vec2::ZERO,
+                                    end_angle: end,
+                                }
+                                .add_geometry(Builder::new()),
+                            ),
+                            transform: Transform::from_rotation(Quat::from_rotation_z(start)),
+                            ..Default::default()
+                        },
+                        crate::make_fill(Color::rgba_u8(0xff, 0x40, 0xff, 128)),
                     ));
                 });
 
@@ -167,7 +178,7 @@ pub fn process_draw_overlay(
                 transform: Transform::from_translation(pos.extend(FOREGROUND_Z)),
                 ..Default::default()
             },
-            crate::make_stroke(color, thickness * camera.scale.x)
+            crate::make_stroke(color, thickness * camera.scale.x),
         ));
     }
 }

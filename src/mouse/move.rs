@@ -8,7 +8,9 @@ use crate::tools::ToolEnum;
 use crate::ui::UiState;
 use crate::UsedMouseButton;
 use bevy::math::Vec2;
-use bevy::prelude::{Commands, Event, EventReader, EventWriter, Query, Res, ResMut, Transform, With, Without};
+use bevy::prelude::{
+    Commands, Event, EventReader, EventWriter, Query, Res, ResMut, Transform, With, Without,
+};
 use bevy_mouse_tracking_plugin::{MainCamera, MousePosWorld};
 use bevy_rapier2d::dynamics::RigidBody;
 use bevy_rapier2d::plugin::RapierContext;

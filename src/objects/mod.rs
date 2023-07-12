@@ -2,13 +2,13 @@ use crate::palette::ToRgba;
 use crate::update_from::UpdateFrom;
 use bevy::hierarchy::Parent;
 use bevy::math::Vec3;
-use bevy::prelude::{App, Component, Entity, info, Query, Ref, Sprite, Transform};
+use bevy::prelude::{info, App, Component, Entity, Query, Ref, Sprite, Transform};
 use bevy_egui::egui::ecolor::Hsva;
-use std::marker::PhantomData;
 use bevy_rapier2d::prelude::ImpulseJoint;
 use bevy_rapier2d::rapier::dynamics::JointAxis;
 use bevy_rapier2d::rapier::prelude::MotorModel;
 use num_traits::FloatConst;
+use std::marker::PhantomData;
 
 pub(crate) mod hinge;
 pub(crate) mod laser;
@@ -33,7 +33,11 @@ pub fn update_sprites_color(
     parents: Query<(Option<&Parent>, Option<Ref<ColorComponent>>)>,
 ) {
     for (entity, mut sprite, update_source) in sprites.iter_mut() {
-        sprite.color = update_source.find_component(entity, &parents).expect("no color found").1.to_rgba();
+        sprite.color = update_source
+            .find_component(entity, &parents)
+            .expect("no color found")
+            .1
+            .to_rgba();
     }
 }
 
@@ -42,7 +46,9 @@ pub fn update_size_scales(
     parents: Query<(Option<&Parent>, Option<Ref<SizeComponent>>)>,
 ) {
     for (entity, mut scale, update_source) in scales.iter_mut() {
-        let (_, size) = update_source.find_component(entity, &parents).expect("size not found");
+        let (_, size) = update_source
+            .find_component(entity, &parents)
+            .expect("size not found");
         scale.scale = Vec3::new(size, size, 1.0);
     }
 }
@@ -52,18 +58,32 @@ pub fn update_motors(
     parents: Query<(Option<&Parent>, Option<Ref<MotorComponent>>)>,
 ) {
     for (entity, mut motor, update_source) in motors.iter_mut() {
-        let (_, motor_component) = update_source.find_component(entity, &parents).expect("motor not found");
+        let (_, motor_component) = update_source
+            .find_component(entity, &parents)
+            .expect("motor not found");
         motor.data.set_motor(
             JointAxis::AngX,
             0.0,
             {
                 let vel = motor_component.vel * f32::PI() / 30.0;
-                if motor_component.reversed { -vel } else { vel }
+                if motor_component.reversed {
+                    -vel
+                } else {
+                    vel
+                }
             },
             0.0,
-            motor_component.torque);
-        motor.data.raw.set_motor_model(JointAxis::AngX.into(), MotorModel::ForceBased);
-        motor.data.raw.motor_axes.set(JointAxis::AngX.into(), motor_component.enabled);
+            motor_component.torque,
+        );
+        motor
+            .data
+            .raw
+            .set_motor_model(JointAxis::AngX.into(), MotorModel::ForceBased);
+        motor
+            .data
+            .raw
+            .motor_axes
+            .set(JointAxis::AngX.into(), motor_component.enabled);
     }
 }
 
@@ -107,7 +127,7 @@ pub struct MotorComponent {
     /// Nm
     pub torque: f32,
     /// Ns
-    pub break_limit: f32
+    pub break_limit: f32,
 }
 
 impl Default for MotorComponent {
@@ -117,7 +137,7 @@ impl Default for MotorComponent {
             reversed: false,
             vel: 15.0,
             torque: 100.0,
-            break_limit: f32::INFINITY
+            break_limit: f32::INFINITY,
         }
     }
 }

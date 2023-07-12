@@ -18,11 +18,14 @@ pub fn init(commands: &mut ChildBuilder) {
             Vec3::new(-1.0 + i as f32 * 0.8, 1.8, z()),
         );
         let ball = PhysicalObject::ball(0.4, Vec3::new(-1.0 + i as f32 * 0.8 + 0.2, 2.0, z()));
-        let stick_id = commands.spawn(stick).insert(ColliderMassProperties::MassProperties(MassProperties {
-            local_center_of_mass: Default::default(),
-            mass: 0.0,
-            principal_inertia: 0.0,
-        })).id();
+        let stick_id = commands
+            .spawn(stick)
+            .insert(ColliderMassProperties::MassProperties(MassProperties {
+                local_center_of_mass: Default::default(),
+                mass: 0.0,
+                principal_inertia: 0.0,
+            }))
+            .id();
         commands.spawn(ball).insert((
             HingeObject,
             MultibodyJoint::new(
@@ -47,11 +50,14 @@ pub fn init(commands: &mut ChildBuilder) {
 
     let stick = PhysicalObject::rect(Vec2::new(2.4, 0.4), Vec3::new(-3.8, 3.8, z()));
     let ball = PhysicalObject::ball(0.4, Vec3::new(-3.6, 4.0, z()));
-    let stick_id = commands.spawn(stick).insert(ColliderMassProperties::MassProperties(MassProperties {
-        local_center_of_mass: Default::default(),
-        mass: 0.0,
-        principal_inertia: 0.0,
-    })).id();
+    let stick_id = commands
+        .spawn(stick)
+        .insert(ColliderMassProperties::MassProperties(MassProperties {
+            local_center_of_mass: Default::default(),
+            mass: 0.0,
+            principal_inertia: 0.0,
+        }))
+        .id();
     commands.spawn(ball).insert((
         HingeObject,
         MultibodyJoint::new(

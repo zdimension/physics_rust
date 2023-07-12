@@ -2,12 +2,15 @@ use bevy::prelude::*;
 use bevy_rapier2d::prelude::*;
 
 pub fn add_measure_systems(app: &mut App) {
-    app.add_systems(Update, (
-        KineticEnergy::compute,
-        GravityEnergy::compute,
-        Momentum::compute,
-        Forces::compute,
-    ));
+    app.add_systems(
+        Update,
+        (
+            KineticEnergy::compute,
+            GravityEnergy::compute,
+            Momentum::compute,
+            Forces::compute,
+        ),
+    );
 }
 
 #[derive(Component)]
@@ -18,7 +21,10 @@ pub struct KineticEnergy {
 // todo sometimes it crashes it we delete an entity during a frame because
 // it tries to insert a component on a despawned entity
 impl KineticEnergy {
-    pub(crate) fn compute(bodies: Query<(Entity, &ReadMassProperties, &Velocity)>, mut commands: Commands) {
+    pub(crate) fn compute(
+        bodies: Query<(Entity, &ReadMassProperties, &Velocity)>,
+        mut commands: Commands,
+    ) {
         for (id, ReadMassProperties(mass), vel) in bodies.iter() {
             let linear = mass.mass * vel.linvel.length_squared() / 2.0;
             let angular = mass.principal_inertia * vel.angvel * vel.angvel / 2.0;
@@ -58,7 +64,10 @@ pub struct Momentum {
 }
 
 impl Momentum {
-    pub(crate) fn compute(bodies: Query<(Entity, &ReadMassProperties, &Velocity)>, mut commands: Commands) {
+    pub(crate) fn compute(
+        bodies: Query<(Entity, &ReadMassProperties, &Velocity)>,
+        mut commands: Commands,
+    ) {
         for (id, ReadMassProperties(mass), vel) in bodies.iter() {
             let linear = mass.mass * vel.linvel;
             let angular = mass.principal_inertia * vel.angvel;
