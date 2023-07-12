@@ -3,12 +3,12 @@ use bevy::prelude::*;
 
 use bevy_diagnostic::FrameTimeDiagnosticsPlugin;
 use bevy_egui::egui::epaint::{Hsva, Shadow};
+use bevy_egui::egui::style::Widgets;
 use bevy_egui::egui::Color32;
 use bevy_egui::{
     egui::{self},
     EguiContexts, EguiPlugin,
 };
-use bevy_egui::egui::style::Widgets;
 use bevy_mouse_tracking_plugin::{prelude::*, MainCamera};
 use bevy_prototype_lyon::prelude::*;
 use bevy_rapier2d::prelude::*;
@@ -227,26 +227,35 @@ pub fn app_main() {
             rotate::process_rotate,
         ),
     )
-    .add_system(selection_overlay::process_draw_overlay.after(button::left_release))
-    .add_system(mouse::select::process_select_under_mouse.before(mouse::select::process_select))
-    .add_system(
+    .add_systems(
+        Update,
+        selection_overlay::process_draw_overlay.after(button::left_release),
+    )
+    .add_systems(
+        Update,
+        mouse::select::process_select_under_mouse.before(mouse::select::process_select),
+    )
+    .add_systems(
+        Update,
         mouse::select::process_select
             .before(ui::handle_context_menu)
             .after(button::left_release),
     )
-    .add_system(
+    .add_systems(
+        Update,
         ui::handle_context_menu
             .after(mouse::select::process_select_under_mouse)
             .after(mouse::select::process_select),
     )
-    .add_system(cursor::check_egui_wants_focus)
-    .add_system(
+    .add_systems(Update, cursor::check_egui_wants_focus)
+    .add_systems(
+        Update,
         cursor::show_current_tool_icon
             .after(wheel::mouse_wheel)
             .after(cursor::check_egui_wants_focus),
     )
-    .add_system(update_draw_modes)
-    .add_system(laser::draw_lasers)
+    .add_systems(Update, update_draw_modes)
+    .add_systems(Update, laser::draw_lasers)
     .add_systems(PostUpdate, despawn_entities);
     objects::add_update_systems(&mut app);
     app.run();
@@ -456,7 +465,6 @@ fn configure_visuals(mut egui_ctx: EguiContexts) {
         panel_fill: Color32::from_rgb(134, 140, 147),
         override_text_color: Some(Color32::from_rgb(249, 249, 249)),
         widgets: Widgets {
-
             ..Default::default()
         },
         ..Default::default()
@@ -477,7 +485,7 @@ macro_rules! systems {
     (@ [$($($p:path),+$(,)*)?] [$($f:ident),*$(,)*] $(,)?) => {
         $(pub mod $f;)*
 
-        pub fn add_systems(app: &mut bevy::prelude::App) {
+        pub fn add_systems(#[allow(unused_variables)] app: &mut bevy::prelude::App) {
             $($f::add_systems(app);)*
 
             $(app.add_systems(bevy::prelude::Update, ($($p),*));)?

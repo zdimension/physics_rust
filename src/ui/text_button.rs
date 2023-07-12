@@ -1,6 +1,6 @@
-use bevy::math::Vec2;
-use bevy_egui::egui;
-use bevy_egui::egui::{pos2, vec2, Response, Sense, TextureId, Ui, Widget, WidgetInfo, WidgetType, WidgetText, NumExt, TextStyle};
+use bevy_egui::egui::{
+    pos2, NumExt, Response, Sense, TextStyle, Ui, Widget, WidgetInfo, WidgetText, WidgetType,
+};
 
 pub struct TextButton {
     text: WidgetText,

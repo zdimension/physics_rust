@@ -21,10 +21,7 @@ impl BackgroundWindow {
     ) {
         let ctx = egui_ctx.ctx_mut();
         for (id, mut initial_pos) in wnds.iter_mut() {
-            let [red, green, blue, alpha] = palette.current_palette.sky_color.as_linear_rgba_f32() else {
-                panic!("color: {:?}", palette.current_palette.sky_color);
-                unreachable!("Sky color is not RGBA");
-            };
+            let [red, green, blue, alpha] = palette.current_palette.sky_color.as_linear_rgba_f32();
             let mut color = Hsva::from_rgba_premultiplied(red, green, blue, alpha);
             egui::Window::new("Background")
                 .resizable(false)

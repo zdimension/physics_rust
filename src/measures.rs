@@ -1,6 +1,6 @@
+use crate::systems;
 use bevy::prelude::*;
 use bevy_rapier2d::prelude::*;
-use crate::systems;
 
 systems! {
     KineticEnergy::compute,

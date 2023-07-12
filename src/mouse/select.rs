@@ -5,7 +5,6 @@ use crate::Despawn;
 use bevy::log::info;
 use bevy::math::{Vec2, Vec2Swizzles};
 use bevy::prelude::*;
-use bevy::window::PrimaryWindow;
 use bevy_egui::egui::epaint::util::{FloatOrd, OrderedFloat};
 use bevy_mouse_tracking_plugin::MousePos;
 use bevy_rapier2d::pipeline::QueryFilter;
@@ -35,7 +34,9 @@ pub fn process_select(
 
         state.selected_entity = entity.map(|entity| EntitySelection { entity });
         if *open_menu {
-            menu_event.send(ContextMenuEvent { screen_pos: screen_pos.xy() });
+            menu_event.send(ContextMenuEvent {
+                screen_pos: screen_pos.xy(),
+            });
         }
     }
 }

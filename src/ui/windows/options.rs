@@ -1,16 +1,8 @@
 use crate::palette::{PaletteConfig, PaletteList};
 use crate::{Despawn, systems};
 use bevy::prelude::*;
-use bevy_egui::egui::Align2;
 use bevy_egui::{egui, EguiContexts};
-use crate::ui::menu_item::MenuItem;
-use crate::ui::icon_button::IconButton;
-use crate::ui::images::GuiIcons;
-use crate::ui::{BevyIdThing, InitialPos, RemoveTemporaryWindowsEvent, Subwindow, UiState};
-use crate::ui::separator_custom::SeparatorCustom;
-use crate::ui::text_button::TextButton;
-
-systems!(OptionsWindow::show);
+use crate::ui::{BevyIdThing, InitialPos, Subwindow, UiState};systems!(OptionsWindow::show);
 
 #[derive(Default, Component)]
 pub struct OptionsWindow;

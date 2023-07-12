@@ -13,10 +13,8 @@ use derivative::Derivative;
 use crate::objects::laser::LaserRays;
 use crate::palette::{PaletteConfig, PaletteList};
 use crate::tools::ToolEnum;
-
-use crate::ui::windows::{scene_actions, toolbar, toolbox};
-use crate::{demo, Despawn, systems, UsedMouseButton};
 use crate::ui::windows::menubar::draw_menubar;
+use crate::{demo, systems, Despawn, UsedMouseButton};
 
 use self::windows::menu::MenuWindow;
 

@@ -28,7 +28,11 @@ impl MenuItem {
         }
     }
 
-    pub fn menu(icon: Option<TextureId>, text: impl Into<WidgetText>, icon_right: TextureId) -> Self {
+    pub fn menu(
+        icon: Option<TextureId>,
+        text: impl Into<WidgetText>,
+        icon_right: TextureId,
+    ) -> Self {
         Self {
             icon_right: Some(Self::gen_image(icon_right)),
             ..Self::button(icon, text)

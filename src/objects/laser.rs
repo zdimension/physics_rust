@@ -39,7 +39,6 @@ enum RayKind {
     Laser,
     Reflected,
     Refracted,
-    Diffracted,
 }
 
 impl Debug for LaserRay {
