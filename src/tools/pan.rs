@@ -19,7 +19,7 @@ pub fn process_pan(
     } in events.iter().copied()
     {
         let mut camera = cameras.single_mut();
-        camera.translation = (orig_camera_pos + delta * camera.scale.xy()).extend(CAMERA_Z);
+        camera.translation = (orig_camera_pos + delta * camera.scale.xy() * Vec2::new(1.0, -1.0)).extend(CAMERA_Z);
     }
 }
 

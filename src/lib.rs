@@ -1,5 +1,7 @@
+use bevy::core_pipeline::clear_color::ClearColorConfig;
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
+use bevy::render::view::RenderLayers;
 use bevy_diagnostic::FrameTimeDiagnosticsPlugin;
 use bevy_egui::{egui::{self}, EguiContexts, EguiPlugin};
 use bevy_egui::egui::epaint::Hsva;
@@ -387,6 +389,10 @@ impl AsMode for FillMode {
     }
 }
 */
+
+#[derive(Component)]
+pub struct UiCamera;
+
 fn setup_graphics(mut commands: Commands) {
     info!("Setting up graphics");
     // Add a camera so we can see the debug-render.
@@ -402,8 +408,32 @@ fn setup_graphics(mut commands: Commands) {
         .add(|id: Entity, world: &mut World| {
             info!("Added main camera with {id:?}");
         });
+    /*commands
+        .spawn((
+            {
+                let mut bundle =  OrthographicCameraBundle {
+                    camera_2d: Camera2d {
+                        clear_color: ClearColorConfig::None,
+                        ..default()
+                    },
+                    camera: Camera {
+                        order: 1,
+                        ..default()
+                    },
+                    ..default()
+                };
+                bundle.projection.
+                bundle
+            },
+                UiCamera,
+                RenderLayers::layer(1)));*/
 
-    commands.spawn((ToolCursor, SpriteBundle::default()));
+    let mut cursor_bundle = ImageBundle::default();
+    cursor_bundle.style.position_type = PositionType::Absolute;
+    cursor_bundle.style.width = Val::Px(32.0);
+    cursor_bundle.style.height = Val::Px(32.0);
+    cursor_bundle.style.margin = UiRect::px(12.0, 0.0, 16.0, 0.0);
+    commands.spawn((ToolCursor, cursor_bundle));
 
     commands.spawn((
         LaserRays::default(),
