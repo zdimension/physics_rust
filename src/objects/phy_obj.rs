@@ -1,7 +1,7 @@
 use bevy::math::{Vec2, Vec3};
 use bevy::prelude::*;
 use bevy_egui::egui::ecolor::Hsva;
-use bevy_prototype_lyon::draw::{Fill, Stroke};
+
 use bevy_prototype_lyon::entity::ShapeBundle;
 use bevy_prototype_lyon::geometry::GeometryBuilder;
 use bevy_prototype_lyon::prelude::RectangleOrigin;
@@ -14,7 +14,7 @@ use bevy_rapier2d::prelude::Sleeping;
 
 use crate::objects::ColorComponent;
 use crate::update_from::UpdateFrom;
-use crate::{FillStroke, BORDER_THICKNESS};
+use crate::FillStroke;
 
 #[derive(Bundle)]
 pub struct PhysicalObject {

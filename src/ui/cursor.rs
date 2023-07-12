@@ -1,14 +1,13 @@
 use crate::ui::UiState;
-use crate::{tools::ToolIcons, UsedMouseButton, FOREGROUND_Z};
-use bevy::asset::Handle;
-use bevy::math::{Vec2, Vec2Swizzles, Vec3Swizzles};
+use crate::{tools::ToolIcons, UsedMouseButton};
+
 use bevy::prelude::{
-    info, Component, Deref, DerefMut, DetectChanges, DetectChangesMut, Image, Query, Res, ResMut,
-    Resource, Transform, UiImage, Visibility, With, Without,
+    Component, Deref, DerefMut, DetectChanges, DetectChangesMut, Query, Res, ResMut, Resource,
+    UiImage, Visibility, With,
 };
 use bevy::ui::{Style, Val};
 use bevy_egui::EguiContexts;
-use bevy_mouse_tracking_plugin::{MainCamera, MousePos, MousePosWorld};
+use bevy_mouse_tracking_plugin::MousePos;
 
 #[derive(Component)]
 pub struct ToolCursor;

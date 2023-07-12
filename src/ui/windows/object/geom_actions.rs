@@ -1,4 +1,3 @@
-use crate::objects::MotorComponent;
 use crate::tools::add_object::{AddHingeEvent, AddObjectEvent};
 use crate::ui::images::GuiIcons;
 use crate::ui::{BevyIdThing, InitialPos, Subwindow};

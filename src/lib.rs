@@ -1,14 +1,13 @@
-use bevy::core_pipeline::clear_color::ClearColorConfig;
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
-use bevy::render::view::RenderLayers;
+
 use bevy_diagnostic::FrameTimeDiagnosticsPlugin;
 use bevy_egui::egui::epaint::{Hsva, Shadow};
+use bevy_egui::egui::Color32;
 use bevy_egui::{
     egui::{self},
     EguiContexts, EguiPlugin,
 };
-use bevy_egui::egui::Color32;
 use bevy_mouse_tracking_plugin::{prelude::*, MainCamera};
 use bevy_prototype_lyon::prelude::*;
 use bevy_rapier2d::prelude::*;
@@ -48,6 +47,7 @@ mod palette;
 mod tools;
 mod ui;
 mod update_from;
+//mod grid;
 
 const BORDER_THICKNESS: f32 = 0.03;
 const CAMERA_FAR: f32 = 1e6f32;
@@ -179,9 +179,9 @@ pub fn app_main() {
             },
             ..Default::default()
         })
-        .add_plugin(MousePosPlugin)
-        .add_plugin(ShapePlugin)
-        .add_plugin(FrameTimeDiagnosticsPlugin::default())
+        .add_plugins(MousePosPlugin)
+        .add_plugins(ShapePlugin)
+        .add_plugins(FrameTimeDiagnosticsPlugin::default())
         .add_event::<AddObjectEvent>()
         .add_event::<MouseLongOrMoved>()
         .add_event::<MouseLongOrMovedWriteback>()
@@ -195,7 +195,12 @@ pub fn app_main() {
         .add_event::<RemoveTemporaryWindowsEvent>()
         .add_systems(
             Startup,
-            (configure_visuals, setup_graphics, (setup_physics, setup_rng)).chain(),
+            (
+                configure_visuals,
+                setup_graphics,
+                (setup_physics, setup_rng),
+            )
+                .chain(),
         )
         .add_systems(Update, update_from_palette);
     ui::add_ui_systems(&mut app);
@@ -292,7 +297,7 @@ fn update_draw_modes(
     parents: Query<(Option<&Parent>, Option<Ref<ColorComponent>>)>,
     ui_state: Res<UiState>,
 ) {
-    for (entity, mut fill, mut stroke, update_source, sprite_only) in draws.iter_mut() {
+    for (entity, fill, mut stroke, update_source, sprite_only) in draws.iter_mut() {
         let (entity, color) = update_source
             .find_component(entity, &parents)
             .expect("no color component found");
@@ -342,7 +347,7 @@ fn setup_graphics(mut commands: Commands) {
                 .with_scale(Vec3::new(0.01, 0.01, 1.0)),
         ))
         .add(InitWorldTracking)
-        .add(|id: Entity, world: &mut World| {
+        .add(|id: Entity, _world: &mut World| {
             info!("Added main camera with {id:?}");
         });
 
@@ -407,35 +412,14 @@ fn make_stroke(color: Color, thickness: f32) -> Stroke {
 
 const STROKE_TOLERANCE: f32 = 0.0001;
 
-fn setup_physics(_commands: Commands) {
-    /* Create the ground. */
-    //demo::newton_cradle::init(&mut commands);
-    //demo::lasers::init(&mut commands);
-    /*  commands
-        .spawn(Collider::cuboid(4.0, 0.5))
-        .insert(TransformBundle::from(Transform::from_xyz(0.0, -3.0, 0.0)));
-
-    let circle = PhysicalObject::ball(0.5, Vec2::new(0.0, 3.0));
-    commands.spawn(circle);
-
-    let rect1 = PhysicalObject::rect(Vec2::new(2.0, 0.5), Vec2::new(-1.0, 0.0));
-    let collision_groups = CollisionGroups::new(Group::GROUP_2, Group::GROUP_3);
-    let collision_groups = CollisionGroups::default();
-    let rect1 = commands.spawn((rect1, collision_groups)).id();
-
-    let rect2 = PhysicalObject::rect(Vec2::new(0.5, 2.0), Vec2::new(-0.25, -1.5));
-    let mut rect2 = commands.spawn((rect2, collision_groups));
-
-    rect2.insert((
-        HingeObject,
-        MultibodyJoint::new(
-            rect1,
-            RevoluteJointBuilder::new()
-                .local_anchor1(Vec2::ZERO)
-                .local_anchor2(Vec2::ZERO),
-        ),
-        ActiveHooks::FILTER_CONTACT_PAIRS,
-    ));*/
+fn setup_physics(mut images: ResMut<Assets<Image>>) {
+    for img in images.iter_mut() {
+        print!(
+            "{:?} {:?}\n",
+            img.1.texture_descriptor.label, img.1.texture_descriptor.format
+        );
+        //img.1.texture_descriptor.format = TextureFormat::Rgba8Unorm;
+    }
 }
 
 #[cfg(target_arch = "wasm32")]

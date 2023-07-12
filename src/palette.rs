@@ -5,12 +5,10 @@ use bevy::asset::LoadedAsset;
 use bevy::prelude::*;
 use bevy::reflect::{TypePath, TypeUuid};
 use bevy_egui::egui::epaint::Hsva;
-use bevy_prototype_lyon::prelude::*;
+
 use bevy_turborand::DelegatedRng;
 use serde;
 use serde::Deserialize;
-
-use crate::BORDER_THICKNESS;
 
 #[derive(Debug, Deserialize, Copy, Clone)]
 #[serde(default)]

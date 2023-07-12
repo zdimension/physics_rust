@@ -1,5 +1,4 @@
-use crate::objects::laser::LaserBundle;
-use crate::objects::{MotorComponent, SizeComponent};
+use crate::objects::MotorComponent;
 use crate::ui::{BevyIdThing, InitialPos, Subwindow};
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts};
@@ -10,13 +9,13 @@ pub struct HingeWindow;
 impl HingeWindow {
     pub fn show(
         mut wnds: Query<(Entity, &Parent, &mut InitialPos), With<HingeWindow>>,
-        mut ents: Query<(&mut MotorComponent)>,
+        mut ents: Query<&mut MotorComponent>,
         mut egui_ctx: EguiContexts,
         mut commands: Commands,
     ) {
         let ctx = egui_ctx.ctx_mut();
         for (id, parent, mut initial_pos) in wnds.iter_mut() {
-            let (mut motor) = ents.get_mut(parent.get()).unwrap();
+            let mut motor = ents.get_mut(parent.get()).unwrap();
             egui::Window::new("Axle")
                 .resizable(false)
                 .default_size(egui::Vec2::ZERO)

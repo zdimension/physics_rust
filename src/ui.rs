@@ -3,29 +3,21 @@ use std::time::Duration;
 use bevy::log::info;
 use bevy::math::{Vec2, Vec3Swizzles};
 use bevy::prelude::*;
-use bevy_diagnostic::{Diagnostics, DiagnosticsStore, FrameTimeDiagnosticsPlugin};
+use bevy_diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin};
 use bevy_egui::egui::{pos2, Context, Id, InnerResponse, Pos2, Ui};
 use bevy_egui::{egui, EguiContexts};
 use bevy_mouse_tracking_plugin::{MainCamera, MousePosWorld};
 use bevy_rapier2d::plugin::RapierConfiguration;
 use derivative::Derivative;
 
-use windows::object::plot::PlotWindow;
-
 use crate::objects::laser::LaserRays;
 use crate::palette::{PaletteConfig, PaletteList};
 use crate::tools::ToolEnum;
-use crate::ui::windows::object::appearance::AppearanceWindow;
-use crate::ui::windows::object::hinge::HingeWindow;
-use crate::ui::windows::object::laser::LaserWindow;
-use crate::ui::windows::object::material::MaterialWindow;
-use crate::ui::windows::scene::background::BackgroundWindow;
+
 use crate::ui::windows::{scene_actions, toolbar, toolbox};
 use crate::{demo, Despawn, UsedMouseButton};
 
 use self::windows::menu::MenuWindow;
-use self::windows::object::collisions::CollisionsWindow;
-use self::windows::object::information::InformationWindow;
 
 pub mod cursor;
 mod icon_button;

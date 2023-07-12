@@ -2,7 +2,7 @@ use crate::palette::ToRgba;
 use crate::update_from::UpdateFrom;
 use bevy::hierarchy::Parent;
 use bevy::math::Vec3;
-use bevy::prelude::{info, App, Component, Entity, Query, Ref, Sprite, Transform};
+use bevy::prelude::{App, Component, Entity, Query, Ref, Sprite, Transform};
 use bevy_egui::egui::ecolor::Hsva;
 use bevy_rapier2d::prelude::ImpulseJoint;
 use bevy_rapier2d::rapier::dynamics::JointAxis;
