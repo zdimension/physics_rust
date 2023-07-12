@@ -3,11 +3,12 @@ use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use bevy::render::view::RenderLayers;
 use bevy_diagnostic::FrameTimeDiagnosticsPlugin;
-use bevy_egui::egui::epaint::Hsva;
+use bevy_egui::egui::epaint::{Hsva, Shadow};
 use bevy_egui::{
     egui::{self},
     EguiContexts, EguiPlugin,
 };
+use bevy_egui::egui::Color32;
 use bevy_mouse_tracking_plugin::{prelude::*, MainCamera};
 use bevy_prototype_lyon::prelude::*;
 use bevy_rapier2d::prelude::*;
@@ -194,7 +195,7 @@ pub fn app_main() {
         .add_event::<RemoveTemporaryWindowsEvent>()
         .add_systems(
             Startup,
-            (configure_visuals, setup_graphics, setup_physics, setup_rng).chain(),
+            (configure_visuals, setup_graphics, (setup_physics, setup_rng)).chain(),
         )
         .add_systems(Update, update_from_palette);
     ui::add_ui_systems(&mut app);
@@ -256,37 +257,6 @@ fn setup_rng(mut commands: Commands, mut global_rng: ResMut<GlobalRng>) {
 #[derive(Component)]
 struct DrawObject;
 
-/*
-trait DrawModeExt {
-    fn get_fill_color(&self) -> Color;
-    fn get_outline_color(&self) -> Color;
-}
-
-impl DrawModeExt for DrawMode {
-    fn get_fill_color(&self) -> Color {
-        match *self {
-            DrawMode::Fill(FillMode { color, .. }) => color,
-            DrawMode::Stroke(_) => Color::rgba(0.0, 0.0, 0.0, 0.0),
-            DrawMode::Outlined {
-                fill_mode: FillMode { color, .. },
-                ..
-            } => color,
-        }
-    }
-
-    fn get_outline_color(&self) -> Color {
-        match *self {
-            DrawMode::Fill(_) => Color::rgba(0.0, 0.0, 0.0, 0.0),
-            DrawMode::Stroke(StrokeMode { color, .. }) => color,
-            DrawMode::Outlined {
-                outline_mode: StrokeMode { color, .. },
-                ..
-            } => color,
-        }
-    }
-}
-*/
-
 #[derive(Component)]
 pub enum Despawn {
     Single,
@@ -327,32 +297,6 @@ fn update_draw_modes(
             .find_component(entity, &parents)
             .expect("no color component found");
 
-        /*draw = match *draw {
-            DrawMode::Outlined { .. } | DrawMode::Fill(_) => DrawMode::Outlined {
-                fill_mode: make_fill(hsva_to_rgba(color)),
-                outline_mode: {
-                    let stroke = if ui_state.selected_entity == Some(EntitySelection { entity }) {
-                        Color::WHITE
-                    } else {
-                        hsva_to_rgba(Hsva {
-                            v: color.v * 0.5,
-                            a: 1.0,
-                            ..color
-                        })
-                    };
-                    make_stroke(stroke, BORDER_THICKNESS)
-                },
-            },
-            DrawMode::Stroke(_) => {
-                let stroke = if ui_state.selected_entity == Some(EntitySelection { entity }) {
-                    Color::WHITE
-                } else {
-                    Color::rgba(0.0, 0.0, 0.0, 0.0)
-                };
-                make_stroke(stroke, BORDER_THICKNESS).as_mode()
-            }
-        }*/
-        // TODO: correct?
         if let Some(mut fill) = fill {
             fill.color = hsva_to_rgba(color);
         }
@@ -383,24 +327,6 @@ fn process_unfreeze_entity(
     }
 }
 
-/*
-trait AsMode {
-    fn as_mode(&self) -> DrawMode;
-}
-
-impl AsMode for StrokeMode {
-    fn as_mode(&self) -> DrawMode {
-        DrawMode::Stroke(*self)
-    }
-}
-
-impl AsMode for FillMode {
-    fn as_mode(&self) -> DrawMode {
-        DrawMode::Fill(*self)
-    }
-}
-*/
-
 #[derive(Component)]
 pub struct UiCamera;
 
@@ -419,25 +345,6 @@ fn setup_graphics(mut commands: Commands) {
         .add(|id: Entity, world: &mut World| {
             info!("Added main camera with {id:?}");
         });
-    /*commands
-    .spawn((
-        {
-            let mut bundle =  OrthographicCameraBundle {
-                camera_2d: Camera2d {
-                    clear_color: ClearColorConfig::None,
-                    ..default()
-                },
-                camera: Camera {
-                    order: 1,
-                    ..default()
-                },
-                ..default()
-            };
-            bundle.projection.
-            bundle
-        },
-            UiCamera,
-            RenderLayers::layer(1)));*/
 
     let mut cursor_bundle = ImageBundle::default();
     cursor_bundle.style.position_type = PositionType::Absolute;
@@ -555,7 +462,11 @@ impl From<UsedMouseButton> for MouseButton {
 fn configure_visuals(mut egui_ctx: EguiContexts) {
     let ctx = egui_ctx.ctx_mut();
     ctx.set_visuals(egui::Visuals {
-        window_rounding: 4.0.into(),
+        window_rounding: 2.0.into(),
+        window_shadow: Shadow {
+            extrusion: 10.0,
+            color: Color32::from_black_alpha(96),
+        },
         ..Default::default()
     });
     let mut style: egui::Style = (*ctx.style()).clone();
@@ -564,5 +475,7 @@ fn configure_visuals(mut egui_ctx: EguiContexts) {
 }
 
 fn update_from_palette(palette: Res<PaletteConfig>, mut clear_color: ResMut<ClearColor>) {
-    clear_color.0 = palette.current_palette.sky_color;
+    if palette.is_changed() {
+        clear_color.0 = palette.current_palette.sky_color;
+    }
 }

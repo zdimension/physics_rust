@@ -29,6 +29,6 @@ pub fn mouse_wheel(
         transform.scale *= Vec3::new(factor, factor, 1.0);
         let new = transform.transform_point(off.extend(1.0));
         let diff = new - old;
-        transform.translation -= diff;
+        transform.translation -= diff * Vec3::new(1.0, -1.0, 1.0);
     }
 }

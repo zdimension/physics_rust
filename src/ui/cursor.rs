@@ -17,10 +17,6 @@ pub struct ToolCursor;
 pub struct EguiWantsFocus(bool);
 
 pub fn check_egui_wants_focus(mut egui_ctx: EguiContexts, mut wants_focus: ResMut<EguiWantsFocus>) {
-    info!(
-        "egui wants focus: {:?}",
-        egui_ctx.ctx_mut().wants_pointer_input()
-    );
     wants_focus.set_if_neq(EguiWantsFocus(egui_ctx.ctx_mut().wants_pointer_input()));
 }
 
@@ -36,7 +32,6 @@ pub fn show_current_tool_icon(
     }
     let (mut icon, mut transform, mut vis) = icon.single_mut();
     if egui_input.0 {
-        info!("cursor hidden");
         vis.set_if_neq(Visibility::Hidden);
     } else {
         vis.set_if_neq(Visibility::Visible);
