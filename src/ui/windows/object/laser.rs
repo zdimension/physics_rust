@@ -23,7 +23,6 @@ impl LaserWindow {
             egui::Window::new("Laser pens")
                 .resizable(false)
                 .default_size(egui::Vec2::ZERO)
-                .id_bevy(id)
                 .subwindow(id, ctx, &mut initial_pos, &mut commands, |ui, _commands| {
                     ui.add(
                         egui::Slider::new(&mut laser.fade_distance, 1.0..=1000.0)

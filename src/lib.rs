@@ -15,7 +15,7 @@ use bevy_rapier2d::prelude::*;
 //use bevy_prototype_lyon::prelude::{DrawMode, FillMode, ShapePlugin};
 use bevy_turborand::prelude::*;
 pub use egui::egui_assert;
-
+use crate::skin::SkinConfig;
 use mouse::{button, wheel};
 use objects::hinge::HingeObject;
 use objects::laser::LaserRays;
@@ -31,6 +31,7 @@ use ui::{cursor, selection_overlay, ContextMenuEvent, EntitySelection, UiState};
 use update_from::UpdateFrom;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
+use crate::config::AppConfig;
 
 use crate::mouse::r#move::{MouseLongOrMoved, MouseLongOrMovedWriteback};
 use crate::mouse::select::{SelectEvent, SelectUnderMouseEvent};
@@ -48,6 +49,8 @@ mod palette;
 mod tools;
 mod ui;
 mod update_from;
+mod skin;
+mod config;
 //mod grid;
 
 const BORDER_THICKNESS: f32 = 0.03;
@@ -165,6 +168,8 @@ pub fn app_main() {
         .init_resource::<AppIcons>()
         .init_resource::<ToolIcons>()
         .init_resource::<GuiIcons>()
+        .init_resource::<SkinConfig>()
+        .init_resource::<AppConfig>()
         .insert_resource(RapierConfiguration {
             gravity: Vect::Y * -9.81,
             physics_pipeline_active: false,
@@ -457,10 +462,11 @@ fn configure_visuals(mut egui_ctx: EguiContexts) {
     let ctx = egui_ctx.ctx_mut();
     ctx.set_visuals(egui::Visuals {
         window_rounding: 2.0.into(),
-        window_shadow: Shadow {
+        /*window_shadow: Shadow {
             extrusion: 10.0,
             color: Color32::from_black_alpha(96),
-        },
+        },*/
+        window_shadow: Shadow::NONE,
         window_fill: Color32::from_rgb(134, 140, 147),
         panel_fill: Color32::from_rgb(134, 140, 147),
         override_text_color: Some(Color32::from_rgb(249, 249, 249)),

@@ -14,7 +14,7 @@ pub fn draw_toolbox(
     mut clear_tmp: EventWriter<RemoveTemporaryWindowsEvent>,
 ) {
     egui::Window::new("Tools")
-        .anchor(Align2::LEFT_BOTTOM, [0.0, 0.0])
+        .anchor(Align2::LEFT_BOTTOM, [1.0, -1.0])
         .title_bar(false)
         .resizable(false)
         .default_size(egui::Vec2::ZERO)
@@ -34,6 +34,7 @@ pub fn draw_toolbox(
                                             egui_ctx.add_image(def.icon(&tool_icons)),
                                             24.0,
                                         )
+                                            .dim_if_unselected(true)
                                         .selected(ui_state.toolbox_selected.is_same(def)),
                                     )
                                     .clicked()

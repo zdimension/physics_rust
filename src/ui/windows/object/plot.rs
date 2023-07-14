@@ -193,7 +193,6 @@ impl PlotWindow {
                 plot.time += time.delta_seconds();
             }
             egui::Window::new("plot")
-                .id_bevy(id)
                 .resizable(true)
                 .subwindow(id, ctx, &mut initial_pos, &mut commands, |ui, _commands| {
                     let series = unsafe { &*(&plot.series as *const HashMap<PlotSeriesId, PlotSeries>) };

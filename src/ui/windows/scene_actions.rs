@@ -12,22 +12,24 @@ systems!(draw_scene_actions, NewSceneWindow::show);
 
 pub fn draw_scene_actions(
     mut egui_ctx: EguiContexts,
-    _ui_state: ResMut<UiState>,
     gui_icons: Res<GuiIcons>,
-    _clear_tmp: EventWriter<RemoveTemporaryWindowsEvent>,
     mut commands: Commands,
+    ns_window: Query<Entity, With<NewSceneWindow>>
 ) {
     egui::Window::new("Scene actions")
-        .anchor(Align2::LEFT_TOP, [0.0, 64.0])
+        .anchor(Align2::LEFT_TOP, [1.0, 36.0])
         .title_bar(false)
         .resizable(false)
         .default_size(egui::Vec2::ZERO)
         .show(&mut egui_ctx.ctx_mut().clone(), |ui| {
             ui.vertical(|ui| {
                 let btn = ui.add(IconButton::new(gui_icons.new, 32.0));
+                let ns = ns_window.get_single();
                 if btn.clicked() {
-                    commands.spawn((NewSceneWindow, InitialPos::initial(btn.rect.right_top())));
-                    info!("new");
+                    match ns {
+                        Ok(ent) => { commands.entity(ent).insert(Despawn::Recursive); }
+                        Err(_) => { commands.spawn((NewSceneWindow, InitialPos::initial(btn.rect.right_top()))); }
+                    }
                 }
                 if ui.add(IconButton::new(gui_icons.save, 32.0)).clicked() {}
                 if ui.add(IconButton::new(gui_icons.open, 32.0)).clicked() {}
@@ -51,7 +53,6 @@ impl NewSceneWindow {
         for (id, mut initial_pos) in wnds.iter_mut() {
             egui::Window::new("New scene")
                 .resizable(false)
-                .id_bevy(id)
                 .subwindow(id, ctx, &mut initial_pos, &mut commands, |ui, commands| {
                     ui.vertical(|ui| {
                         for (name, palette) in assets

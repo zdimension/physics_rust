@@ -24,7 +24,6 @@ impl MaterialWindow {
             egui::Window::new("Material")
                 .resizable(false)
                 .default_size(egui::Vec2::ZERO)
-                .id_bevy(id)
                 .subwindow(id, ctx, &mut initial_pos, &mut commands, |ui, _commands| {
                     ui.add(
                         egui::Slider::new(&mut friction.coefficient, 0.0..=2.0)

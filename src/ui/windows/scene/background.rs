@@ -26,7 +26,6 @@ impl BackgroundWindow {
             egui::Window::new("Background")
                 .resizable(false)
                 .default_size(egui::Vec2::ZERO)
-                .id_bevy(id)
                 .subwindow(id, ctx, &mut initial_pos, &mut commands, |ui, _commands| {
                     if egui::color_picker::color_picker_hsva_2d(
                         ui,

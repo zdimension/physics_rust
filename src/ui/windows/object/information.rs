@@ -31,7 +31,7 @@ impl InformationWindow {
         let ctx = egui_ctx.ctx_mut();
         for (id, parent, mut initial_pos) in wnds.iter_mut() {
             let (xform, mass, vel, coll_mass, kine) = ents.get(parent.get()).unwrap();
-            egui::Window::new("info").id_bevy(id).subwindow(
+            egui::Window::new("info").subwindow(
                 id,
                 ctx,
                 &mut initial_pos,

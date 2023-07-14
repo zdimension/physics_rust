@@ -119,8 +119,7 @@ impl Default for Palette {
         Self {
             object_appearance: ObjectAppearance::default(),
             draw_clouds: true,
-            //sky_color: Color::rgba(0.44999999, 0.55000001, 1.0000000, 1.0000000),
-            sky_color: Color::WHITE,
+            sky_color: Color::rgba(0.44999999, 0.55000001, 1.0000000, 1.0000000),
             selection_color: Color::rgba(0.0, 0.0, 0.0, 0.0),
             color_range: HsvaRange(
                 Hsva::new(0.0, 0.0, 0.0, 1.0),
@@ -171,16 +170,6 @@ impl Palette {
             ..self.get_color_hsva(rng)
         }
     }
-
-    /*fn get_draw_mode(&self, rng: &mut impl DelegatedRng) -> (Fill, Stroke) {
-        let color = self.color_range.rand_hsva(rng);
-        let darkened = Hsva {
-            v: color.v * 0.5,
-            ..color
-        };
-        (crate::make_fill(crate::hsva_to_rgba(color)),
-         crate::make_stroke(crate::hsva_to_rgba(darkened), BORDER_THICKNESS))
-    }*/
 }
 
 #[derive(Resource)]

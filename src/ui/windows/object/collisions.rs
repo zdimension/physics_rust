@@ -26,7 +26,6 @@ impl CollisionsWindow {
             let mut groups = ents.get_mut(parent.get()).unwrap();
             egui::Window::new("Collisions")
                 .resizable(false)
-                .id_bevy(id)
                 .subwindow(id, ctx, &mut initial_pos, &mut commands, |ui, _commands| {
                     ui.horizontal(|ui| {
                         ui.vertical(|ui| {

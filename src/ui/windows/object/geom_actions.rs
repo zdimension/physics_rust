@@ -24,7 +24,6 @@ impl GeometryActionsWindow {
             egui::Window::new("Geom actions")
                 .resizable(false)
                 .default_size(egui::Vec2::ZERO)
-                .id_bevy(id)
                 .subwindow(id, ctx, &mut initial_pos, &mut commands, |ui, _commands| {
                     if ui
                         .add(egui::Button::image_and_text(

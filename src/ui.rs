@@ -4,7 +4,7 @@ use bevy::log::info;
 use bevy::math::{Vec2, Vec2Swizzles, Vec3Swizzles};
 use bevy::prelude::*;
 use bevy_diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin};
-use bevy_egui::egui::{pos2, Context, Id, InnerResponse, Pos2, Ui};
+use bevy_egui::egui::{pos2, Context, Id, InnerResponse, Pos2, Ui, Align2};
 use bevy_egui::{egui, EguiContexts};
 use bevy_mouse_tracking_plugin::{MainCamera, MousePos, MousePosWorld};
 use bevy_rapier2d::plugin::RapierConfiguration;
@@ -13,7 +13,6 @@ use derivative::Derivative;
 use crate::objects::laser::LaserRays;
 use crate::palette::{PaletteConfig, PaletteList};
 use crate::tools::ToolEnum;
-use crate::ui::windows::menubar::draw_menubar;
 use crate::{demo, systems, Despawn, UsedMouseButton};
 
 use self::windows::menu::MenuWindow;
@@ -25,11 +24,12 @@ mod menu_item;
 pub(crate) mod selection_overlay;
 mod separator_custom;
 mod text_button;
+mod tabs;
+mod custom_widget;
 
 systems! {
     mod windows,
     ui_example,
-    draw_menubar,
     process_temporary_windows,
     remove_temporary_windows,
 }
@@ -134,7 +134,11 @@ impl AsPos2 for Pos2 {
 }
 
 #[derive(Component)]
-pub struct InitialPos(Pos2, Pos2);
+pub enum InitialPos {
+    Pos(Pos2, Pos2),
+    ScreenCenter
+}
+
 
 impl InitialPos {
     fn initial(pos: impl AsPos2) -> impl Bundle {
@@ -143,12 +147,12 @@ impl InitialPos {
 
     fn persistent(pos: impl AsPos2) -> InitialPos {
         let pos = pos.as_pos2();
-        Self(pos, pos)
+        Self::Pos(pos, pos)
     }
 
-    fn update<T>(&mut self, resp: InnerResponse<T>) {
+    /*fn update<T>(&mut self, resp: InnerResponse<T>) {
         self.1 = resp.response.rect.left_top();
-    }
+    }*/
 }
 
 #[derive(Component)]
@@ -183,10 +187,11 @@ fn process_temporary_windows(
 ) {
     for (wnd, pos, _) in wnds.iter() {
         // todo: really detect whether window was moved
-        if pos.0.distance(pos.1) > 1.0 {
+        let InitialPos::Pos(begin, current) = *pos else { continue };
+        if begin.distance(current) > 1.0 {
             info!(
                 "marking window {:?} as persistent (initial {:?} != current {:?})",
-                wnd, pos.0, pos.1
+                wnd, begin, current
             );
             commands.entity(wnd).remove::<TemporaryWindow>();
         }
@@ -203,11 +208,11 @@ impl<'a> BevyIdThing for egui::Window<'a> {
     }
 }
 
-impl Into<Pos2> for &InitialPos {
+/*impl Into<Pos2> for &InitialPos {
     fn into(self) -> Pos2 {
         self.0
     }
-}
+}*/
 
 trait Subwindow {
     fn subwindow(
@@ -230,11 +235,23 @@ impl<'a> Subwindow for egui::Window<'a> {
         contents: impl FnOnce(&mut Ui, &mut Commands),
     ) {
         let mut open = true;
-        self.id_bevy(id)
-            .default_pos(&*initial_pos)
+        let center = ctx.input(|i| i.screen_rect.size()) / 2.0;
+        let (wnd, begin) = match initial_pos {
+            InitialPos::Pos(begin, after) => {
+                (self.pivot(Align2::LEFT_TOP).default_pos(*begin), *begin) // heu... du coup ça marche pas ?
+            },
+            InitialPos::ScreenCenter => {
+                /*let input = ctx.input(|i| i.screen_rect);*/
+
+                let zero = center.to_pos2();
+                // TODO !!
+                (self, zero)
+            }
+        };
+        wnd.id_bevy(id)
             .open(&mut open)
             .show(ctx, |ui| contents(ui, commands))
-            .map(|resp| initial_pos.1 = resp.response.rect.left_top());
+            .map(|resp| { *initial_pos = InitialPos::Pos(begin, resp.response.rect.left_top()); });
         if !open {
             info!("closing window");
             commands.entity(id).insert(Despawn::Recursive);

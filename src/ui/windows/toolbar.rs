@@ -8,6 +8,7 @@ use bevy_egui::egui::Align2;
 use bevy_egui::{egui, EguiContexts};
 use bevy_rapier2d::plugin::{RapierConfiguration, TimestepMode};
 use crate::systems;
+use crate::ui::separator_custom::SeparatorCustom;
 
 pub fn draw_bottom_toolbar(
     mut egui_ctx: EguiContexts,
@@ -19,7 +20,7 @@ pub fn draw_bottom_toolbar(
     mut clear_tmp: EventWriter<RemoveTemporaryWindowsEvent>,
 ) {
     egui::Window::new("Tools2")
-        .anchor(Align2::CENTER_BOTTOM, [0.0, 0.0])
+        .anchor(Align2::CENTER_BOTTOM, [0.0, -1.0])
         .title_bar(false)
         .resizable(false)
         .show(&mut egui_ctx.ctx_mut().clone(), |ui| {
@@ -38,7 +39,7 @@ pub fn draw_bottom_toolbar(
                     }
                 }
 
-                ui.separator();
+                ui.add(SeparatorCustom::default());
 
                 let playpause = ui.add(IconButton::new(
                     if rapier.physics_pipeline_active {
@@ -73,7 +74,7 @@ pub fn draw_bottom_toolbar(
                     };
                 });
 
-                ui.separator();
+                ui.add(SeparatorCustom::default());
 
                 let gravity =
                     ui.add(IconButton::new(gui_icons.gravity, 32.0).selected(gravity_conf.enabled));

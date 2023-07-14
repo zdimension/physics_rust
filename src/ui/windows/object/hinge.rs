@@ -22,7 +22,6 @@ impl HingeWindow {
             egui::Window::new("Axle")
                 .resizable(false)
                 .default_size(egui::Vec2::ZERO)
-                .id_bevy(id)
                 .subwindow(id, ctx, &mut initial_pos, &mut commands, |ui, _commands| {
                     ui.checkbox(&mut motor.enabled, "Motor");
                     if motor.enabled {

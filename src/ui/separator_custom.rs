@@ -59,8 +59,11 @@ impl Widget for SeparatorCustom {
         let (rect, response) = ui.allocate_exact_size(size, Sense::hover());
 
         if ui.is_rect_visible(response.rect) {
-            let stroke = ui.visuals().widgets.noninteractive.bg_stroke;
-            let painter = ui.painter();
+            let stroke = ui.visuals().window_stroke;
+            let mut painter = ui.painter().clone();
+            let wnd_margin = ui.style().spacing.window_margin;
+            let rect = rect.expand2(vec2(wnd_margin.left, wnd_margin.top));
+            painter.set_clip_rect(painter.clip_rect().expand(3.0));
             if is_horizontal_line {
                 painter.hline(
                     rect.x_range(),
