@@ -23,7 +23,7 @@ pub fn draw_bottom_toolbar(
         .anchor(Align2::CENTER_BOTTOM, [0.0, -1.0])
         .title_bar(false)
         .resizable(false)
-        .show(&mut egui_ctx.ctx_mut().clone(), |ui| {
+        .show(&egui_ctx.ctx_mut().clone(), |ui| {
             ui.horizontal(|ui| {
                 let ui_state = &mut *ui_state;
                 for def in ui_state.toolbox_bottom.iter() {

@@ -1,17 +1,16 @@
 use std::ops::Deref;
-use crate::palette::{PaletteConfig, PaletteList};
-use crate::{Despawn, systems};
+use crate::systems;
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts};
 use bevy_egui::egui::color_picker::Alpha;
-use bevy_egui::egui::ecolor::{Hsva, HsvaGamma};
-use bevy_egui::egui::{Color32, Rgba, Stroke};
+use bevy_egui::egui::ecolor::HsvaGamma;
+use bevy_egui::egui::{Color32, Stroke};
 use bevy_egui::egui::epaint::Shadow;
 use num_traits::Inv;
 use strum::EnumIter;
 use crate::config::AppConfig;
 use crate::skin::SkinConfig;
-use crate::ui::{BevyIdThing, InitialPos, Subwindow, tabs, UiState};
+use crate::ui::{InitialPos, Subwindow, tabs};
 
 systems!(OptionsWindow::show, update_skin);
 
@@ -38,7 +37,7 @@ impl OptionsWindow {
         mut wnds: Query<(Entity, &mut InitialPos), With<OptionsWindow>>,
         mut egui_ctx: EguiContexts,
         mut commands: Commands,
-        mut current_tab: Local<Tabs>,
+        current_tab: Local<Tabs>,
         mut skin: ResMut<SkinConfig>,
         mut app: ResMut<AppConfig>
     ) {
@@ -47,7 +46,7 @@ impl OptionsWindow {
         // C'EST PARCE QUE LE PIVOT EST AU CENTRE QUE ÇA S'AGRANDIT DU CENTRE ESPÈCE DE DÉBILE
         egui::Window::new("Options")
             .resizable(false)
-            .subwindow(id, ctx, &mut initial_pos, &mut commands, |ui, commands| {
+            .subwindow(id, ctx, &mut initial_pos, &mut commands, |ui, _| {
                 let current_tab = current_tab;
                 tabs::tabs(ui, current_tab, |ui, tab| {
                     match tab {
@@ -72,6 +71,10 @@ impl OptionsWindow {
                                     .text("Zoom speed:")
                                     .custom(),
                             ).changed() {
+                                changed = true;
+                            }
+
+                            if ui.checkbox(&mut app_obj.kinetic_panning, "Kinetic panning").changed() {
                                 changed = true;
                             }
 

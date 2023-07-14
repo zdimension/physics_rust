@@ -1,5 +1,5 @@
 use crate::measures::KineticEnergy;
-use crate::ui::{BevyIdThing, InitialPos, Subwindow};
+use crate::ui::{InitialPos, Subwindow};
 use bevy::hierarchy::Parent;
 use bevy::prelude::{Commands, Component, Entity, Query, Res, Transform, With};
 use bevy_egui::egui::Ui;

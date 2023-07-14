@@ -6,7 +6,7 @@ use bevy_egui::{egui, EguiContexts};
 
 use crate::ui::icon_button::IconButton;
 use crate::ui::images::GuiIcons;
-use crate::ui::{BevyIdThing, InitialPos, RemoveTemporaryWindowsEvent, Subwindow, UiState};
+use crate::ui::{InitialPos, Subwindow, UiState};
 
 systems!(draw_scene_actions, NewSceneWindow::show);
 
@@ -63,7 +63,7 @@ impl NewSceneWindow {
                             .chain(std::iter::once((&"Default".into(), &Default::default())))
                         {
                             if ui.button(name).clicked() {
-                                palette_config.current_palette = palette.clone();
+                                palette_config.current_palette = *palette;
                                 commands.entity(ui_state.scene).insert(Despawn::Descendants);
                                 commands.entity(id).despawn();
                             }

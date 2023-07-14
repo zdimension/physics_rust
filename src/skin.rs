@@ -1,16 +1,7 @@
-use std::collections::HashMap;
-
-use bevy::asset::AssetLoader;
-use bevy::asset::LoadedAsset;
 use bevy::prelude::*;
-use bevy::reflect::{TypePath, TypeUuid};
 use bevy_egui::egui;
 use bevy_egui::egui::ecolor::HsvaGamma;
-use bevy_egui::egui::epaint::Hsva;
-
-use bevy_turborand::DelegatedRng;
 use serde;
-use serde::Deserialize;
 
 #[derive(Debug, Copy, Clone)]
 pub struct Skin {

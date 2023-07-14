@@ -4,7 +4,8 @@ use bevy::prelude::Resource;
 pub struct AppConfig {
     pub ui_scale: i32,
     pub zoom_speed: f32,
-    pub tool_cursor: bool
+    pub tool_cursor: bool,
+    pub kinetic_panning: bool
 }
 
 impl Default for AppConfig {
@@ -12,7 +13,8 @@ impl Default for AppConfig {
         Self {
             ui_scale: 100,
             zoom_speed: 1.0,
-            tool_cursor: true
+            tool_cursor: true,
+            kinetic_panning: true
         }
     }
 }

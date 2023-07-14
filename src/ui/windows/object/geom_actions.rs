@@ -1,9 +1,8 @@
 use crate::tools::add_object::{AddHingeEvent, AddObjectEvent};
 use crate::ui::images::GuiIcons;
-use crate::ui::{BevyIdThing, InitialPos, Subwindow};
+use crate::ui::{InitialPos, Subwindow};
 use bevy::prelude::{info, Commands, Component, Entity, EventWriter, Parent, Query, Res, With};
 use bevy_egui::{egui, EguiContexts};
-use bevy_rapier2d::na::DimAdd;
 use crate::systems;
 
 systems!(GeometryActionsWindow::show);

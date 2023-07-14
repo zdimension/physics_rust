@@ -1,7 +1,7 @@
 use crate::{hsva_to_rgba, systems};
 use crate::objects::ColorComponent;
 use crate::palette::PaletteConfig;
-use crate::ui::{BevyIdThing, InitialPos, Subwindow};
+use crate::ui::{InitialPos, Subwindow};
 use bevy::prelude::*;
 use bevy_egui::egui::ecolor::Hsva;
 use bevy_egui::{egui, EguiContexts};

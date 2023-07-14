@@ -25,7 +25,7 @@ pub fn draw_menubar(
         .title_bar(false)
         .resizable(false)
         .default_size(egui::Vec2::ZERO)
-        .show(&mut egui_ctx.ctx_mut().clone(), |ui| {
+        .show(&egui_ctx.ctx_mut(), |ui| {
             ui.horizontal(|ui| {
                 ui.add(TextButton::new("File"));
                 let opt = opt_window.get_single();

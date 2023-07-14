@@ -9,6 +9,8 @@ use bevy_rapier2d::rapier::dynamics::JointAxis;
 use bevy_rapier2d::rapier::prelude::MotorModel;
 use num_traits::FloatConst;
 use std::marker::PhantomData;
+use bevy::app::Update;
+use crate::systems;
 
 pub(crate) mod hinge;
 pub(crate) mod laser;
@@ -87,11 +89,7 @@ pub fn update_motors(
     }
 }
 
-pub fn add_update_systems(app: &mut App) {
-    app.add_system(update_sprites_color)
-        .add_system(update_size_scales)
-        .add_system(update_motors);
-}
+systems!(update_sprites_color, update_size_scales, update_motors);
 
 #[derive(Component)]
 pub struct ColorComponent(pub Hsva);

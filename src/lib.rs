@@ -262,7 +262,7 @@ pub fn app_main() {
     .add_systems(Update, update_draw_modes)
     .add_systems(Update, laser::draw_lasers)
     .add_systems(PostUpdate, despawn_entities);
-    objects::add_update_systems(&mut app);
+    objects::add_systems(&mut app);
     app.run();
 }
 

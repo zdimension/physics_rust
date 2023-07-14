@@ -51,8 +51,8 @@ where
     use serde::de::Error;
     let (h, s, v, a) = <(f32, f32, f32, f32)>::deserialize(deserializer)?;
     let h = h / 360.0;
-    if h < 0.0 || h > 1.0 || s < 0.0 || s > 1.0 || v < 0.0 || v > 1.0 || a < 0.0 || a > 1.0 {
-        return Err(D::Error::custom("HSVA is invalid"));
+    if !(0.0..=1.0).contains(&h) || !(0.0..=1.0).contains(&s) || !(0.0..=1.0).contains(&v) || !(0.0..=1.0).contains(&a) {
+        return Err(Error::custom("HSVA is invalid"));
     }
     Ok(Hsva::new(h, s, v, a))
 }
@@ -63,8 +63,8 @@ where
 {
     use serde::de::Error;
     let (r, g, b, a) = <(f32, f32, f32, f32)>::deserialize(deserializer)?;
-    if r < 0.0 || r > 1.0 || g < 0.0 || g > 1.0 || b < 0.0 || b > 1.0 || a < 0.0 || a > 1.0 {
-        return Err(D::Error::custom("RGBA is invalid"));
+    if !(0.0..=1.0).contains(&r) || !(0.0..=1.0).contains(&g) || !(0.0..=1.0).contains(&b) || !(0.0..=1.0).contains(&a) {
+        return Err(Error::custom("RGBA is invalid"));
     }
     Ok(Color::rgba(r, g, b, a))
 }
@@ -119,7 +119,7 @@ impl Default for Palette {
         Self {
             object_appearance: ObjectAppearance::default(),
             draw_clouds: true,
-            sky_color: Color::rgba(0.44999999, 0.55000001, 1.0000000, 1.0000000),
+            sky_color: Color::rgba(0.45, 0.55, 1.0000000, 1.0000000),
             selection_color: Color::rgba(0.0, 0.0, 0.0, 0.0),
             color_range: HsvaRange(
                 Hsva::new(0.0, 0.0, 0.0, 1.0),

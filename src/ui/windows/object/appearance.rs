@@ -1,5 +1,5 @@
 use crate::objects::ColorComponent;
-use crate::ui::{BevyIdThing, InitialPos, Subwindow};
+use crate::ui::{InitialPos, Subwindow};
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts};
 use crate::systems;

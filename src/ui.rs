@@ -4,7 +4,7 @@ use bevy::log::info;
 use bevy::math::{Vec2, Vec2Swizzles, Vec3Swizzles};
 use bevy::prelude::*;
 use bevy_diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin};
-use bevy_egui::egui::{pos2, Context, Id, InnerResponse, Pos2, Ui, Align2};
+use bevy_egui::egui::{pos2, Context, Id, Pos2, Ui, Align2};
 use bevy_egui::{egui, EguiContexts};
 use bevy_mouse_tracking_plugin::{MainCamera, MousePos, MousePosWorld};
 use bevy_rapier2d::plugin::RapierConfiguration;
@@ -118,17 +118,17 @@ pub fn ui_example(
 }
 
 trait AsPos2 {
-    fn as_pos2(&self) -> egui::Pos2;
+    fn as_pos2(&self) -> Pos2;
 }
 
 impl AsPos2 for Vec2 {
-    fn as_pos2(&self) -> egui::Pos2 {
+    fn as_pos2(&self) -> Pos2 {
         pos2(self.x, self.y)
     }
 }
 
 impl AsPos2 for Pos2 {
-    fn as_pos2(&self) -> egui::Pos2 {
+    fn as_pos2(&self) -> Pos2 {
         *self
     }
 }
@@ -237,7 +237,7 @@ impl<'a> Subwindow for egui::Window<'a> {
         let mut open = true;
         let center = ctx.input(|i| i.screen_rect.size()) / 2.0;
         let (wnd, begin) = match initial_pos {
-            InitialPos::Pos(begin, after) => {
+            InitialPos::Pos(begin, _) => {
                 (self.pivot(Align2::LEFT_TOP).default_pos(*begin), *begin) // heu... du coup ça marche pas ?
             },
             InitialPos::ScreenCenter => {

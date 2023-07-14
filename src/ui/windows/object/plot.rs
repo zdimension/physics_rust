@@ -1,6 +1,6 @@
 use crate::measures::{GravityEnergy, KineticEnergy, Momentum};
 use crate::ui::images::GuiIcons;
-use crate::ui::{BevyIdThing, InitialPos, Subwindow};
+use crate::ui::{InitialPos, Subwindow};
 use bevy::hierarchy::Parent;
 use bevy::prelude::{Commands, Component, Entity, Query, Res, Time, Transform};
 use bevy_egui::egui::plot::{Line, Plot, PlotPoint, PlotPoints};
@@ -197,7 +197,7 @@ impl PlotWindow {
                 .subwindow(id, ctx, &mut initial_pos, &mut commands, |ui, _commands| {
                     let series = unsafe { &*(&plot.series as *const HashMap<PlotSeriesId, PlotSeries>) };
                     let fmt = |name: &str, value: &PlotPoint| {
-                        if name.len() > 0 {
+                        if !name.is_empty() {
                             let (id, series) = series.get_key_value(name).unwrap_or_else(|| panic!("series {} not found, available: {:?}", name, series.keys()));
                             let mut base = format!("x = {:.2} ({})\ny = {:.2} ({})", value.x, id.x, value.y, id.y);
                             let values = &series.values;

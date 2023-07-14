@@ -64,7 +64,7 @@ pub fn left_release(
                 break 'thing;
             }
             let Some((_at, click_pos, click_pos_screen)) = *state_pos else { break 'thing; };
-            let selected = std::mem::replace(&mut *state_button, None);
+            let selected = state_button.take();
             info!("resetting state");
             *state_pos = None;
             let Some(tool) = selected else { break 'thing };
@@ -272,7 +272,7 @@ pub fn left_pressed(
                 info!("button pressed ({:?})", button);
                 *state_button = Some(tool);
                 *state_pos = Some((time.elapsed(), pos, screen_pos));
-                if ui_state.mouse_button == None {
+                if ui_state.mouse_button.is_none() {
                     ui_state.mouse_button = Some(button);
                 }
             }

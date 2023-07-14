@@ -1,6 +1,4 @@
 use std::ops::DerefMut;
-use bevy::ecs::system::{SystemParam, SystemState};
-use bevy_egui::egui;
 use bevy_egui::egui::{NumExt, pos2, Response, Sense, TextStyle, Ui, Widget, WidgetInfo, WidgetText, WidgetType};
 use strum::IntoEnumIterator;
 

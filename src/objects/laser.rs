@@ -296,7 +296,7 @@ fn adjust_index(base_index: f32, hue: f32) -> f32 {
 
 fn compute_new_angle(incidence: f32, index_ray: f32, index_new: f32) -> Option<f32> {
     let new_sin = incidence.sin() * index_ray / index_new;
-    if new_sin > 1.0 || new_sin < -1.0 {
+    if !(-1.0..=1.0).contains(&new_sin) {
         None // total internal reflection
     } else {
         let new_angle = new_sin.asin();

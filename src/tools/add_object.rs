@@ -385,7 +385,7 @@ pub fn process_add_object(
                         ));
                     });
             }
-            ref x @ _ => unimplemented!("unimplemented tool {:?}", x),
+            ref x => unimplemented!("unimplemented tool {:?}", x),
         }
     }
 }

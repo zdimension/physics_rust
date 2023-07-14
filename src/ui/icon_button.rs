@@ -1,6 +1,6 @@
 use bevy::math::Vec2;
 use bevy_egui::egui;
-use bevy_egui::egui::{pos2, vec2, Response, Sense, TextureId, Ui, Widget, WidgetInfo, WidgetType, Color32};
+use bevy_egui::egui::{pos2, Response, Sense, TextureId, Ui, Widget, WidgetInfo, WidgetType, Color32};
 
 pub struct IconButton {
     icon: egui::widgets::Image,
