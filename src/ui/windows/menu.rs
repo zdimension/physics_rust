@@ -61,6 +61,7 @@ impl MenuWindow {
             Option<&RigidBody>,
             Option<&MotorComponent>,
         )>,
+        mut cameras: Query<&mut Transform, With<MainCamera>>,
         mut zoom2scene: EventWriter<ZoomToScene>
     ) {
         let ctx = egui_ctx.ctx_mut();
@@ -187,7 +188,12 @@ impl MenuWindow {
                             if item!("Zoom to scene", zoom2scene) {
                                 zoom2scene.send(ZoomToScene);
                             }
-                            if item!("Default view") {}
+                            if item!("Default view") {
+                                let mut camera = cameras.single_mut();
+                                camera.translation = Vec3::new(0.0, 2.0, CAMERA_Z);
+                                let scale = 1.0 / 182.0; // todo: depends on window size
+                                camera.scale = Vec3::new(scale, scale, 1.0);
+                            }
                             menu!("Background", color, BackgroundWindow);
                         }
                     }
@@ -211,7 +217,7 @@ fn handle_zoom_to_scene(
 
     let mut camera = cameras.single_mut();
 
-    for ev in events.iter() {
+    for _ in events.iter() {
         let bbox = bboxes
             .iter()
             .map(|(xform, bbox)| Rect::from_center_half_size(xform.translation.xy(), bbox.half_extents.xy()))
