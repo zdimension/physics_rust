@@ -103,7 +103,7 @@ impl Widget for MenuItem {
 
             if let Some(icon) = icon {
                 let image_rect = egui::Rect::from_min_size(
-                    pos2(rect.min.x, rect.center().y - 0.5 - (Self::ICON_SIZE / 2.0)),
+                    pos2(rect.min.x, rect.center().y + 0.5 - (Self::ICON_SIZE / 2.0)),
                     vec2(Self::ICON_SIZE, Self::ICON_SIZE),
                 );
                 icon.paint_at(ui, image_rect);

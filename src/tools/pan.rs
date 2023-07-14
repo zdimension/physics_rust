@@ -31,12 +31,12 @@ pub fn process_pan(
         }
         return;
     }
+    let mut camera = cameras.single_mut();
     for PanEvent {
         orig_camera_pos,
         delta,
     } in events.iter().copied()
     {
-        let mut camera = cameras.single_mut();
         let delta_scaled = delta * camera.scale.xy() * Vec2::new(1.0, -1.0);
         if let Some(v) = *last_delta {
             let old_total = *speed_stat;

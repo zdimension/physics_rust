@@ -167,10 +167,14 @@ pub fn handle_context_menu(
     mut ev: EventReader<ContextMenuEvent>,
     ui: ResMut<UiState>,
     mut commands: Commands,
+    existing: Query<Entity, With<MenuWindow>>
 ) {
     for ev in ev.iter() {
         let entity = ui.selected_entity.map(|sel| sel.entity);
         info!("context menu at {:?} for {:?}", ev.screen_pos, entity);
+        if let Ok(existing) = existing.get_single() {
+            commands.entity(existing).insert(Despawn::Recursive);
+        }
         let wnd = commands
             .spawn((MenuWindow::default(), InitialPos::initial(ev.screen_pos)))
             .id();

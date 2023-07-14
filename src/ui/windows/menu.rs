@@ -2,13 +2,17 @@ use crate::objects::laser::LaserBundle;
 use crate::objects::{ColorComponent, MotorComponent};
 use crate::ui::images::GuiIcons;
 use crate::ui::{InitialPos, Subwindow, TemporaryWindow};
-use crate::{Despawn, systems};
+use crate::{CAMERA_Z, Despawn, systems};
 use bevy::hierarchy::{BuildChildren, Parent};
 use bevy::prelude::*;
 use bevy_egui::egui::{pos2, Separator};
 use bevy_egui::{egui, EguiContexts};
 use bevy_rapier2d::prelude::{CollisionGroups, RigidBody, Velocity};
 use std::time::Duration;
+use bevy::math::Vec3Swizzles;
+use bevy::render::primitives::Aabb;
+use bevy::window::PrimaryWindow;
+use bevy_mouse_tracking_plugin::MainCamera;
 
 use crate::ui::windows::object::appearance::AppearanceWindow;
 use crate::ui::windows::object::collisions::CollisionsWindow;
@@ -29,7 +33,11 @@ use crate::ui::windows::scene::background::BackgroundWindow;
 use crate::ui::menu_item::MenuItem;
 use crate::ui::windows::object::hinge::HingeWindow;
 
-systems!(MenuWindow::show);
+systems! {
+    MenuWindow::show,
+    handle_zoom_to_scene,
+    event ZoomToScene
+}
 
 #[derive(Default, Component)]
 pub struct MenuWindow {
@@ -38,7 +46,7 @@ pub struct MenuWindow {
 }
 
 impl MenuWindow {
-    pub(crate) fn show(
+    fn show(
         mut wnds: Query<(Entity, Option<&Parent>, &mut MenuWindow, &mut InitialPos)>,
         is_temp: Query<Option<&TemporaryWindow>>,
         time: Res<Time>,
@@ -53,6 +61,7 @@ impl MenuWindow {
             Option<&RigidBody>,
             Option<&MotorComponent>,
         )>,
+        mut zoom2scene: EventWriter<ZoomToScene>
     ) {
         let ctx = egui_ctx.ctx_mut();
         for (wnd_id, entity, mut info_wnd, mut initial_pos) in wnds.iter_mut() {
@@ -175,13 +184,43 @@ impl MenuWindow {
                             menu!("Script menu", /, ScriptMenuWindow);
                         }
                         None => {
-                            if item!("Zoom to scene", zoom2scene) {}
+                            if item!("Zoom to scene", zoom2scene) {
+                                zoom2scene.send(ZoomToScene);
+                            }
                             if item!("Default view") {}
                             menu!("Background", color, BackgroundWindow);
                         }
                     }
                 });
         }
+    }
+}
+
+#[derive(Event)]
+struct ZoomToScene;
+
+fn handle_zoom_to_scene(
+    mut events: EventReader<ZoomToScene>,
+    mut cameras: Query<&mut Transform, With<MainCamera>>,
+    bboxes: Query<(&Transform, &Aabb), Without<MainCamera>>,
+    windows: Query<&Window, With<PrimaryWindow>>
+) {
+    let prim = windows.get_single().unwrap();
+    const FIT_MARGIN: f32 = 0.66;
+    let win_size = Vec2::new(prim.width(), prim.height()) * FIT_MARGIN;
+
+    let mut camera = cameras.single_mut();
+
+    for ev in events.iter() {
+        let bbox = bboxes
+            .iter()
+            .map(|(xform, bbox)| Rect::from_center_half_size(xform.translation.xy(), bbox.half_extents.xy()))
+            .fold(Rect::default(), |a, b| a.union(b));
+
+        camera.translation = bbox.center().extend(CAMERA_Z);
+
+        let scale = f32::max(bbox.width() / win_size.x, bbox.height() / win_size.y);
+        camera.scale = Vec3::new(scale, scale, 1.0);
     }
 }
 

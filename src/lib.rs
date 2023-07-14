@@ -488,22 +488,30 @@ fn update_from_palette(palette: Res<PaletteConfig>, mut clear_color: ResMut<Clea
 
 #[macro_export]
 macro_rules! systems {
-    (@ [$($($p:path),+$(,)*)?] [$($f:ident),*$(,)*] $(,)?) => {
+    (@ [$($($p:path),+$(,)*)?] [$($f:ident),*$(,)*] [$($e:ident),*$(,)*] $(,)?) => {
         $(pub mod $f;)*
 
         pub fn add_systems(#[allow(unused_variables)] app: &mut bevy::prelude::App) {
             $($f::add_systems(app);)*
 
             $(app.add_systems(bevy::prelude::Update, ($($p),*));)?
+
+            $(app.add_event::<$e>();)*
         }
     };
-    (@ [$($p:tt)*] [$($f:tt)*] mod $system:ident $(, $($x:tt)*)?) => {
-        systems!(@ [$($p)*] [$system, $($f)*] $($($x)*)?);
+    (@ [$($p:tt)*] [$($f:tt)*] [$($e:tt)*] event $system:ident $(, $($x:tt)*)?) => {
+        systems!(@ [$($p)*] [$($f)*] [$system, $($e:tt)*] $($($x)*)?);
     };
-    (@ [$($p:tt)*] [$($f:tt)*] $first:ident $(:: $next:ident)* $(, $($x:tt)*)?) => {
-        systems!(@ [$first $(:: $next)*, $($p)*] [$($f)*] $($($x)*)?);
+    (@ [$($p:tt)*] [$($f:tt)*] [$($e:tt)*] mod $system:ident $(, $($x:tt)*)?) => {
+        systems!(@ [$($p)*] [$system, $($f)*] [$($e:tt)*] $($($x)*)?);
+    };
+    (@ [$($p:tt)*] [$($f:tt)*] [$($e:tt)*] $first:ident $(:: $next:ident)* $(, $($x:tt)*)?) => {
+        systems!(@ [$first $(:: $next)*, $($p)*] [$($f)*] [$($e:tt)*] $($($x)*)?);
+    };
+    (@ $($x:tt)*) => {
+        compile_error!(stringify!($($x)*));
     };
     ($($x:tt)*) => {
-        systems!(@ [] [] $($x)*);
+        systems!(@ [] [] [] $($x)*);
     };
 }
