@@ -2,7 +2,7 @@ use crate::objects::laser::LaserBundle;
 use crate::objects::{ColorComponent, MotorComponent};
 use crate::ui::images::GuiIcons;
 use crate::ui::{InitialPos, Subwindow, TemporaryWindow};
-use crate::{CAMERA_Z, Despawn, systems};
+use crate::{CAMERA_Z,  systems};
 use bevy::hierarchy::{BuildChildren, Parent};
 use bevy::prelude::*;
 use bevy_egui::egui::{pos2, Separator};
@@ -73,7 +73,7 @@ impl MenuWindow {
                 .subwindow(wnd_id, ctx, &mut initial_pos, &mut commands, |ui, commands| {
                     if let Some((_, id)) = info_wnd.selected_item {
                         if matches!(is_temp.get(id), Err(_) | Ok(None)) {
-                            commands.entity(wnd_id).insert(Despawn::Recursive);
+                            commands.entity(wnd_id).despawn_recursive();
                         }
                     }
 
@@ -105,7 +105,7 @@ impl MenuWindow {
                                         info!("clicked: {}", $text);
 
                                         if let Some((_, id)) = info_wnd.selected_item {
-                                            commands.get_entity(id).map(|mut ent| _ = ent.insert(Despawn::Recursive));
+                                            commands.get_entity(id).map(|mut ent| _ = ent.despawn_recursive());
                                         }
 
                                         info!("rect: {:?}", menu.rect);
@@ -145,14 +145,14 @@ impl MenuWindow {
                             let info = entity_info.get(id).expect("Missing entity info");
 
                             if item!("Erase", erase) {
-                                commands.entity(id).insert(Despawn::Recursive);
+                                commands.entity(id).despawn_recursive();
                             }
                             if item!("Mirror", mirror) {}
                             if item!("Show plot", plot) {
                                 commands.entity(id).with_children(|parent| {
                                     parent.spawn((PlotWindow::default(), InitialPos::persistent(pos2(100.0, 100.0))));
                                 });
-                                commands.entity(wnd_id).insert(Despawn::Recursive);
+                                commands.entity(wnd_id).despawn_recursive();
                             }
                             ui.add(Separator::default().horizontal());
 

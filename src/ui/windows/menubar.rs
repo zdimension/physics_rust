@@ -1,5 +1,5 @@
-use bevy::prelude::{Commands, Entity, Query, Res, With};
-use crate::{Despawn, systems};
+use bevy::prelude::{Commands, DespawnRecursiveExt, Entity, Query, Res, With};
+use crate::{systems};
 
 use bevy_egui::egui::Align2;
 use bevy_egui::{egui, EguiContexts};
@@ -31,7 +31,7 @@ pub fn draw_menubar(
                 let opt = opt_window.get_single();
                 if ui.add(IconButton::new(gui_icons.options, 16.0).selected(opt.is_ok())).clicked() {
                     match opt {
-                        Ok(ent) => { commands.entity(ent).insert(Despawn::Recursive); }
+                        Ok(ent) => { commands.entity(ent).despawn_recursive(); }
                         Err(_) => { commands.spawn((OptionsWindow, InitialPos::ScreenCenter)); }
                     }
                 }

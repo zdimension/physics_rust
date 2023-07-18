@@ -1,6 +1,6 @@
 use bevy::input::Input;
 use bevy::log::info;
-use bevy::prelude::{Commands, Entity, EventWriter, MouseButton, Query, Res, ResMut, Time, Transform, With};
+use bevy::prelude::{Commands, DespawnRecursiveExt, Entity, EventWriter, MouseButton, Query, Res, ResMut, Time, Transform, With};
 use bevy::utils::Duration;
 use bevy_egui::EguiContexts;
 use bevy_mouse_tracking_plugin::{MousePos, MousePosWorld};
@@ -17,7 +17,7 @@ use crate::tools::r#move::MoveEvent;
 use crate::tools::rotate::RotateEvent;
 use crate::ui::selection_overlay::{Overlay, OverlayState};
 use crate::ui::{EntitySelection, UiState};
-use crate::Despawn;
+//use crate::Despawn;
 use crate::tools::drag::{DragEvent, DragObject};
 use crate::ToRot;
 use crate::UnfreezeEntityEvent;
@@ -78,15 +78,15 @@ pub fn left_release(
             *overlay = OverlayState { draw_ent: None };
             match tool {
                 Box(Some(ent)) => {
-                    commands.entity(ent).insert(Despawn::Recursive);
+                    commands.entity(ent).despawn_recursive();
                 }
                 Circle(Some(ent)) => {
-                    commands.entity(ent).insert(Despawn::Recursive);
+                    commands.entity(ent).despawn_recursive();
                 }
                 Rotate(Some(state)) => {
                     commands
                         .entity(state.overlay_ent)
-                        .insert(Despawn::Recursive);
+                        .despawn_recursive();
                 }
                 Drag(Some(state)) => {
                     commands

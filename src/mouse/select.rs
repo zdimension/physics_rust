@@ -1,7 +1,7 @@
 use crate::ui::{ContextMenuEvent, EntitySelection, TemporaryWindow, UiState};
 use std::collections::btree_set::BTreeSet;
 
-use crate::Despawn;
+//use crate::Despawn;
 use bevy::log::info;
 use bevy::math::{Vec2, Vec2Swizzles};
 use bevy::prelude::*;
@@ -84,7 +84,7 @@ pub fn process_select_under_mouse(
 ) {
     for SelectUnderMouseEvent { pos, open_menu } in events.iter().copied() {
         for id in wnds.iter() {
-            commands.entity(id).insert(Despawn::Recursive);
+            commands.entity(id).despawn_recursive();
         }
         let selected = find_under_mouse(&rapier, pos, QueryFilter::default(), |ent| {
             let Ok(transform) = query.get(ent) else {

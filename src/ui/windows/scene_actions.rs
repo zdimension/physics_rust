@@ -1,5 +1,5 @@
 use crate::palette::{PaletteConfig, PaletteList};
-use crate::{Despawn, systems};
+use crate::{ systems};
 use bevy::prelude::*;
 use bevy_egui::egui::Align2;
 use bevy_egui::{egui, EguiContexts};
@@ -27,7 +27,7 @@ pub fn draw_scene_actions(
                 let ns = ns_window.get_single();
                 if btn.clicked() {
                     match ns {
-                        Ok(ent) => { commands.entity(ent).insert(Despawn::Recursive); }
+                        Ok(ent) => { commands.entity(ent).despawn_recursive(); }
                         Err(_) => { commands.spawn((NewSceneWindow, InitialPos::initial(btn.rect.right_top()))); }
                     }
                 }
@@ -65,7 +65,7 @@ impl NewSceneWindow {
                         {
                             if ui.button(name).clicked() {
                                 palette_config.current_palette = *palette;
-                                commands.entity(ui_state.scene).insert(Despawn::Descendants);
+                                commands.entity(ui_state.scene).despawn_descendants();
                                 commands.entity(id).despawn();
                             }
                         }

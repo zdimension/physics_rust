@@ -263,8 +263,9 @@ pub fn app_main() {
             .after(cursor::check_egui_wants_focus),
     )
     .add_systems(Update, update_draw_modes)
-    .add_systems(Update, laser::draw_lasers)
-    .add_systems(PostUpdate, despawn_entities);
+    .add_systems(Update, laser::draw_lasers);
+    //.add_systems(PostUpdate, despawn_entities)
+    // ;
     objects::add_systems(&mut app);
 
     // if build with feature "print-schedule"
@@ -288,7 +289,7 @@ fn setup_rng(mut commands: Commands, mut global_rng: ResMut<GlobalRng>) {
 #[derive(Component)]
 struct DrawObject;
 
-#[derive(Component)]
+/*#[derive(Component)]
 pub enum Despawn {
     Single,
     Recursive,
@@ -310,7 +311,7 @@ fn despawn_entities(entities: Query<(Entity, &Despawn)>, mut commands: Commands)
             }
         }
     }
-}
+}*/
 
 fn update_draw_modes(
     mut draws: Query<(

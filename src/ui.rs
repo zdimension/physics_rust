@@ -13,7 +13,7 @@ use derivative::Derivative;
 use crate::objects::laser::LaserRays;
 use crate::palette::{PaletteConfig, PaletteList};
 use crate::tools::ToolEnum;
-use crate::{demo, systems, Despawn, UsedMouseButton};
+use crate::{demo, systems, UsedMouseButton};
 
 use self::windows::menu::MenuWindow;
 
@@ -173,7 +173,7 @@ pub fn handle_context_menu(
         let entity = ui.selected_entity.map(|sel| sel.entity);
         info!("context menu at {:?} for {:?}", ev.screen_pos, entity);
         if let Ok(existing) = existing.get_single() {
-            commands.entity(existing).insert(Despawn::Recursive);
+            commands.entity(existing).despawn_recursive();
         }
         let wnd = commands
             .spawn((MenuWindow::default(), InitialPos::initial(ev.screen_pos)))
@@ -258,7 +258,7 @@ impl<'a> Subwindow for egui::Window<'a> {
             .map(|resp| { *initial_pos = InitialPos::Pos(begin, resp.response.rect.left_top()); });
         if !open {
             info!("closing window");
-            commands.entity(id).insert(Despawn::Recursive);
+            commands.entity(id).despawn_recursive();
         }
     }
 }
@@ -273,7 +273,7 @@ fn remove_temporary_windows(
 ) {
     for _ in events.iter() {
         for id in wnds.iter() {
-            commands.entity(id).insert(Despawn::Recursive);
+            commands.entity(id).despawn_recursive();
         }
     }
 }
