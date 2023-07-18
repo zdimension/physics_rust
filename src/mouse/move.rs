@@ -1,6 +1,6 @@
 use crate::mouse::select;
 use crate::mouse::select::SelectEvent;
-use crate::tools::drag::DragState;
+use crate::tools::drag::{DragObject, DragState};
 use crate::tools::pan::PanState;
 use crate::tools::r#move::MoveState;
 use crate::tools::rotate::RotateState;
@@ -14,6 +14,7 @@ use bevy::prelude::{
 use bevy_mouse_tracking_plugin::{MainCamera, MousePosWorld};
 use bevy_rapier2d::dynamics::RigidBody;
 use bevy_rapier2d::plugin::RapierContext;
+use bevy_rapier2d::prelude::{ImpulseJoint, PrismaticJointBuilder};
 
 #[derive(Event)]
 pub struct MouseLongOrMovedWriteback {
@@ -93,7 +94,7 @@ pub fn mouse_long_or_moved(
 
                 if matches!(
                     hover_tool,
-                    Move(None) | Rotate(None) | Fix(()) | Hinge(()) | Tracer(())
+                    Move(None) | Rotate(None) | Drag(None) | Fix(()) | Hinge(()) | Tracer(())
                 ) {
                     select_mouse.send(SelectEvent {
                         entity: under_mouse,
@@ -104,9 +105,11 @@ pub fn mouse_long_or_moved(
                 match (hover_tool, under_mouse, selected_entity.map(|s| s.entity)) {
                     (Spring(None), _, _) => todo!(),
                     (Drag(None), Some(ent), _) => {
+                        info!("start drag {:?}", ent);
+                        let rel_pos = curpos - query.get_mut(ent).unwrap().0.translation.xy();
                         *ui_button = Some(Drag(Some(DragState {
                             entity: ent,
-                            orig_obj_pos: curpos - query.get_mut(ent).unwrap().0.translation.xy(),
+                            orig_obj_pos: rel_pos,
                         })));
                     }
                     (Rotate(None), Some(under), _) => {

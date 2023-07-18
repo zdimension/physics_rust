@@ -54,6 +54,7 @@ impl NewSceneWindow {
             egui::Window::new("New scene")
                 .resizable(false)
                 .subwindow(id, ctx, &mut initial_pos, &mut commands, |ui, commands| {
+                    ui.style_mut().spacing.item_spacing = egui::Vec2::new(3.0, 3.0);
                     ui.vertical(|ui| {
                         for (name, palette) in assets
                             .get(&palette_config.palettes)

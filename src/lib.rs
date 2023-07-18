@@ -1,14 +1,12 @@
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
+use bevy::render::texture::ImageSampler;
 
 use bevy_diagnostic::FrameTimeDiagnosticsPlugin;
 use bevy_egui::egui::epaint::{Hsva, Shadow};
 use bevy_egui::egui::style::Widgets;
-use bevy_egui::egui::Color32;
-use bevy_egui::{
-    egui::{self},
-    EguiContexts, EguiPlugin,
-};
+use bevy_egui::egui::{Color32, Rounding};
+use bevy_egui::{egui::{self}, EguiContexts, EguiPlugin, EguiSettings};
 use bevy_mouse_tracking_plugin::{prelude::*, MainCamera};
 use bevy_prototype_lyon::prelude::*;
 use bevy_rapier2d::prelude::*;
@@ -24,7 +22,7 @@ use palette::{PaletteConfig, PaletteList, PaletteLoader};
 use tools::add_object::AddObjectEvent;
 use tools::pan::PanEvent;
 use tools::rotate::RotateEvent;
-use tools::{add_object, pan, r#move, rotate};
+use tools::{add_object, pan, r#move, rotate, drag};
 use ui::cursor::ToolCursor;
 use ui::selection_overlay::OverlayState;
 use ui::{cursor, selection_overlay, ContextMenuEvent, EntitySelection, UiState};
@@ -36,6 +34,7 @@ use crate::config::AppConfig;
 use crate::mouse::r#move::{MouseLongOrMoved, MouseLongOrMovedWriteback};
 use crate::mouse::select::{SelectEvent, SelectUnderMouseEvent};
 use crate::objects::SpriteOnly;
+use crate::tools::drag::{DragConfig, DragEvent};
 use crate::tools::r#move::MoveEvent;
 use crate::tools::ToolIcons;
 use crate::ui::images::{AppIcons, GuiIcons};
@@ -170,6 +169,7 @@ pub fn app_main() {
         .init_resource::<GuiIcons>()
         .init_resource::<SkinConfig>()
         .init_resource::<AppConfig>()
+        .init_resource::<DragConfig>()
         .insert_resource(RapierConfiguration {
             gravity: Vect::Y * -9.81,
             physics_pipeline_active: false,
@@ -195,6 +195,7 @@ pub fn app_main() {
         .add_event::<MoveEvent>()
         .add_event::<UnfreezeEntityEvent>()
         .add_event::<RotateEvent>()
+        .add_event::<DragEvent>()
         .add_event::<SelectUnderMouseEvent>()
         .add_event::<SelectEvent>()
         .add_event::<ContextMenuEvent>()
@@ -205,6 +206,7 @@ pub fn app_main() {
                 configure_visuals,
                 setup_graphics,
                 (setup_physics, setup_rng),
+                drag::init_drag
             )
                 .chain(),
         )
@@ -218,7 +220,7 @@ pub fn app_main() {
             button::left_pressed,
             button::left_release,
             add_object::process_add_object,
-            mouse::r#move::mouse_long_or_moved,
+            mouse::r#move::mouse_long_or_moved.before(mouse::select::process_select),
             mouse::r#move::mouse_long_or_moved_writeback,
         )
             .chain(),
@@ -230,7 +232,8 @@ pub fn app_main() {
             r#move::process_move,
             process_unfreeze_entity,
             rotate::process_rotate,
-        ),
+            drag::process_drag,
+        ).after(mouse::select::process_select),
     )
     .add_systems(
         Update,
@@ -263,6 +266,14 @@ pub fn app_main() {
     .add_systems(Update, laser::draw_lasers)
     .add_systems(PostUpdate, despawn_entities);
     objects::add_systems(&mut app);
+
+    // if build with feature "print-schedule"
+    #[cfg(feature = "print-schedule")]
+    {
+        //app.add_plugins(DefaultPlugins.build().disable::<bevy::log::LogPlugin>()); // disable LogPlugin so that you can pipe the output directly into `dot -Tsvg`
+        bevy_mod_debugdump::print_schedule_graph(&mut app, Update);
+        return;
+    }
     app.run();
 }
 
@@ -428,13 +439,7 @@ fn make_stroke(color: Color, thickness: f32) -> Stroke {
 const STROKE_TOLERANCE: f32 = 0.0001;
 
 fn setup_physics(mut images: ResMut<Assets<Image>>) {
-    for img in images.iter_mut() {
-        print!(
-            "{:?} {:?}\n",
-            img.1.texture_descriptor.label, img.1.texture_descriptor.format
-        );
-        //img.1.texture_descriptor.format = TextureFormat::Rgba8Unorm;
-    }
+
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -458,10 +463,11 @@ impl From<UsedMouseButton> for MouseButton {
     }
 }
 
-fn configure_visuals(mut egui_ctx: EguiContexts) {
+fn configure_visuals(mut egui_ctx: EguiContexts, mut egui_set: ResMut<EguiSettings>) {
+    egui_set.sampler_descriptor = ImageSampler::linear();
     let ctx = egui_ctx.ctx_mut();
-    ctx.set_visuals(egui::Visuals {
-        window_rounding: 2.0.into(),
+    let mut visuals = egui::Visuals {
+        window_rounding: 3.0.into(),
         /*window_shadow: Shadow {
             extrusion: 10.0,
             color: Color32::from_black_alpha(96),
@@ -474,7 +480,13 @@ fn configure_visuals(mut egui_ctx: EguiContexts) {
             ..Default::default()
         },
         ..Default::default()
-    });
+    };
+    visuals.widgets.noninteractive.rounding = Rounding::same(3.0);
+    visuals.widgets.inactive.rounding = Rounding::same(3.0);
+    visuals.widgets.hovered.rounding = Rounding::same(3.0);
+    visuals.widgets.active.rounding = Rounding::same(3.0);
+    visuals.widgets.open.rounding = Rounding::same(3.0);
+    ctx.set_visuals(visuals);
     let mut style: egui::Style = (*ctx.style()).clone();
     style.spacing.slider_width = 260.0;
     ctx.set_style(style);

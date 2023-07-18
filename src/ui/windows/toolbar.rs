@@ -24,6 +24,7 @@ pub fn draw_bottom_toolbar(
         .title_bar(false)
         .resizable(false)
         .show(&egui_ctx.ctx_mut().clone(), |ui| {
+            ui.style_mut().spacing.item_spacing = egui::Vec2::new(3.0, 3.0);
             ui.horizontal(|ui| {
                 let ui_state = &mut *ui_state;
                 for def in ui_state.toolbox_bottom.iter() {

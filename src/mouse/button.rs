@@ -1,9 +1,10 @@
 use bevy::input::Input;
 use bevy::log::info;
-use bevy::prelude::{Commands, EventWriter, MouseButton, Query, Res, ResMut, Time, Transform};
+use bevy::prelude::{Commands, Entity, EventWriter, MouseButton, Query, Res, ResMut, Time, Transform, With};
 use bevy::utils::Duration;
 use bevy_egui::EguiContexts;
 use bevy_mouse_tracking_plugin::{MousePos, MousePosWorld};
+use bevy_rapier2d::prelude::{ExternalForce, ImpulseJoint};
 
 use pan::PanState;
 
@@ -17,6 +18,7 @@ use crate::tools::rotate::RotateEvent;
 use crate::ui::selection_overlay::{Overlay, OverlayState};
 use crate::ui::{EntitySelection, UiState};
 use crate::Despawn;
+use crate::tools::drag::{DragEvent, DragObject};
 use crate::ToRot;
 use crate::UnfreezeEntityEvent;
 use crate::UsedMouseButton;
@@ -31,6 +33,7 @@ pub fn left_release(
     mut unfreeze: EventWriter<UnfreezeEntityEvent>,
     mut select_mouse: EventWriter<SelectUnderMouseEvent>,
     mut overlay: ResMut<OverlayState>,
+    drag: Query<(Entity), With<DragObject>>,
 ) {
     use crate::tools::ToolEnum::*;
     use bevy::math::Vec3Swizzles;
@@ -75,15 +78,20 @@ pub fn left_release(
             *overlay = OverlayState { draw_ent: None };
             match tool {
                 Box(Some(ent)) => {
-                    commands.entity(ent).insert(Despawn::Single);
+                    commands.entity(ent).insert(Despawn::Recursive);
                 }
                 Circle(Some(ent)) => {
-                    commands.entity(ent).insert(Despawn::Single);
+                    commands.entity(ent).insert(Despawn::Recursive);
                 }
                 Rotate(Some(state)) => {
                     commands
                         .entity(state.overlay_ent)
                         .insert(Despawn::Recursive);
+                }
+                Drag(Some(state)) => {
+                    commands
+                        .entity(drag.single())
+                        .remove::<ExternalForce>();
                 }
                 _ => {}
             }
@@ -98,12 +106,14 @@ pub fn left_release(
                         pos: click_pos,
                         size: pos - click_pos,
                     });
+                    *state_button = Some(Box(None));
                 }
                 Circle(Some(_ent)) if screen_pos.distance(click_pos_screen) > 6.0 => {
                     add_obj.send(AddObjectEvent::Circle {
                         center: click_pos,
                         radius: (pos - click_pos).length(),
                     });
+                    *state_button = Some(Circle(None));
                 }
                 Spring(Some(_)) => {
                     todo!()
@@ -145,6 +155,7 @@ pub fn left_pressed(
     mut ev_pan: EventWriter<PanEvent>,
     mut ev_move: EventWriter<MoveEvent>,
     mut ev_rotate: EventWriter<RotateEvent>,
+    mut ev_drag: EventWriter<DragEvent>,
     mut overlay: ResMut<OverlayState>,
     time: Res<Time>,
     xform: Query<&Transform>,
@@ -206,6 +217,7 @@ pub fn left_pressed(
                                 pos: pos + state.obj_delta,
                             });
                         } else {
+                            info!("move target disappeared, resetting");
                             *state_pos = None;
                             *state_button = None;
                         }
@@ -233,6 +245,20 @@ pub fn left_pressed(
                                 )),
                             };
                         } else {
+                            info!("rotate target disappeared, resetting");
+                            *state_pos = None;
+                            *state_button = None;
+                        }
+                    }
+                    Some(Drag(Some(state))) => {
+                        if let Some(EntitySelection { entity }) = ui_state.selected_entity {
+                            ev_drag.send(DragEvent {
+                                entity,
+                                orig_obj_pos: state.orig_obj_pos,
+                                mouse_pos: pos,
+                            });
+                        } else {
+                            info!("drag target disappeared, resetting");
                             *state_pos = None;
                             *state_button = None;
                         }
@@ -256,6 +282,7 @@ pub fn left_pressed(
                         };
                     }
                     _ => {
+                        info!("{:?}", *state_button);
                         let long_press = time.elapsed() - at > Duration::from_millis(200);
                         let moved = (click_pos - pos).length() > 0.0;
                         let long_or_moved = long_press || moved;

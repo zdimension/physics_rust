@@ -115,12 +115,16 @@ impl CircleSector {
 
 pub fn process_draw_overlay(
     cameras: Query<&mut Transform, With<MainCamera>>,
-    overlay: ResMut<OverlayState>,
+    mut overlay: ResMut<OverlayState>,
     mut commands: Commands,
     mouse: Res<MousePosWorld>,
 ) {
     if let Some((draw_ent, shape, pos)) = overlay.draw_ent {
-        commands.entity(draw_ent).despawn_descendants();
+        let Some(mut cmds) = commands.get_entity(draw_ent) else {
+            overlay.draw_ent = None;
+            return
+        };
+        cmds.despawn_descendants();
         let camera = cameras.single();
         let builder = GeometryBuilder::new();
         let (thickness, color, builder) = match shape {
@@ -143,7 +147,7 @@ pub fn process_draw_overlay(
             Overlay::Rotate(_rot_value, scale, rot, click) => {
                 let start = -(click - pos).angle_between(Vec2::X);
                 let end = _rot_value - rot;
-                commands.entity(draw_ent).with_children(|builder| {
+                cmds.with_children(|builder| {
                     builder.spawn((
                         ShapeBundle {
                             path: Path(
@@ -172,7 +176,7 @@ pub fn process_draw_overlay(
             }
         };
         // todo: rotate helper 2
-        commands.entity(draw_ent).insert((
+        cmds.insert((
             ShapeBundle {
                 path: builder.build(),
                 transform: Transform::from_translation(pos.extend(FOREGROUND_Z)),
