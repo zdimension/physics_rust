@@ -28,7 +28,7 @@ pub struct DragConfig {
 impl Default for DragConfig {
     fn default() -> Self {
         Self {
-            strength: 1e3f32,
+            strength: 1e4f32,
             max_force: f32::INFINITY
         }
     }
@@ -57,7 +57,7 @@ pub fn process_drag(
         let actual_pos = xform.transform_point(ev.state.orig_obj_pos.extend(1.0)).xy();
         let force = (ev.mouse_pos - actual_pos) * config.strength * cam_scale - vel.linvel * 20.0;
         info!("drag force: {:?}", force);
-        drag_data.0 = ExternalForce::at_point(force, ev.mouse_pos, actual_pos);
+        drag_data.0 = ExternalForce::at_point(force, ev.mouse_pos, xform.translation.xy());
         gizmos.line(ev.mouse_pos.extend(FOREGROUND_Z), actual_pos.extend(FOREGROUND_Z), Color::WHITE);
     }
 }
