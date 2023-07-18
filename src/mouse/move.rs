@@ -6,15 +6,14 @@ use crate::tools::r#move::MoveState;
 use crate::tools::rotate::RotateState;
 use crate::tools::ToolEnum;
 use crate::ui::UiState;
-use crate::UsedMouseButton;
+use crate::{CustomForce, InvTransformPoint, UsedMouseButton};
 use bevy::math::Vec2;
-use bevy::prelude::{
-    Commands, Event, EventReader, EventWriter, Query, Res, ResMut, Transform, With, Without,
-};
+use bevy::prelude::{BuildChildren, Commands, Event, EventReader, EventWriter, Parent, Query, Res, ResMut, Transform, With, Without};
 use bevy_mouse_tracking_plugin::{MainCamera, MousePosWorld};
 use bevy_rapier2d::dynamics::RigidBody;
 use bevy_rapier2d::plugin::RapierContext;
 use bevy_rapier2d::prelude::{ImpulseJoint, PrismaticJointBuilder};
+use bevy_xpbd_2d::components::ExternalForce;
 
 #[derive(Event)]
 pub struct MouseLongOrMovedWriteback {
@@ -106,10 +105,11 @@ pub fn mouse_long_or_moved(
                     (Spring(None), _, _) => todo!(),
                     (Drag(None), Some(ent), _) => {
                         info!("start drag {:?}", ent);
-                        let rel_pos = curpos - query.get_mut(ent).unwrap().0.translation.xy();
+                        let rel_pos = query.get_mut(ent).unwrap().0.to_local(curpos);
                         *ui_button = Some(Drag(Some(DragState {
                             entity: ent,
                             orig_obj_pos: rel_pos,
+                            drag_entity: commands.spawn((DragObject, CustomForce::default())).set_parent(ent).id()
                         })));
                     }
                     (Rotate(None), Some(under), _) => {

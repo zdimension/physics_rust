@@ -19,7 +19,7 @@ use crate::ui::selection_overlay::{Overlay, OverlayState};
 use crate::ui::{EntitySelection, UiState};
 //use crate::Despawn;
 use crate::tools::drag::{DragEvent, DragObject};
-use crate::ToRot;
+use crate::{CustomForceDespawn, ToRot};
 use crate::UnfreezeEntityEvent;
 use crate::UsedMouseButton;
 
@@ -89,9 +89,7 @@ pub fn left_release(
                         .despawn_recursive();
                 }
                 Drag(Some(state)) => {
-                    commands
-                        .entity(drag.single())
-                        .remove::<ExternalForce>();
+                    commands.entity(state.drag_entity).insert(CustomForceDespawn);
                 }
                 _ => {}
             }
@@ -253,8 +251,7 @@ pub fn left_pressed(
                     Some(Drag(Some(state))) => {
                         if let Some(EntitySelection { entity }) = ui_state.selected_entity {
                             ev_drag.send(DragEvent {
-                                entity,
-                                orig_obj_pos: state.orig_obj_pos,
+                                state: state,
                                 mouse_pos: pos,
                             });
                         } else {

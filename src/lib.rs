@@ -1,6 +1,7 @@
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use bevy::render::texture::ImageSampler;
+use bevy::utils::{HashMap, HashSet};
 
 use bevy_diagnostic::FrameTimeDiagnosticsPlugin;
 use bevy_egui::egui::epaint::{Hsva, Shadow};
@@ -56,6 +57,30 @@ const BORDER_THICKNESS: f32 = 0.03;
 const CAMERA_FAR: f32 = 1e6f32;
 const CAMERA_Z: f32 = CAMERA_FAR - 0.1;
 const FOREGROUND_Z: f32 = CAMERA_Z - 0.2;
+
+pub trait InvTransformPoint {
+    fn to_global(&self, point: Vec2) -> Vec2;
+
+    fn to_local(&self, point: Vec2) -> Vec2;
+}
+
+impl InvTransformPoint for Transform {
+    fn to_global(&self, point: Vec2) -> Vec2 {
+        let mut point = point.extend(0.);
+        point *= self.scale;
+        point = self.rotation * point;
+        point += self.translation;
+        point.truncate()
+    }
+
+    fn to_local(&self, point: Vec2) -> Vec2 {
+        let mut point = point.extend(0.);
+        point -= self.translation;
+        point = self.rotation.conjugate() * point;
+        point /= self.scale;
+        point.truncate()
+    }
+}
 
 #[derive(SystemParam)]
 struct CollideHooks<'w, 's> {
@@ -263,7 +288,8 @@ pub fn app_main() {
             .after(cursor::check_egui_wants_focus),
     )
     .add_systems(Update, update_draw_modes)
-    .add_systems(Update, laser::draw_lasers);
+    .add_systems(Update, laser::draw_lasers)
+    .add_systems(Update, apply_custom_forces);
     //.add_systems(PostUpdate, despawn_entities)
     // ;
     objects::add_systems(&mut app);
@@ -527,4 +553,39 @@ macro_rules! systems {
     ($($x:tt)*) => {
         systems!(@ [] [] [] $($x)*);
     };
+}
+
+#[derive(Component, Default)]
+pub struct CustomForce(ExternalForce);
+
+#[derive(Component)]
+pub struct CustomForceDespawn;
+
+pub fn apply_custom_forces(
+    forces: Query<(Entity, &Parent, Ref<CustomForce>, Option<&CustomForceDespawn>)>,
+    mut rapier_forces: Query<&mut ExternalForce>,
+    mut commands: Commands
+) {
+    let mut changed_set = HashSet::new();
+    let mut forces_map: HashMap<_, ExternalForce> = HashMap::new();
+    for (id, parent, force, despawn) in forces.iter() {
+        let entry = forces_map.entry(parent.get()).or_default();
+
+        if despawn.is_some() {
+            changed_set.insert(parent.get());
+            commands.entity(id).despawn();
+            continue;
+        }
+
+        if force.is_changed() {
+            changed_set.insert(parent.get());
+        }
+
+        *entry += force.0;
+    }
+    for body in changed_set {
+        if let Ok(mut force) = rapier_forces.get_mut(body) {
+            *force = forces_map[&body];
+        }
+    }
 }

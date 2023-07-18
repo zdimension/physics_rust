@@ -10,7 +10,7 @@ use bevy_rapier2d::dynamics::{ReadMassProperties, RigidBody, Velocity};
 use bevy_rapier2d::geometry::{
     Collider, ColliderMassProperties, CollisionGroups, Friction, Group, Restitution,
 };
-use bevy_rapier2d::prelude::Sleeping;
+use bevy_rapier2d::prelude::{ExternalForce, Sleeping};
 
 use crate::objects::ColorComponent;
 use crate::update_from::UpdateFrom;
@@ -32,6 +32,7 @@ pub struct PhysicalObject {
     color_upd: UpdateFrom<ColorComponent>,
     fill_stroke: FillStroke,
     sleeping: Sleeping,
+    ext_forces: ExternalForce,
 }
 
 impl PhysicalObject {
@@ -51,6 +52,7 @@ impl PhysicalObject {
             color_upd: UpdateFrom::This,
             fill_stroke: FillStroke::default(),
             sleeping: Sleeping::disabled(), // todo: better
+            ext_forces: ExternalForce::default(),
         }
     }
 
