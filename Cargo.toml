@@ -11,9 +11,8 @@ bevy = { version = "0.11", features = ["trace"] }
 bevy_diagnostic = "0.11"
 bevy_egui = "0.21"
 bevy_prototype_lyon = "0.9.0"
-bevy_rapier2d = { version = "0.22.0", features = ["simd-stable", "wasm-bindgen"] }
 bevy_turborand = "0.6.0"
-bevy_xpbd_2d = { version = "0.1.0", git = "https://github.com/Jondolf/bevy_xpbd.git" }
+bevy_xpbd_2d = { version = "0.2.0", git = "https://github.com/Jondolf/bevy_xpbd", features = ["debug-plugin"] }
 derivative = "2.2.0"
 itertools = "0.11.0"
 lyon_path = "1.0.3"

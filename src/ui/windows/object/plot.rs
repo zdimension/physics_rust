@@ -5,14 +5,15 @@ use bevy::hierarchy::Parent;
 use bevy::prelude::{Commands, Component, Entity, Query, Res, Time, Transform};
 use bevy_egui::egui::plot::{Line, Plot, PlotPoint, PlotPoints};
 use bevy_egui::{egui, EguiContexts};
-use bevy_rapier2d::dynamics::Velocity;
-use bevy_rapier2d::plugin::RapierConfiguration;
+use bevy_xpbd_2d::{math::*, prelude::*};
+use bevy_xpbd_2d::{math::*, prelude::*};
 use itertools::Itertools;
 use paste::paste;
 use std::borrow::Borrow;
 use std::collections::{HashMap, HashSet};
 use std::fmt::{Debug, Display, Formatter};
 use std::hash::{Hash, Hasher};
+use bevy::ecs::query::WorldQuery;
 use crate::systems;
 
 systems!(PlotWindow::show);
@@ -85,14 +86,23 @@ impl PlotSeries {
     }
 }
 
-type PlotQuery<'a> = (
+/*type PlotQuery<'a> = (
     &'a Transform,
     &'a Velocity,
     &'a KineticEnergy,
     &'a GravityEnergy,
     &'a Momentum,
-);
-type QuantityFn = fn(f32, PlotQuery) -> f32;
+);*/
+#[derive(WorldQuery)]
+pub(crate) struct PlotQuery {
+    transform: &'static Transform,
+    linear_velocity: &'static LinearVelocity,
+    angular_velocity: &'static AngularVelocity,
+    kinetic_energy: &'static KineticEnergy,
+    gravity_energy: &'static GravityEnergy,
+    momentum: &'static Momentum,
+}
+type QuantityFn = fn(f32, &PlotQueryItem) -> f32;
 
 struct PlotQuantity {
     name: &'static str,
@@ -114,29 +124,29 @@ const fn quantity(name: &'static str, measure: QuantityFn) -> PlotQuantity {
 static PLOT_QUANTITIES: &[&[PlotQuantity]] = &[
     &[quantity("Time", |time, _| time)],
     &[
-        quantity("Position (x)", |_, query| query.0.translation.x),
-        quantity("Position (y)", |_, query| query.0.translation.y),
+        quantity("Position (x)", |_, query| query.transform.translation.x),
+        quantity("Position (y)", |_, query| query.transform.translation.y),
     ],
     &[
-        quantity("Speed", |_, query| query.1.linvel.length()),
-        quantity("Velocity (x)", |_, query| query.1.linvel.x),
-        quantity("Velocity (y)", |_, query| query.1.linvel.y),
+        quantity("Speed", |_, query| query.linear_velocity.0.length()),
+        quantity("Velocity (x)", |_, query| query.linear_velocity.0.x),
+        quantity("Velocity (y)", |_, query| query.linear_velocity.0.y),
     ],
-    &[quantity("Angular velocity", |_, query| query.1.angvel)],
+    &[quantity("Angular velocity", |_, query| query.angular_velocity.0)],
     // todo: acceleration
     // todo: force
     &[
-        quantity("Momentum (x)", |_, query| query.4.linear.x),
-        quantity("Momentum (y)", |_, query| query.4.linear.y),
+        quantity("Momentum (x)", |_, query| query.momentum.linear.x),
+        quantity("Momentum (y)", |_, query| query.momentum.linear.y),
     ],
-    &[quantity("Angular momentum", |_, query| query.4.angular)],
+    &[quantity("Angular momentum", |_, query| query.momentum.angular)],
     &[
-        quantity("Linear kinetic energy", |_, query| query.2.linear),
-        quantity("Angular kinetic energy", |_, query| query.2.angular),
-        quantity("Kinetic energy (sum)", |_, query| query.2.total()),
-        quantity("Potential gravitational energy", |_, query| query.3.energy),
-        quantity("Potential energy (sum)", |_, query| query.3.energy),
-        quantity("Energy (sum)", |_, query| query.2.total() + query.3.energy),
+        quantity("Linear kinetic energy", |_, query| query.kinetic_energy.linear),
+        quantity("Angular kinetic energy", |_, query| query.kinetic_energy.angular),
+        quantity("Kinetic energy (sum)", |_, query| query.kinetic_energy.total()),
+        quantity("Potential gravitational energy", |_, query| query.gravity_energy.energy),
+        quantity("Potential energy (sum)", |_, query| query.gravity_energy.energy),
+        quantity("Energy (sum)", |_, query| query.kinetic_energy.total() + query.gravity_energy.energy),
     ],
 ];
 
@@ -176,18 +186,18 @@ impl PlotWindow {
         ents: Query<PlotQuery>,
         mut egui_ctx: EguiContexts,
         mut commands: Commands,
-        rapier_conf: Res<RapierConfiguration>,
         time: Res<Time>,
         gui_icons: Res<GuiIcons>,
+        physics: Res<PhysicsLoop>
     ) {
         let ctx = egui_ctx.ctx_mut();
         for (id, parent, mut initial_pos, mut plot) in wnds.iter_mut() {
-            if rapier_conf.physics_pipeline_active {
+            if !physics.paused {
                 let data = ents.get(parent.get()).unwrap();
                 let cur_time = plot.time;
                 for (name, series) in plot.series.iter_mut() {
-                    let x = (name.x.measure)(cur_time, data);
-                    let y = (name.y.measure)(cur_time, data);
+                    let x = (name.x.measure)(cur_time, &data);
+                    let y = (name.y.measure)(cur_time, &data);
                     series.values.push(PlotPoint::new(x, y));
                 }
                 plot.time += time.delta_seconds();

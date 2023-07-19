@@ -3,7 +3,7 @@ use crate::ui::{InitialPos, Subwindow};
 use bevy::hierarchy::Parent;
 use bevy::prelude::{Commands, Component, Entity, Query, Res, With};
 use bevy_egui::{egui, EguiContexts};
-use bevy_rapier2d::geometry::{CollisionGroups, Group};
+use bevy_xpbd_2d::{math::*, prelude::*};
 use crate::systems;
 
 systems!(CollisionsWindow::show);
@@ -13,10 +13,22 @@ pub struct CollisionsWindow;
 
 const GROUP_COUNT: usize = 10;
 
+pub struct CollisionLayer(pub u32);
+
+impl PhysicsLayer for CollisionLayer {
+    fn to_bits(&self) -> u32 {
+        self.0
+    }
+
+    fn all_bits() -> u32 {
+        u32::MAX
+    }
+}
+
 impl CollisionsWindow {
     pub fn show(
         mut wnds: Query<(Entity, &Parent, &mut InitialPos), With<CollisionsWindow>>,
-        mut ents: Query<&mut CollisionGroups>,
+        mut ents: Query<&mut CollisionLayers>,
         gui_icons: Res<GuiIcons>,
         mut egui_ctx: EguiContexts,
         mut commands: Commands,
@@ -34,28 +46,26 @@ impl CollisionsWindow {
                                 .add(egui::ImageButton::new(gui_icons.arrow_up, [16.0, 32.0]))
                                 .clicked()
                             {
-                                let val = groups.memberships.bits();
+                                let val = groups.groups_bits();
                                 let shifted = val >> 1;
                                 let new_val = shifted | ((val & 1) << (GROUP_COUNT - 1));
-                                groups.memberships = Group::from_bits_truncate(new_val);
-                                groups.filters = groups.memberships;
+                                *groups = CollisionLayers::from_bits(new_val, new_val);
                             }
                             if ui
                                 .add(egui::ImageButton::new(gui_icons.arrow_down, [16.0, 32.0]))
                                 .clicked()
                             {
-                                let val = groups.memberships.bits();
+                                let val = groups.groups_bits();
                                 let shifted = val << 1;
                                 let new_val = shifted
                                     | ((val & (1 << (GROUP_COUNT - 1))) >> (GROUP_COUNT - 1));
-                                groups.memberships = Group::from_bits_truncate(new_val);
-                                groups.filters = groups.memberships;
+                                *groups = CollisionLayers::from_bits(new_val, new_val);
                             }
                         });
                         ui.vertical(|ui| {
                             for i in 0..GROUP_COUNT {
-                                let flag = Group::from_bits_truncate(1 << i);
-                                let mut checked = groups.memberships.contains(flag);
+                                let flag = 1 << i;
+                                let mut checked = groups.groups_bits() & flag != 0;
                                 if ui
                                     .checkbox(
                                         &mut checked,
@@ -66,20 +76,22 @@ impl CollisionsWindow {
                                     )
                                     .changed()
                                 {
-                                    groups.memberships.set(flag, checked);
-                                    groups.filters = groups.memberships;
+                                    let new_val = if checked {
+                                        groups.groups_bits() | flag
+                                    } else {
+                                        groups.groups_bits() & !flag
+                                    };
+                                    *groups = CollisionLayers::from_bits(new_val, new_val);
                                 }
                             }
                         });
                     });
                     ui.horizontal(|ui| {
                         if ui.button("Check all").clicked() {
-                            groups.memberships = Group::from_bits_truncate((1 << GROUP_COUNT) - 1);
-                            groups.filters = groups.memberships;
+                            *groups = CollisionLayers::all::<CollisionLayer>();
                         }
                         if ui.button("Uncheck all").clicked() {
-                            groups.memberships = Group::empty();
-                            groups.filters = groups.memberships;
+                            *groups = CollisionLayers::none();
                         }
                     });
                 });

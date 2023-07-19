@@ -1,12 +1,12 @@
-use crate::measures::KineticEnergy;
+use crate::measures::{GravityEnergy, KineticEnergy};
 use crate::ui::{InitialPos, Subwindow};
 use bevy::hierarchy::Parent;
-use bevy::prelude::{Commands, Component, Entity, Query, Res, Transform, With};
+use bevy::prelude::{Commands, Component, Entity, GlobalTransform, Query, Res, Transform, With};
 use bevy_egui::egui::Ui;
 use bevy_egui::{egui, EguiContexts};
-use bevy_rapier2d::dynamics::{ReadMassProperties, Velocity};
-use bevy_rapier2d::geometry::ColliderMassProperties;
-use bevy_rapier2d::plugin::RapierConfiguration;
+use bevy_xpbd_2d::{math::*, prelude::*};
+use bevy_xpbd_2d::{math::*, prelude::*};
+use bevy_xpbd_2d::{math::*, prelude::*};
 use crate::systems;
 
 systems!(InformationWindow::show);
@@ -18,19 +18,20 @@ impl InformationWindow {
     pub fn show(
         mut wnds: Query<(Entity, &Parent, &mut InitialPos), With<InformationWindow>>,
         ents: Query<(
-            Option<&Transform>,
-            Option<&ReadMassProperties>,
-            Option<&Velocity>,
+            Option<&Position>,
+            Option<&GravityEnergy>,
+            Option<&LinearVelocity>,
+            Option<&AngularVelocity>,
             Option<&ColliderMassProperties>,
             Option<&KineticEnergy>,
         )>,
-        rapier_conf: Res<RapierConfiguration>,
+        gravity: Res<Gravity>,
         mut egui_ctx: EguiContexts,
         mut commands: Commands,
     ) {
         let ctx = egui_ctx.ctx_mut();
         for (id, parent, mut initial_pos) in wnds.iter_mut() {
-            let (xform, mass, vel, coll_mass, kine) = ents.get(parent.get()).unwrap();
+            let (xform, grav, linvel, angvel, coll_mass, kine) = ents.get(parent.get()).unwrap();
             egui::Window::new("info").subwindow(
                 id,
                 ctx,
@@ -43,18 +44,14 @@ impl InformationWindow {
                         ui.end_row();
                     }
                     egui::Grid::new("info grid").striped(true).show(ui, |ui| {
-                        if let Some(ReadMassProperties(mass)) = mass {
-                            line(ui, "Mass", format!("{:.3} kg", mass.mass));
+                        if let Some(cmp) = coll_mass {
+                            line(ui, "Mass", format!("{:.3} kg", cmp.mass.0));
 
                             line(
                                 ui,
                                 "Moment of inertia",
-                                format!("{:.3} kgm²", mass.principal_inertia),
+                                format!("{:.3} kgm²", cmp.inertia.0),
                             );
-                        }
-
-                        if let Some(props) = coll_mass {
-                            line(ui, "Collider mass", format!("{:?}", props));
                         }
 
                         if let Some(xform) = xform {
@@ -63,19 +60,20 @@ impl InformationWindow {
                                 "Position",
                                 format!(
                                     "[x={:.3}, y={:.3}] m",
-                                    xform.translation.x, xform.translation.y
+                                    xform.0.x, xform.0.y
                                 ),
                             );
                         }
 
-                        if let Some(vel) = vel {
+                        if let Some(vel) = linvel {
                             line(
                                 ui,
                                 "Velocity",
-                                format!("[x={:.3}, y={:.3}] m/s", vel.linvel.x, vel.linvel.y),
+                                format!("[x={:.3}, y={:.3}] m/s", vel.0.x, vel.0.y),
                             );
-
-                            line(ui, "Angular velocity", format!("{:.3} rad/s", vel.angvel));
+                        }
+                        if let Some(vel) = angvel {
+                            line(ui, "Angular velocity", format!("{:.3} rad/s", vel.0));
                         }
                     });
                     ui.separator();
@@ -88,9 +86,8 @@ impl InformationWindow {
                             total += linear + angular;
                         }
 
-                        if let Some(ReadMassProperties(mass)) = mass {
-                            let pot =
-                                mass.mass * -rapier_conf.gravity.y * xform.unwrap().translation.y;
+                        if let Some(GravityEnergy { energy }) = grav {
+                            let pot = energy;
                             line(ui, "Potential energy (gravity)", format!("{:.3} J", pot)); // todo: nonvertical gravity
                             total += pot;
                         }

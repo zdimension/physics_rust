@@ -1,4 +1,6 @@
+use std::ops::{DerefMut, RangeInclusive};
 use bevy::ecs::system::SystemParam;
+use bevy::math::Vec3Swizzles;
 use bevy::prelude::*;
 use bevy::render::texture::ImageSampler;
 use bevy::utils::{HashMap, HashSet};
@@ -6,11 +8,11 @@ use bevy::utils::{HashMap, HashSet};
 use bevy_diagnostic::FrameTimeDiagnosticsPlugin;
 use bevy_egui::egui::epaint::{Hsva, Shadow};
 use bevy_egui::egui::style::Widgets;
-use bevy_egui::egui::{Color32, Rounding};
+use bevy_egui::egui::{Color32, emath, Rounding, Slider, Ui};
 use bevy_egui::{egui::{self}, EguiContexts, EguiPlugin, EguiSettings};
 use bevy_mouse_tracking_plugin::{prelude::*, MainCamera};
 use bevy_prototype_lyon::prelude::*;
-use bevy_rapier2d::prelude::*;
+use bevy_xpbd_2d::{math::*, prelude::*};
 //use bevy_prototype_lyon::prelude::{DrawMode, FillMode, ShapePlugin};
 use bevy_turborand::prelude::*;
 pub use egui::egui_assert;
@@ -64,25 +66,17 @@ pub trait InvTransformPoint {
     fn to_local(&self, point: Vec2) -> Vec2;
 }
 
-impl InvTransformPoint for Transform {
+impl InvTransformPoint for GlobalTransform {
     fn to_global(&self, point: Vec2) -> Vec2 {
-        let mut point = point.extend(0.);
-        point *= self.scale;
-        point = self.rotation * point;
-        point += self.translation;
-        point.truncate()
+        self.transform_point(point.extend(0.)).xy()
     }
 
     fn to_local(&self, point: Vec2) -> Vec2 {
-        let mut point = point.extend(0.);
-        point -= self.translation;
-        point = self.rotation.conjugate() * point;
-        point /= self.scale;
-        point.truncate()
+        self.affine().inverse().transform_point3(point.extend(0.)).xy()
     }
 }
 
-#[derive(SystemParam)]
+/*#[derive(SystemParam)]
 struct CollideHooks<'w, 's> {
     query: Query<'w, 's, CollideHookData<'static>>,
 }
@@ -115,7 +109,7 @@ impl<'w, 's> BevyPhysicsHooks for CollideHooks<'w, 's> {
             Some(SolverFlags::COMPUTE_IMPULSES)
         }
     }
-}
+}*/
 
 mod stages {
     pub(crate) const MAIN: &str = "main";
@@ -195,21 +189,29 @@ pub fn app_main() {
         .init_resource::<SkinConfig>()
         .init_resource::<AppConfig>()
         .init_resource::<DragConfig>()
-        .insert_resource(RapierConfiguration {
+        .insert_resource(SubstepCount(50))
+        .insert_resource(Gravity(Vec2::NEG_Y * 9.81))
+        /*.insert_resource(RapierConfiguration {
             gravity: Vect::Y * -9.81,
             physics_pipeline_active: false,
             ..Default::default()
-        })
+        })*/
         .insert_resource(OverlayState::default())
         .insert_resource(cursor::EguiWantsFocus::default())
-        .add_plugins(RapierPhysicsPlugin::<CollideHooks>::pixels_per_meter(1.0))
+        .insert_resource({
+            let mut loop_ = PhysicsLoop::default();
+            loop_.paused = true;
+            loop_
+        })
+        .add_plugins(PhysicsPlugins::default())
+        /*.add_plugins(RapierPhysicsPlugin::<CollideHooks>::pixels_per_meter(1.0))
         .add_plugins(RapierDebugRenderPlugin {
             style: DebugRenderStyle {
                 rigid_body_axes_length: 1.0,
                 ..Default::default()
             },
             ..Default::default()
-        })
+        })*/
         .add_plugins(MousePosPlugin)
         .add_plugins(ShapePlugin)
         .add_plugins(FrameTimeDiagnosticsPlugin::default())
@@ -566,7 +568,7 @@ pub fn apply_custom_forces(
     mut rapier_forces: Query<&mut ExternalForce>,
     mut commands: Commands
 ) {
-    let mut changed_set = HashSet::new();
+    /*let mut changed_set = HashSet::new();
     let mut forces_map: HashMap<_, ExternalForce> = HashMap::new();
     for (id, parent, force, despawn) in forces.iter() {
         let entry = forces_map.entry(parent.get()).or_default();
@@ -587,5 +589,39 @@ pub fn apply_custom_forces(
         if let Ok(mut force) = rapier_forces.get_mut(body) {
             *force = forces_map[&body];
         }
+    }*/
+}
+
+enum UpdateStatus<T> {
+    Changed(T),
+    Unchanged,
+}
+
+fn add_slider<T: emath::Numeric>(
+    ui: &mut Ui,
+    current: T,
+    range: RangeInclusive<T>,
+    settings: impl FnOnce(Slider) -> Slider) -> UpdateStatus<T> {
+    let mut val = current;
+    if ui.add(settings(Slider::new(&mut val, range))).changed() {
+        UpdateStatus::Changed(val)
+    } else {
+        UpdateStatus::Unchanged
     }
+}
+
+#[macro_export]
+macro_rules! update_changed {
+    ($ui:expr, $target:expr, $range:expr, $settings:expr) => {
+        {
+            use egui::{Slider, Widget};
+            let current = $target;
+            fn update_slider<'a, T: Widget + 'a>(f: impl FnOnce(Slider<'a>) -> T, s: Slider<'a>) -> T {
+                f(s)
+            }
+            if $ui.add(update_slider($settings, Slider::new(&mut $target, $range))).changed() {
+                $target = current;
+            }
+        }
+    };
 }

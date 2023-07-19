@@ -7,8 +7,8 @@ use bevy::math::{Vec2, Vec2Swizzles};
 use bevy::prelude::*;
 use bevy_egui::egui::epaint::util::{FloatOrd, OrderedFloat};
 use bevy_mouse_tracking_plugin::MousePos;
-use bevy_rapier2d::pipeline::QueryFilter;
-use bevy_rapier2d::plugin::RapierContext;
+use bevy_xpbd_2d::{math::*, prelude::*};
+use bevy_xpbd_2d::{math::*, prelude::*};
 use derivative::Derivative;
 
 #[derive(Event)]
@@ -42,9 +42,9 @@ pub fn process_select(
 }
 
 pub fn find_under_mouse(
-    rapier: &RapierContext,
+    query: &SpatialQuery,
     pos: Vec2,
-    filter: QueryFilter,
+    filter: SpatialQueryFilter,
     mut z: impl FnMut(Entity) -> f32,
 ) -> impl Iterator<Item = Entity> {
     #[derive(Derivative)]
@@ -57,7 +57,7 @@ pub fn find_under_mouse(
 
     let mut set = BTreeSet::new();
 
-    rapier.intersections_with_point(pos, filter, |ent| {
+    query.point_intersections_callback(pos, filter, |ent| {
         set.insert(EntityZ {
             entity: ent,
             z: z(ent).ord(),
@@ -76,7 +76,7 @@ pub struct SelectUnderMouseEvent {
 
 pub fn process_select_under_mouse(
     mut events: EventReader<SelectUnderMouseEvent>,
-    rapier: Res<RapierContext>,
+    spatial_query: SpatialQuery,
     mut select: EventWriter<SelectEvent>,
     query: Query<&Transform>,
     mut commands: Commands,
@@ -86,7 +86,7 @@ pub fn process_select_under_mouse(
         for id in wnds.iter() {
             commands.entity(id).despawn_recursive();
         }
-        let selected = find_under_mouse(&rapier, pos, QueryFilter::default(), |ent| {
+        let selected = find_under_mouse(&spatial_query, pos, Default::default(), |ent| {
             let Ok(transform) = query.get(ent) else {
                 panic!("Entity {:?} has no transform", ent)
             };

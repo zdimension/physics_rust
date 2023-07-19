@@ -1,7 +1,7 @@
 use crate::objects::hinge::HingeObject;
 use crate::objects::phy_obj::PhysicalObject;
 use bevy::prelude::*;
-use bevy_rapier2d::prelude::*;
+use bevy_xpbd_2d::{math::*, prelude::*};
 
 pub fn init(commands: &mut ChildBuilder) {
     let mut z = 1.0;
@@ -10,9 +10,9 @@ pub fn init(commands: &mut ChildBuilder) {
         z
     };
     let ground = PhysicalObject::rect(Vec2::new(8.0, 0.5), Vec3::new(-4.0, -3.0, z()));
-    commands.spawn(ground).insert(RigidBody::Fixed);
+    commands.spawn(ground).insert(RigidBody::Static);
 
-    for i in 0..5 {
+    /*for i in 0..5 {
         let stick = PhysicalObject::rect(
             Vec2::new(0.4, 2.4),
             Vec3::new(-1.0 + i as f32 * 0.8, 1.8, z()),
@@ -77,5 +77,5 @@ pub fn init(commands: &mut ChildBuilder) {
                 .local_anchor2(Vec2::new(-1.6, 4.0)),
         ),
         RigidBody::Dynamic,
-    ));
+    ));*/
 }

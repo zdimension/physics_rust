@@ -1,8 +1,8 @@
 use bevy::math::{Vec2, Vec3Swizzles};
 use bevy::prelude::*;
 use bevy_mouse_tracking_plugin::MainCamera;
-use bevy_rapier2d::prelude::*;
-use crate::{CustomForce, FOREGROUND_Z};
+use bevy_xpbd_2d::{math::*, prelude::*};
+use crate::{CustomForce, FOREGROUND_Z, InvTransformPoint};
 
 #[derive(Copy, Clone, Debug)]
 pub struct DragState {
@@ -44,7 +44,7 @@ pub fn init_drag(mut commands: Commands) {
 pub fn process_drag(
     mut events: EventReader<DragEvent>,
     mut drag_data: Query<&mut CustomForce, With<DragObject>>,
-    drag_ent: Query<(&Transform, &Velocity), Without<MainCamera>>,
+    mut drag_ent: Query<(&GlobalTransform, &Position, &LinearVelocity, &mut ExternalForce), Without<MainCamera>>,
     mut commands: Commands,
     mut gizmos: Gizmos,
     config: Res<DragConfig>,
@@ -53,11 +53,11 @@ pub fn process_drag(
     let cam_scale = cameras.single().scale.x;
     for ev in events.iter() {
         let Ok(mut drag_data) = drag_data.get_mut(ev.state.drag_entity) else { return };
-        let (xform, vel) = drag_ent.get(ev.state.entity).unwrap();
-        let actual_pos = xform.transform_point(ev.state.orig_obj_pos.extend(1.0)).xy();
-        let force = (ev.mouse_pos - actual_pos) * config.strength * cam_scale - vel.linvel * 20.0;
+        let (xform, pos, vel, mut forces) = drag_ent.get_mut(ev.state.entity).unwrap();
+        let actual_pos = xform.to_global(ev.state.orig_obj_pos);
+        let force = (ev.mouse_pos - actual_pos) * config.strength * cam_scale - vel.0 * 20.0;
         info!("drag force: {:?}", force);
-        drag_data.0 = ExternalForce::at_point(force, ev.mouse_pos, xform.translation.xy());
+        forces.apply_force_at_point(force, ev.mouse_pos, pos.0);
         gizmos.line(ev.mouse_pos.extend(FOREGROUND_Z), actual_pos.extend(FOREGROUND_Z), Color::WHITE);
     }
 }

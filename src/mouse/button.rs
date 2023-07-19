@@ -4,7 +4,7 @@ use bevy::prelude::{Commands, DespawnRecursiveExt, Entity, EventWriter, MouseBut
 use bevy::utils::Duration;
 use bevy_egui::EguiContexts;
 use bevy_mouse_tracking_plugin::{MousePos, MousePosWorld};
-use bevy_rapier2d::prelude::{ExternalForce, ImpulseJoint};
+use bevy_xpbd_2d::{math::*, prelude::*};
 
 use pan::PanState;
 
@@ -156,7 +156,7 @@ pub fn left_pressed(
     mut ev_drag: EventWriter<DragEvent>,
     mut overlay: ResMut<OverlayState>,
     time: Res<Time>,
-    xform: Query<&Transform>,
+    xform: Query<(&Rotation, &Position)>,
 ) {
     let screen_pos = **screen_pos;
 
@@ -229,17 +229,17 @@ pub fn left_pressed(
                                 mouse_pos: pos,
                                 scale: state.scale,
                             });
-                            let xf = xform.get(entity).expect("Missing xform");
+                            let (rot, pos) = xform.get(entity).expect("Missing xform");
                             *overlay = OverlayState {
                                 draw_ent: Some((
                                     state.overlay_ent,
                                     Overlay::Rotate(
-                                        xf.rotation.to_rot(),
+                                        rot.as_radians(),
                                         state.scale,
-                                        state.orig_obj_rot.to_rot(),
+                                        state.orig_obj_rot,
                                         click_pos,
                                     ),
-                                    xf.translation.xy(),
+                                    pos.0,
                                 )),
                             };
                         } else {
@@ -279,7 +279,7 @@ pub fn left_pressed(
                         };
                     }
                     _ => {
-                        info!("{:?}", *state_button);
+                        info!("current_state: {:?}", *state_button);
                         let long_press = time.elapsed() - at > Duration::from_millis(200);
                         let moved = (click_pos - pos).length() > 0.0;
                         let long_or_moved = long_press || moved;

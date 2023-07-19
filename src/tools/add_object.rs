@@ -8,11 +8,11 @@ use crate::palette::PaletteConfig;
 use crate::ui::images::AppIcons;
 use crate::ui::UiState;
 use crate::update_from::UpdateFrom;
-use crate::BORDER_THICKNESS;
+use crate::{BORDER_THICKNESS, InvTransformPoint};
 use bevy::hierarchy::BuildChildren;
 use bevy::log::info;
 use bevy::math::{Vec2, Vec3, Vec3Swizzles};
-use bevy::prelude::{Color, Entity, Event, SpatialBundle, Sprite, SpriteBundle};
+use bevy::prelude::{Color, Entity, Event, GlobalTransform, SpatialBundle, Sprite, SpriteBundle};
 use bevy::prelude::{
     Commands, EventReader, EventWriter, Local, Query, Res, Transform, With, Without,
 };
@@ -20,16 +20,18 @@ use bevy_mouse_tracking_plugin::MainCamera;
 use bevy_prototype_lyon::geometry::GeometryBuilder;
 use bevy_prototype_lyon::prelude::ShapeBundle;
 use bevy_prototype_lyon::shapes;
-use bevy_rapier2d::dynamics::RigidBody;
-use bevy_rapier2d::dynamics::{
-    FixedJointBuilder, ImpulseJoint, MultibodyJoint, RevoluteJointBuilder,
-};
-use bevy_rapier2d::geometry::Sensor;
-use bevy_rapier2d::geometry::{ActiveHooks, Collider};
-use bevy_rapier2d::pipeline::QueryFilter;
-use bevy_rapier2d::plugin::RapierContext;
+use bevy_xpbd_2d::{math::*, prelude::*};
 use bevy_turborand::RngComponent;
 use AddObjectEvent::*;
+use crate::ui::windows::object::collisions::CollisionLayer;
+
+const VIRTUAL_LAYER: u32 = 1 << 31;
+
+static VIRTUAL_LAYER_OBJ: CollisionLayers = CollisionLayers::from_bits(VIRTUAL_LAYER, VIRTUAL_LAYER);
+
+pub fn query_only_real() -> SpatialQueryFilter {
+    SpatialQueryFilter::new().with_masks_from_bits(0xffff_ffff ^ VIRTUAL_LAYER)
+}
 
 #[derive(Debug, Event)]
 pub enum AddHingeEvent {
@@ -51,8 +53,7 @@ const DEFAULT_OBJ_SIZE: f32 = 66.0;
 
 pub fn process_add_object(
     mut events: EventReader<AddObjectEvent>,
-    rapier: Res<RapierContext>,
-    mut query: Query<(&mut Transform, &mut RigidBody), Without<MainCamera>>,
+    mut query: Query<(&mut GlobalTransform, &mut RigidBody), Without<MainCamera>>,
     images: Res<AppIcons>,
     mut commands: Commands,
     mut cameras: Query<&mut Transform, With<MainCamera>>,
@@ -62,6 +63,7 @@ pub fn process_add_object(
     mut select_mouse: EventWriter<SelectUnderMouseEvent>,
     sensor: Query<&Sensor>,
     ui_state: Res<UiState>,
+    spatial_query: SpatialQuery
 ) {
     let palette = &palette_config.current_palette;
 
@@ -100,12 +102,12 @@ pub fn process_add_object(
             Fix(pos) => {
                 let (entity1, entity2) = {
                     let mut entities = select::find_under_mouse(
-                        &rapier,
+                        &spatial_query,
                         pos,
-                        QueryFilter::only_dynamic(),
+                        query_only_real(),
                         |ent| {
                             let (transform, _) = query.get(ent).unwrap();
-                            transform.translation.z
+                            transform.translation_vec3a().z
                         },
                     );
                     (entities.next(), entities.next())
@@ -122,12 +124,12 @@ pub fn process_add_object(
 
                     let (transform, _) = query.get_mut(entity1).unwrap();
                     let anchor1 = transform
-                        .compute_affine()
+                        .affine()
                         .inverse()
                         .transform_point3(pos.extend(0.0))
                         .xy();
 
-                    if let Some(entity2) = entity2 {
+                    /*if let Some(entity2) = entity2 {
                         let (transform, _) = query.get_mut(entity2).unwrap();
                         let anchor2 = transform
                             .compute_affine()
@@ -152,19 +154,19 @@ pub fn process_add_object(
                                 RigidBody::Dynamic,
                             ))
                             .set_parent(ui_state.scene);
-                    }
+                    }*/
                 }
             }
             Hinge(ref ev) => {
                 let (entity1, anchor1, entity1z, entity2, pos) = match *ev {
                     AddHingeEvent::Mouse(pos) => {
                         let mut entities = select::find_under_mouse(
-                            &rapier,
+                            &spatial_query,
                             pos,
-                            QueryFilter::only_dynamic(),
+                            query_only_real(),
                             |ent| {
                                 let (transform, _) = query.get(ent).unwrap();
-                                transform.translation.z
+                                transform.translation_vec3a().z
                             },
                         );
                         let (entity1, entity2) = (entities.next(), entities.next());
@@ -185,12 +187,8 @@ pub fn process_add_object(
                             commands.entity(entity1).log_components();
                             continue;
                         };
-                        let anchor1 = transform
-                            .compute_affine()
-                            .inverse()
-                            .transform_point3(pos.extend(0.0))
-                            .xy();
-                        (entity1, anchor1, transform.translation.z, entity2, pos)
+                        let anchor1 = transform.to_local(pos);
+                        (entity1, anchor1, transform.translation_vec3a().z, entity2, pos)
                     }
                     AddHingeEvent::AddCenter(ent) => {
                         let entity1 = ent;
@@ -200,18 +198,18 @@ pub fn process_add_object(
                             commands.entity(entity1).log_components();
                             continue;
                         };
-                        let pos = transform.translation.xy();
+                        let pos = transform.translation_vec3a().xy();
                         let entity2 = select::find_under_mouse(
-                            &rapier,
+                            &spatial_query,
                             pos,
-                            QueryFilter::only_dynamic().exclude_collider(entity1),
+                            query_only_real().without_entities([entity1]),
                             |ent| {
                                 let (transform, _) = query.get(ent).unwrap();
-                                transform.translation.z
+                                transform.translation_vec3a().z
                             },
                         )
                         .next();
-                        (entity1, anchor1, transform.translation.z, entity2, pos)
+                        (entity1, anchor1, transform.translation_vec3a().z, entity2, pos)
                     }
                 };
 
@@ -238,6 +236,7 @@ pub fn process_add_object(
                             crate::make_stroke(Color::rgba(0.0, 0.0, 0.0, 0.0), BORDER_THICKNESS),
                             SpriteOnly,
                             Collider::ball(0.5),
+
                             Sensor,
                             ColorComponent(palette.get_color_hsva_opaque(&mut *rng.single_mut()))
                                 .update_from_this(),
@@ -290,7 +289,7 @@ pub fn process_add_object(
                         })
                         .id();
                     if let Some(entity2) = entity2 {
-                        let (transform, _) = query.get_mut(entity2).unwrap();
+                        /*let (transform, _) = query.get_mut(entity2).unwrap();
                         let anchor2 = transform
                             .compute_affine()
                             .inverse()
@@ -310,19 +309,34 @@ pub fn process_add_object(
                                     .local_anchor2(anchor2),
                             ),
                             ActiveHooks::FILTER_CONTACT_PAIRS,
-                        ));
-                    } else {
+                        ));*/
+                        let (transform, _) = query.get_mut(entity2).unwrap();
+                        let anchor2 = transform.to_local(pos);
+                        info!(
+                            "hinge: {:?} {:?} {:?} {:?}",
+                            entity1, anchor1, entity2, anchor2
+                        );
                         commands
                             .spawn((
                                 HingeObject,
                                 UpdateFrom::<MotorComponent>::entity(hinge_real_ent),
-                                ImpulseJoint::new(
-                                    entity1,
-                                    RevoluteJointBuilder::new()
-                                        .local_anchor1(anchor1)
-                                        .local_anchor2(pos),
-                                ),
-                                RigidBody::Dynamic,
+                                RevoluteJoint::new(entity1, entity2)
+                                    .with_local_anchor_1(anchor1)
+                                    .with_local_anchor_2(anchor2)
+                            ))
+                            .set_parent(ui_state.scene);
+                    } else {
+                        let rigid =
+                        commands.spawn((
+                            RigidBody::Kinematic,
+                            Position(pos)
+                            )).id();
+                        commands
+                            .spawn((
+                                HingeObject,
+                                UpdateFrom::<MotorComponent>::entity(hinge_real_ent),
+                                RevoluteJoint::new(entity1, rigid)
+                                    .with_local_anchor_1(anchor1)
                             ))
                             .set_parent(ui_state.scene);
                     }
@@ -330,8 +344,8 @@ pub fn process_add_object(
             }
             Laser(pos) => {
                 let entity =
-                    select::find_under_mouse(&rapier, pos, QueryFilter::only_dynamic(), |ent| {
-                        query.get(ent).unwrap().0.translation.z
+                    select::find_under_mouse(&spatial_query, pos, query_only_real(), |ent| {
+                        query.get(ent).unwrap().0.translation_vec3a().z
                     })
                     .next();
 
@@ -352,7 +366,7 @@ pub fn process_add_object(
 
                 let laser_pos = if let Some(entity) = entity {
                     commands.entity(entity).add_child(laser);
-                    pos - query.get(entity).unwrap().0.translation.xy()
+                    pos - query.get(entity).unwrap().0.translation_vec3a().xy()
                 } else {
                     pos
                 };

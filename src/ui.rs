@@ -7,7 +7,7 @@ use bevy_diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin};
 use bevy_egui::egui::{pos2, Context, Id, Pos2, Ui, Align2};
 use bevy_egui::{egui, EguiContexts};
 use bevy_mouse_tracking_plugin::{MainCamera, MousePos, MousePosWorld};
-use bevy_rapier2d::plugin::RapierConfiguration;
+use bevy_xpbd_2d::{math::*, prelude::*};
 use derivative::Derivative;
 
 use crate::objects::laser::LaserRays;
@@ -63,7 +63,6 @@ pub fn ui_example(
     mut cmds: Commands,
     mouse: Res<MousePosWorld>,
     mouse_sc: Res<MousePos>,
-    rapier: Res<RapierConfiguration>,
     diag: Res<DiagnosticsStore>,
 ) {
     if !*is_initialized {
@@ -102,9 +101,9 @@ pub fn ui_example(
         ui.collapsing("UI state", |ui| {
             ui.monospace(format!("{:#?}", ui_state));
         });
-        ui.collapsing("Rapier", |ui| {
+        /*ui.collapsing("Rapier", |ui| {
             ui.monospace(format!("{:#?}", rapier));
-        });
+        });*/
         ui.collapsing("FPS", |ui| {
             ui.monospace(format!(
                 "{:.2}",

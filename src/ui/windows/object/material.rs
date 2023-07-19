@@ -2,8 +2,9 @@ use crate::objects::phy_obj::RefractiveIndex;
 use crate::ui::{InitialPos, Subwindow};
 use bevy::prelude::{Commands, Component, Entity, Parent, Query, With};
 use bevy_egui::{egui, EguiContexts};
-use bevy_rapier2d::prelude::{Friction, Restitution};
-use crate::systems;
+use bevy_xpbd_2d::{math::*, prelude::*};
+use crate::{add_slider, systems, update_changed};
+use crate::UpdateStatus::Changed;
 
 systems!(MaterialWindow::show);
 
@@ -25,25 +26,25 @@ impl MaterialWindow {
                 .resizable(false)
                 .default_size(egui::Vec2::ZERO)
                 .subwindow(id, ctx, &mut initial_pos, &mut commands, |ui, _commands| {
-                    ui.add(
-                        egui::Slider::new(&mut friction.coefficient, 0.0..=2.0)
-                            .text("Friction :")
-                            .custom(),
-                    );
+                    update_changed!(ui, friction.static_coefficient, 0.0..=2.0, |slider| {
+                        slider.text("Static friction :").custom()
+                    });
 
-                    ui.add(
-                        egui::Slider::new(&mut restitution.coefficient, 0.0..=1.0)
-                            .text("Restitution :")
-                            .custom(),
-                    );
+                    update_changed!(ui, friction.dynamic_coefficient, 0.0..=2.0, |slider| {
+                        slider.text("Dynamic friction :").custom()
+                    });
 
-                    ui.add(
-                        egui::Slider::new(&mut refractive.0, 1.0..=f32::INFINITY)
+                    update_changed!(ui, restitution.coefficient, 0.0..=1.0, |slider| {
+                        slider.text("Restitution :").custom()
+                    });
+
+                   update_changed!(ui, refractive.0, 1.0..=f32::INFINITY, |slider| {
+                        slider
                             .logarithmic(true)
                             .largest_finite(100.0)
-                            .text("Refractive index :")
-                            .custom(),
-                    );
+                       .text("Refractive index :")
+                       .custom()
+                    });
                 });
         }
     }

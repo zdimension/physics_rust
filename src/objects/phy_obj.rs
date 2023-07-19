@@ -1,4 +1,4 @@
-use bevy::math::{Vec2, Vec3};
+use bevy::math::{Vec2, Vec3, Vec3Swizzles};
 use bevy::prelude::*;
 use bevy_egui::egui::ecolor::Hsva;
 
@@ -6,11 +6,7 @@ use bevy_prototype_lyon::entity::ShapeBundle;
 use bevy_prototype_lyon::geometry::GeometryBuilder;
 use bevy_prototype_lyon::prelude::RectangleOrigin;
 use bevy_prototype_lyon::shapes;
-use bevy_rapier2d::dynamics::{ReadMassProperties, RigidBody, Velocity};
-use bevy_rapier2d::geometry::{
-    Collider, ColliderMassProperties, CollisionGroups, Friction, Group, Restitution,
-};
-use bevy_rapier2d::prelude::{ExternalForce, Sleeping};
+use bevy_xpbd_2d::{math::*, prelude::*, components::*};
 
 use crate::objects::ColorComponent;
 use crate::update_from::UpdateFrom;
@@ -19,40 +15,42 @@ use crate::FillStroke;
 #[derive(Bundle)]
 pub struct PhysicalObject {
     rigid_body: RigidBody,
-    velocity: Velocity,
+    //velocity: Velocity,
     collider: Collider,
     friction: Friction,
     restitution: Restitution,
     mass_props: ColliderMassProperties,
     shape: ShapeBundle,
-    read_props: ReadMassProperties,
-    groups: CollisionGroups,
+    //read_props: ReadMassProperties,
+    groups: CollisionLayers,
     refractive_index: RefractiveIndex,
     color: ColorComponent,
     color_upd: UpdateFrom<ColorComponent>,
     fill_stroke: FillStroke,
-    sleeping: Sleeping,
+    sleeping: SleepingDisabled,
     ext_forces: ExternalForce,
+    pos: Position,
 }
 
 impl PhysicalObject {
-    pub fn make(collider: Collider, shape: ShapeBundle) -> Self {
+    pub fn make(collider: Collider, shape: ShapeBundle, pos: Position) -> Self {
         Self {
             rigid_body: RigidBody::Dynamic,
-            velocity: Velocity::default(),
+            //velocity: Velocity::default(),
+            mass_props: ColliderMassProperties::new_computed(&collider, 2.0),
             collider,
             friction: Friction::default(),
-            restitution: Restitution::coefficient(0.7),
-            mass_props: ColliderMassProperties::Density(1.0),
+            restitution: Restitution::new(0.7),
             shape,
-            read_props: ReadMassProperties::default(),
-            groups: CollisionGroups::new(Group::GROUP_1, Group::GROUP_1),
+            //read_props: ReadMassProperties::default(),
+            groups: CollisionLayers::from_bits(1, 1),
             refractive_index: RefractiveIndex::default(),
             color: ColorComponent(Hsva::new(0.0, 1.0, 1.0, 1.0)),
             color_upd: UpdateFrom::This,
             fill_stroke: FillStroke::default(),
-            sleeping: Sleeping::disabled(), // todo: better
-            ext_forces: ExternalForce::default(),
+            sleeping: SleepingDisabled, // todo: better
+            ext_forces: ExternalForce::default().with_persistence(false),
+            pos,
         }
     }
 
@@ -65,9 +63,10 @@ impl PhysicalObject {
                     radius,
                     ..Default::default()
                 }),
-                transform: Transform::from_translation(pos),
+                global_transform: GlobalTransform::from_translation(Vec3::new(0.0, 0.0, pos.z)),
                 ..Default::default()
             },
+            Position(pos.xy()),
         )
     }
 
@@ -81,29 +80,32 @@ impl PhysicalObject {
             size.y = -size.y;
         }
         Self::make(
-            Collider::cuboid(size.x / 2.0, size.y / 2.0),
+            Collider::cuboid(size.x, size.y),
             ShapeBundle {
                 path: GeometryBuilder::build_as(&shapes::Rectangle {
                     extents: size,
                     origin: RectangleOrigin::Center,
                 }),
-                transform: Transform::from_translation(pos + (size / 2.0).extend(0.0)),
+                transform: Transform::from_translation((size / 2.0).extend(0.0)),
+                global_transform: GlobalTransform::from_translation(Vec3::new(0.0, 0.0, pos.z)),
                 ..Default::default()
             },
+            Position(pos.xy() + size / 2.0),
         )
     }
 
     pub fn poly(points: Vec<Vec2>, pos: Vec3) -> Self {
         Self::make(
-            Collider::convex_hull(&points).unwrap(),
+            Collider::convex_hull(points.clone()).unwrap(),
             ShapeBundle {
                 path: GeometryBuilder::build_as(&shapes::Polygon {
                     points,
                     closed: true,
                 }),
-                transform: Transform::from_translation(pos),
+                global_transform: GlobalTransform::from_translation(Vec3::new(0.0, 0.0, pos.z)), // todo: center of mass
                 ..Default::default()
             },
+            Position(pos.xy()),
         )
     }
 }

@@ -1,5 +1,6 @@
 use bevy::math::Vec2;
 use bevy::prelude::{Entity, Event, EventReader, Query, Transform};
+use bevy_xpbd_2d::components::Position;
 
 #[derive(Copy, Clone, Event)]
 pub struct MoveEvent {
@@ -7,10 +8,10 @@ pub struct MoveEvent {
     pub pos: Vec2,
 }
 
-pub fn process_move(mut events: EventReader<MoveEvent>, mut query: Query<&mut Transform>) {
+pub fn process_move(mut events: EventReader<MoveEvent>, mut query: Query<&mut Position>) {
     for MoveEvent { entity, pos } in events.iter().copied() {
         let mut transform = query.get_mut(entity).unwrap();
-        transform.translation = pos.extend(transform.translation.z);
+        transform.0 = pos;
     }
 }
 

@@ -7,7 +7,7 @@ use bevy::hierarchy::{BuildChildren, Parent};
 use bevy::prelude::*;
 use bevy_egui::egui::{pos2, Separator};
 use bevy_egui::{egui, EguiContexts};
-use bevy_rapier2d::prelude::{CollisionGroups, RigidBody, Velocity};
+use bevy_xpbd_2d::{math::*, prelude::*};
 use std::time::Duration;
 use bevy::math::Vec3Swizzles;
 use bevy::render::primitives::Aabb;
@@ -55,8 +55,8 @@ impl MenuWindow {
         mut commands: Commands,
         entity_info: Query<(
             Option<&ColorComponent>,
-            Option<&Velocity>,
-            Option<&CollisionGroups>,
+            Option<&LinearVelocity>,
+            Option<&CollisionLayers>,
             Option<&LaserBundle>,
             Option<&RigidBody>,
             Option<&MotorComponent>,
@@ -208,7 +208,7 @@ struct ZoomToScene;
 fn handle_zoom_to_scene(
     mut events: EventReader<ZoomToScene>,
     mut cameras: Query<&mut Transform, With<MainCamera>>,
-    bboxes: Query<(&Transform, &Aabb), Without<MainCamera>>,
+    bboxes: Query<(&Position, &Aabb), Without<MainCamera>>,
     windows: Query<&Window, With<PrimaryWindow>>
 ) {
     let prim = windows.get_single().unwrap();
@@ -220,7 +220,7 @@ fn handle_zoom_to_scene(
     for _ in events.iter() {
         let bbox = bboxes
             .iter()
-            .map(|(xform, bbox)| Rect::from_center_half_size(xform.translation.xy(), bbox.half_extents.xy()))
+            .map(|(xform, bbox)| Rect::from_center_half_size(xform.0, bbox.half_extents.xy()))
             .fold(Rect::default(), |a, b| a.union(b));
 
         camera.translation = bbox.center().extend(CAMERA_Z);

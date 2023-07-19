@@ -1,6 +1,6 @@
 use crate::systems;
 use bevy::prelude::*;
-use bevy_rapier2d::prelude::*;
+use bevy_xpbd_2d::{math::*, prelude::*};
 
 systems! {
     KineticEnergy::compute,
@@ -18,15 +18,14 @@ pub struct KineticEnergy {
 // it tries to insert a component on a despawned entity
 impl KineticEnergy {
     pub(crate) fn compute(
-        bodies: Query<(Entity, &ReadMassProperties, &Velocity)>,
+        bodies: Query<(Entity, &ColliderMassProperties, &LinearVelocity, &AngularVelocity)>,
         mut commands: Commands,
     ) {
-        for (id, ReadMassProperties(mass), vel) in bodies.iter() {
-            let linear = mass.mass * vel.linvel.length_squared() / 2.0;
-            let angular = mass.principal_inertia * vel.angvel * vel.angvel / 2.0;
-            commands
-                .entity(id)
-                .insert(KineticEnergy { linear, angular });
+        for (id, mass, lin, ang) in bodies.iter() {
+            let Some(mut cmds) = commands.get_entity(id) else { continue; };
+            let linear = mass.mass.0 * lin.0.length_squared() / 2.0;
+            let angular = mass.inertia.0 * ang.0 * ang.0 / 2.0;
+            cmds.insert(KineticEnergy { linear, angular });
         }
     }
 
@@ -42,13 +41,14 @@ pub struct GravityEnergy {
 
 impl GravityEnergy {
     pub(crate) fn compute(
-        bodies: Query<(Entity, &ReadMassProperties, &Transform)>,
-        rapier_conf: Res<RapierConfiguration>,
+        bodies: Query<(Entity, &Mass, &Position)>,
+        gravity: Res<Gravity>,
         mut commands: Commands,
     ) {
-        for (id, ReadMassProperties(mass), pos) in bodies.iter() {
-            let energy = mass.mass * -rapier_conf.gravity.y * pos.translation.y;
-            commands.entity(id).insert(GravityEnergy { energy });
+        for (id, Mass(mass), pos) in bodies.iter() {
+            let Some(mut cmds) = commands.get_entity(id) else { continue; };
+            let energy = mass * -gravity.0.y * pos.0.y;
+            cmds.insert(GravityEnergy { energy });
         }
     }
 }
@@ -61,13 +61,14 @@ pub struct Momentum {
 
 impl Momentum {
     pub(crate) fn compute(
-        bodies: Query<(Entity, &ReadMassProperties, &Velocity)>,
+        bodies: Query<(Entity, &ColliderMassProperties, &LinearVelocity, &AngularVelocity)>,
         mut commands: Commands,
     ) {
-        for (id, ReadMassProperties(mass), vel) in bodies.iter() {
-            let linear = mass.mass * vel.linvel;
-            let angular = mass.principal_inertia * vel.angvel;
-            commands.entity(id).insert(Momentum { linear, angular });
+        for (id, props, lin, ang) in bodies.iter() {
+            let Some(mut cmds) = commands.get_entity(id) else { continue; };
+            let linear = props.mass.0 * lin.0;
+            let angular = props.inertia.0 * ang.0;
+            cmds.insert(Momentum { linear, angular });
         }
     }
 }
@@ -111,22 +112,23 @@ impl Forces {
     }
 
     pub(crate) fn compute(
-        bodies: Query<(Entity, &ReadMassProperties, &Velocity)>,
+        bodies: Query<(Entity, &Mass)>,
         mut commands: Commands,
-        rapier_conf: Res<RapierConfiguration>,
+        gravity: Res<Gravity>,
     ) {
         use ForceKind::*;
 
-        for (id, ReadMassProperties(mass), _vel) in bodies.iter() {
+        for (id, Mass(mass)) in bodies.iter() {
+            let Some(mut cmds) = commands.get_entity(id) else { continue; };
             let mut forces = vec![];
 
             forces.push(AppliedForce {
                 kind: Gravity,
                 at: Vec2::ZERO,
-                value: Vec2::new(0.0, mass.mass * rapier_conf.gravity.y).into(),
+                value: Vec2::new(0.0, mass * gravity.0.y).into(),
             });
 
-            commands.entity(id).insert(Forces { forces });
+            cmds.insert(Forces { forces });
         }
     }
 }

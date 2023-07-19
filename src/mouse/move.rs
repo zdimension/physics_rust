@@ -8,11 +8,11 @@ use crate::tools::ToolEnum;
 use crate::ui::UiState;
 use crate::{CustomForce, InvTransformPoint, UsedMouseButton};
 use bevy::math::Vec2;
-use bevy::prelude::{BuildChildren, Commands, Event, EventReader, EventWriter, Parent, Query, Res, ResMut, Transform, With, Without};
+use bevy::prelude::{BuildChildren, Commands, Event, EventReader, EventWriter, GlobalTransform, Parent, Query, Res, ResMut, Transform, With, Without};
 use bevy_mouse_tracking_plugin::{MainCamera, MousePosWorld};
-use bevy_rapier2d::dynamics::RigidBody;
-use bevy_rapier2d::plugin::RapierContext;
-use bevy_rapier2d::prelude::{ImpulseJoint, PrismaticJointBuilder};
+use bevy_xpbd_2d::{math::*, prelude::*};
+use bevy_xpbd_2d::{math::*, prelude::*};
+use bevy_xpbd_2d::{math::*, prelude::*};
 use bevy_xpbd_2d::components::ExternalForce;
 
 #[derive(Event)]
@@ -40,17 +40,17 @@ pub fn mouse_long_or_moved(
     mut ev_writeback: EventWriter<MouseLongOrMovedWriteback>,
     mut cameras: Query<&mut Transform, With<MainCamera>>,
     mut ui_state: ResMut<UiState>,
-    mut query: Query<(&mut Transform, Option<&mut RigidBody>), Without<MainCamera>>,
+    mut query: Query<(&mut GlobalTransform, &Position, &Rotation, Option<&mut RigidBody>), Without<MainCamera>>,
     mut commands: Commands,
-    rapier: Res<RapierContext>,
     mut select_mouse: EventWriter<SelectEvent>,
     mouse_pos: Res<MousePosWorld>,
+    spatial_query: SpatialQuery
 ) {
     use crate::tools::ToolEnum::*;
     use crate::{DrawObject, UsedMouseButton};
     use bevy::log::info;
     use bevy::math::Vec3Swizzles;
-    use bevy_rapier2d::pipeline::QueryFilter;
+    use bevy_xpbd_2d::{math::*, prelude::*};
     for MouseLongOrMoved(hover_tool, pos, button) in events.iter() {
         let clickpos = *pos;
         let curpos = mouse_pos.xy();
@@ -85,9 +85,9 @@ pub fn mouse_long_or_moved(
             }
             _ => {
                 let under_mouse =
-                    select::find_under_mouse(&rapier, clickpos, QueryFilter::default(), |ent| {
-                        let (transform, _) = query.get(ent).unwrap();
-                        transform.translation.z
+                    select::find_under_mouse(&spatial_query, clickpos, Default::default(), |ent| {
+                        let (transform, _, _, _) = query.get(ent).unwrap();
+                        transform.translation_vec3a().z
                     })
                     .next();
 
@@ -113,27 +113,27 @@ pub fn mouse_long_or_moved(
                         })));
                     }
                     (Rotate(None), Some(under), _) => {
-                        let (transform, body) = query.get_mut(under).unwrap();
+                        let (_, _, rot, body) = query.get_mut(under).unwrap();
                         info!("start rotate {:?}", under);
                         *ui_button = Some(Rotate(Some(RotateState {
-                            orig_obj_rot: transform.rotation,
+                            orig_obj_rot: rot.as_radians(),
                             overlay_ent: commands.spawn(DrawObject).id(),
                             scale: cameras.single_mut().scale.x,
                         })));
                         if let Some(mut body) = body {
-                            *body = RigidBody::Fixed;
+                            *body = RigidBody::Static;
                         }
                     }
                     (Rotate(None) | Move(None), None, _) => {
                         ev_writeback.send(MouseLongOrMoved(Pan(None), clickpos, *button).into());
                     }
                     (_, Some(under), Some(sel)) if under == sel => {
-                        let (transform, body) = query.get_mut(under).unwrap();
+                        let (_, pos, _, body) = query.get_mut(under).unwrap();
                         *ui_button = Some(Move(Some(MoveState {
-                            obj_delta: transform.translation.xy() - curpos,
+                            obj_delta: pos.0 - curpos,
                         })));
                         if let Some(mut body) = body {
-                            *body = RigidBody::KinematicPositionBased;
+                            *body = RigidBody::Static;
                         }
                     }
                     (Box(None), _, _) => {

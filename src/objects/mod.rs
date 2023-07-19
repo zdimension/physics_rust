@@ -4,9 +4,9 @@ use bevy::hierarchy::Parent;
 use bevy::math::Vec3;
 use bevy::prelude::{App, Component, Entity, Query, Ref, Sprite, Transform};
 use bevy_egui::egui::ecolor::Hsva;
-use bevy_rapier2d::prelude::ImpulseJoint;
-use bevy_rapier2d::rapier::dynamics::JointAxis;
-use bevy_rapier2d::rapier::prelude::MotorModel;
+use bevy_xpbd_2d::{math::*, prelude::*};
+use bevy_xpbd_2d::{math::*, prelude::*};
+use bevy_xpbd_2d::{math::*, prelude::*};
 use num_traits::FloatConst;
 use std::marker::PhantomData;
 use bevy::app::Update;
@@ -56,10 +56,10 @@ pub fn update_size_scales(
 }
 
 pub fn update_motors(
-    mut motors: Query<(Entity, &mut ImpulseJoint, &UpdateFrom<MotorComponent>)>,
+    //mut motors: Query<(Entity, &mut ImpulseJoint, &UpdateFrom<MotorComponent>)>,
     parents: Query<(Option<&Parent>, Option<Ref<MotorComponent>>)>,
 ) {
-    for (entity, mut motor, update_source) in motors.iter_mut() {
+    /*for (entity, mut motor, update_source) in motors.iter_mut() {
         let (_, motor_component) = update_source
             .find_component(entity, &parents)
             .expect("motor not found");
@@ -86,7 +86,7 @@ pub fn update_motors(
             .raw
             .motor_axes
             .set(JointAxis::AngX.into(), motor_component.enabled);
-    }
+    }*/
 }
 
 systems!(update_sprites_color, update_size_scales, update_motors);

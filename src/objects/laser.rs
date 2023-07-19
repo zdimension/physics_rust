@@ -7,11 +7,12 @@ use bevy_egui::egui::ecolor::Hsva;
 use bevy_prototype_lyon::geometry::GeometryBuilder;
 use bevy_prototype_lyon::prelude::ShapeBundle;
 use bevy_prototype_lyon::shapes;
-use bevy_rapier2d::prelude::{QueryFilter, RapierContext, RayIntersection};
+use bevy_xpbd_2d::{math::*, prelude::*};
 use num_traits::float::FloatConst;
 
 use crate::objects::phy_obj::RefractiveIndex;
 use crate::objects::ColorComponent;
+use crate::tools::add_object::query_only_real;
 
 #[derive(Component)]
 pub struct LaserBundle {
@@ -86,20 +87,20 @@ struct ObjectInfo {
     color: Hsva,
 }
 
-struct LaserCompute<'a, ObjInfo: Fn(Entity) -> ObjectInfo> {
+struct LaserCompute<'a, 'w, 's, ObjInfo: Fn(Entity) -> ObjectInfo> {
     laser: &'a LaserBundle,
-    rapier: &'a RapierContext,
+    query: &'a SpatialQuery<'w, 's>,
     object_info: ObjInfo,
     rays: Vec<LaserRay>,
 }
 
 const MAX_RAYS: usize = 1000;
 
-impl<'a, ObjInfo: Fn(Entity) -> ObjectInfo> LaserCompute<'a, ObjInfo> {
-    fn new(laser: &'a LaserBundle, rapier: &'a RapierContext, object_info: ObjInfo) -> Self {
+impl<'a, 'w, 's, ObjInfo: Fn(Entity) -> ObjectInfo> LaserCompute<'a, 'w, 's, ObjInfo> {
+    fn new(laser: &'a LaserBundle, query: &'a SpatialQuery<'w, 's>, object_info: ObjInfo) -> Self {
         Self {
             laser,
-            rapier,
+            query,
             object_info,
             rays: Vec::new(),
         }
@@ -124,34 +125,36 @@ impl<'a, ObjInfo: Fn(Entity) -> ObjectInfo> LaserCompute<'a, ObjInfo> {
         let mut min_dist = f32::INFINITY;
 
         let ray_dir = Vec2::from_angle(ray.angle);
+        let ray_origin = ray.start + 0.0001 * ray_dir;
 
-        self.rapier.intersections_with_ray(
-            ray.start + 0.0001 * ray_dir,
+        self.query.ray_hits_callback(
+            ray_origin,
             ray_dir,
             ray.length_clipped(),
             false,
-            QueryFilter::new().exclude_sensors(),
-            |ent, inter| {
-                if inter.toi < min_dist && inter.toi > 0.0001 {
-                    intersection = Some((ent, inter));
-                    min_dist = inter.toi;
+            query_only_real(),
+            |hit| {
+                if hit.time_of_impact > 0.0001 && hit.time_of_impact < min_dist {
+                    intersection = Some(hit);
+                    min_dist = hit.time_of_impact;
                 }
                 true
             },
         );
 
-        if let Some((
-            ent,
-            RayIntersection {
-                toi,
-                point,
-                normal,
-                feature: _,
-            },
-        )) = intersection
+        if let Some(
+            RayHitData {
+                entity: ent,
+                time_of_impact: toi,
+                normal
+            }
+        ) = intersection
         {
             ray.length = toi;
 
+            let point = ray_origin + toi * ray_dir;
+
+            // todo: still needed?
             let normal = if normal.dot(ray_dir) > 0.0 {
                 -normal
             } else {
@@ -160,7 +163,7 @@ impl<'a, ObjInfo: Fn(Entity) -> ObjectInfo> LaserCompute<'a, ObjInfo> {
 
             let normal_angle = normal.y.atan2(normal.x);
 
-            let mut inside_object = false;
+            /*let mut inside_object = false;
             self.rapier.intersections_with_point(
                 ray.start + (toi / 2.0) * ray_dir,
                 QueryFilter::default().predicate(&|scrutinee| scrutinee == ent),
@@ -168,6 +171,20 @@ impl<'a, ObjInfo: Fn(Entity) -> ObjectInfo> LaserCompute<'a, ObjInfo> {
                     inside_object = true;
                     false
                 },
+            );*/
+            let mut inside_object = false;
+            // tood: slow
+            self.query.point_intersections_callback(
+                ray.start + (toi / 2.0) * ray_dir,
+                query_only_real(),
+                |scrutinee| {
+                    if ent == scrutinee {
+                        inside_object = true;
+                        false
+                    } else {
+                        true
+                    }
+                }
             );
 
             let incidence_angle = (f32::PI() + ray.angle) - normal_angle;
@@ -204,11 +221,9 @@ impl<'a, ObjInfo: Fn(Entity) -> ObjectInfo> LaserCompute<'a, ObjInfo> {
             if f32::is_finite(obj_index) {
                 let obj_index = if inside_object {
                     let mut object_other = None;
-                    self.rapier.intersections_with_point(
+                    self.query.point_intersections_callback(
                         point,
-                        QueryFilter::default()
-                            .exclude_sensors()
-                            .predicate(&|scrutinee| scrutinee != ent),
+                        query_only_real().without_entities([ent]),
                         |ent| {
                             object_other = Some(ent);
                             false
@@ -315,21 +330,21 @@ fn compute_new_angle(incidence: f32, index_ray: f32, index_new: f32) -> Option<f
 const LASER_WIDTH: f32 = 0.2;
 
 pub fn draw_lasers(
-    lasers: Query<(&Transform, &LaserBundle, &ColorComponent)>,
+    lasers: Query<(&Transform, &GlobalTransform, &LaserBundle, &ColorComponent, &Rotation)>,
     refr: Query<(&RefractiveIndex, &ColorComponent), Without<LaserBundle>>,
     mut rays: Query<(Entity, &mut LaserRays)>,
     mut commands: Commands,
-    rapier: Res<RapierContext>,
+    spatial_query: SpatialQuery,
 ) {
     let (rays, mut rays_obj) = rays.single_mut();
     commands.entity(rays).despawn_descendants();
 
-    for (transform, laser, color) in lasers.iter() {
+    for (transform, glob, laser, color, rot) in lasers.iter() {
         let ray_width = transform.scale.x * LASER_WIDTH;
 
-        let start = transform.transform_point(Vec3::new(0.5, 0.0, 1.0)).xy();
+        let start = glob.transform_point(Vec3::new(0.5, 0.0, 1.0)).xy();
         let mut object_other = None;
-        rapier.intersections_with_point(start, QueryFilter::default().exclude_sensors(), |ent| {
+        spatial_query.point_intersections_callback(start, query_only_real(), |ent| {
             object_other = Some(ent);
             false
         });
@@ -340,7 +355,7 @@ pub fn draw_lasers(
 
         let initial = LaserRay {
             start,
-            angle: transform.rotation.to_euler(EulerRot::XYZ).2,
+            angle: rot.as_radians(),
             length: laser.fade_distance,
             strength: 1.0,
             color: color.0,
@@ -354,7 +369,7 @@ pub fn draw_lasers(
             end_angle: 0.0,
         };
 
-        let mut compute = LaserCompute::new(laser, &rapier, |ent| {
+        let mut compute = LaserCompute::new(laser, &spatial_query, |ent| {
             let (refr, col) = refr.get(ent).unwrap();
             ObjectInfo {
                 refractive_index: refr.0,
