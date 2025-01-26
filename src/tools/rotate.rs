@@ -1,7 +1,7 @@
 use crate::ToRot;
 use bevy::math::{Quat, Vec2, Vec3Swizzles};
 use bevy::prelude::{Entity, Event, EventReader, Query, Transform};
-use bevy_xpbd_2d::components::{Position, Rotation};
+use avian2d::prelude::{Position, Rotation};
 
 #[derive(Copy, Clone, Event)]
 pub struct RotateEvent {
@@ -19,7 +19,7 @@ pub fn process_rotate(mut events: EventReader<RotateEvent>, mut query: Query<(&P
         click_pos,
         mouse_pos,
         scale,
-    } in events.iter().copied()
+    } in events.read().copied()
     {
         let Ok((position, mut transform)) = query.get_mut(entity) else { continue };
         let start = click_pos - position.0;

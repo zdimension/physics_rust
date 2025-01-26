@@ -1,6 +1,6 @@
 use crate::systems;
 use bevy::prelude::*;
-use bevy_xpbd_2d::{math::*, prelude::*};
+use avian2d::{math::*, prelude::*};
 
 systems! {
     KineticEnergy::compute,
@@ -23,8 +23,8 @@ impl KineticEnergy {
     ) {
         for (id, mass, lin, ang) in bodies.iter() {
             let Some(mut cmds) = commands.get_entity(id) else { continue; };
-            let linear = mass.mass.0 * lin.0.length_squared() / 2.0;
-            let angular = mass.inertia.0 * ang.0 * ang.0 / 2.0;
+            let linear = mass.mass* lin.0.length_squared() / 2.0;
+            let angular = mass.angular_inertia * ang.0 * ang.0 / 2.0;
             cmds.insert(KineticEnergy { linear, angular });
         }
     }
@@ -66,8 +66,8 @@ impl Momentum {
     ) {
         for (id, props, lin, ang) in bodies.iter() {
             let Some(mut cmds) = commands.get_entity(id) else { continue; };
-            let linear = props.mass.0 * lin.0;
-            let angular = props.inertia.0 * ang.0;
+            let linear = props.mass * lin.0;
+            let angular = props.angular_inertia * ang.0;
             cmds.insert(Momentum { linear, angular });
         }
     }

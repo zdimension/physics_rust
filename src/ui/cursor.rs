@@ -1,11 +1,8 @@
 use crate::ui::UiState;
 use crate::{tools::ToolIcons, UsedMouseButton};
 
-use bevy::prelude::{
-    Component, Deref, DerefMut, DetectChanges, DetectChangesMut, Query, Res, ResMut, Resource,
-    UiImage, Visibility, With,
-};
-use bevy::ui::{Style, Val};
+use bevy::prelude::{Component, Deref, DerefMut, DetectChanges, DetectChangesMut, ImageNode, Query, Res, ResMut, Resource, Visibility, With};
+use bevy::ui::{Node, Val};
 use bevy_egui::EguiContexts;
 use bevy_mouse_tracking_plugin::MousePos;
 
@@ -23,7 +20,7 @@ pub fn check_egui_wants_focus(mut egui_ctx: EguiContexts, mut wants_focus: ResMu
 pub fn show_current_tool_icon(
     ui_state: Res<UiState>,
     mouse_pos: Res<MousePos>,
-    mut icon: Query<(&mut UiImage, &mut Style, &mut Visibility), With<ToolCursor>>,
+    mut icon: Query<(&mut ImageNode, &mut Node, &mut Visibility), With<ToolCursor>>,
     tool_icons: Res<ToolIcons>,
     egui_input: Res<EguiWantsFocus>,
 ) {
@@ -42,7 +39,7 @@ pub fn show_current_tool_icon(
         }
         .unwrap_or(ui_state.toolbox_selected);
         let icon_handle = current_tool.icon(tool_icons);
-        icon.texture = icon_handle;
+        icon.image = icon_handle;
         transform.left = Val::Px(mouse_pos.x);
         transform.top = Val::Px(mouse_pos.y);
     }

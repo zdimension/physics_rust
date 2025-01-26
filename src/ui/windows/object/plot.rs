@@ -3,17 +3,17 @@ use crate::ui::images::GuiIcons;
 use crate::ui::{InitialPos, Subwindow};
 use bevy::hierarchy::Parent;
 use bevy::prelude::{Commands, Component, Entity, Query, Res, Time, Transform};
-use bevy_egui::egui::plot::{Line, Plot, PlotPoint, PlotPoints};
+use egui_plot::{Line, Plot, PlotPoint, PlotPoints};
+use egui::load::SizedTexture;
 use bevy_egui::{egui, EguiContexts};
-use bevy_xpbd_2d::{math::*, prelude::*};
-use bevy_xpbd_2d::{math::*, prelude::*};
+use avian2d::{math::*, prelude::*};
 use itertools::Itertools;
 use paste::paste;
 use std::borrow::Borrow;
 use std::collections::{HashMap, HashSet};
 use std::fmt::{Debug, Display, Formatter};
 use std::hash::{Hash, Hasher};
-use bevy::ecs::query::WorldQuery;
+use bevy::ecs::query::{QueryData, WorldQuery};
 use crate::systems;
 
 systems!(PlotWindow::show);
@@ -93,13 +93,13 @@ impl PlotSeries {
     &'a GravityEnergy,
     &'a Momentum,
 );*/
-#[derive(WorldQuery)]
+#[derive(QueryData)]
 pub(crate) struct PlotQuery {
     transform: &'static Transform,
     linear_velocity: &'static LinearVelocity,
     angular_velocity: &'static AngularVelocity,
     kinetic_energy: &'static KineticEnergy,
-    gravity_energy: &'static GravityEnergy,
+    //gravity_energy: &'static GravityEnergy,
     momentum: &'static Momentum,
 }
 type QuantityFn = fn(f32, &PlotQueryItem) -> f32;
@@ -144,9 +144,9 @@ static PLOT_QUANTITIES: &[&[PlotQuantity]] = &[
         quantity("Linear kinetic energy", |_, query| query.kinetic_energy.linear),
         quantity("Angular kinetic energy", |_, query| query.kinetic_energy.angular),
         quantity("Kinetic energy (sum)", |_, query| query.kinetic_energy.total()),
-        quantity("Potential gravitational energy", |_, query| query.gravity_energy.energy),
+        /*quantity("Potential gravitational energy", |_, query| query.gravity_energy.energy),
         quantity("Potential energy (sum)", |_, query| query.gravity_energy.energy),
-        quantity("Energy (sum)", |_, query| query.kinetic_energy.total() + query.gravity_energy.energy),
+        quantity("Energy (sum)", |_, query| query.kinetic_energy.total() + query.gravity_energy.energy),*/
     ],
 ];
 
@@ -188,11 +188,11 @@ impl PlotWindow {
         mut commands: Commands,
         time: Res<Time>,
         gui_icons: Res<GuiIcons>,
-        physics: Res<PhysicsLoop>
+        physics: Res<Time<Physics>>
     ) {
         let ctx = egui_ctx.ctx_mut();
         for (id, parent, mut initial_pos, mut plot) in wnds.iter_mut() {
-            if !physics.paused {
+            if !physics.is_paused() {
                 let data = ents.get(parent.get()).unwrap();
                 let cur_time = plot.time;
                 for (name, series) in plot.series.iter_mut() {
@@ -200,7 +200,7 @@ impl PlotWindow {
                     let y = (name.y.measure)(cur_time, &data);
                     series.values.push(PlotPoint::new(x, y));
                 }
-                plot.time += time.delta_seconds();
+                plot.time += time.delta_secs();
             }
             egui::Window::new("plot")
                 .resizable(true)
@@ -228,7 +228,7 @@ impl PlotWindow {
                         }
                     };
                     ui.horizontal(|ui| {
-                        if ui.add(egui::Button::image_and_text(gui_icons.plot_clear, [16.0, 16.0], "Clear"))
+                        if ui.add(egui::Button::image_and_text(SizedTexture::new(gui_icons.plot_clear, [16.0, 16.0]), "Clear"))
                             .clicked() {
                             for series in plot.series.values_mut() {
                                 series.values.clear();

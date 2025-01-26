@@ -1,7 +1,7 @@
 use bevy::math::{Vec2, Vec3Swizzles};
 use bevy::prelude::*;
 use bevy_mouse_tracking_plugin::MainCamera;
-use bevy_xpbd_2d::{math::*, prelude::*};
+use avian2d::{math::*, prelude::*};
 use crate::{CustomForce, FOREGROUND_Z, InvTransformPoint};
 
 #[derive(Copy, Clone, Debug)]
@@ -51,7 +51,7 @@ pub fn process_drag(
     cameras: Query<&Transform, With<MainCamera>>
 ) {
     let cam_scale = cameras.single().scale.x;
-    for ev in events.iter() {
+    for ev in events.read() {
         let Ok(mut drag_data) = drag_data.get_mut(ev.state.drag_entity) else { return };
         let (xform, pos, vel, mut forces) = drag_ent.get_mut(ev.state.entity).unwrap();
         let actual_pos = xform.to_global(ev.state.orig_obj_pos);

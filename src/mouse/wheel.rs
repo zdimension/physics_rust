@@ -17,7 +17,7 @@ pub fn mouse_wheel(
     let win_size = Vec2::new(prim.width(), prim.height());
     let mut transform = cameras.single_mut();
 
-    for event in mouse_wheel_events.iter() {
+    for event in mouse_wheel_events.read() {
         const FACTOR: f32 = 0.1;
         let factor = if event.y < 0.0 {
             1.0 + FACTOR

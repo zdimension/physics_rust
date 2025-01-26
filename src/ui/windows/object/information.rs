@@ -4,9 +4,9 @@ use bevy::hierarchy::Parent;
 use bevy::prelude::{Commands, Component, Entity, GlobalTransform, Query, Res, Transform, With};
 use bevy_egui::egui::Ui;
 use bevy_egui::{egui, EguiContexts};
-use bevy_xpbd_2d::{math::*, prelude::*};
-use bevy_xpbd_2d::{math::*, prelude::*};
-use bevy_xpbd_2d::{math::*, prelude::*};
+use avian2d::{math::*, prelude::*};
+use avian2d::{math::*, prelude::*};
+use avian2d::{math::*, prelude::*};
 use crate::systems;
 
 systems!(InformationWindow::show);
@@ -45,12 +45,12 @@ impl InformationWindow {
                     }
                     egui::Grid::new("info grid").striped(true).show(ui, |ui| {
                         if let Some(cmp) = coll_mass {
-                            line(ui, "Mass", format!("{:.3} kg", cmp.mass.0));
+                            line(ui, "Mass", format!("{:.3} kg", cmp.mass));
 
                             line(
                                 ui,
                                 "Moment of inertia",
-                                format!("{:.3} kgm²", cmp.inertia.0),
+                                format!("{:.3} kgm²", cmp.angular_inertia),
                             );
                         }
 

@@ -3,7 +3,8 @@ use crate::ui::{InitialPos, Subwindow};
 use bevy::hierarchy::Parent;
 use bevy::prelude::{Commands, Component, Entity, Query, Res, With};
 use bevy_egui::{egui, EguiContexts};
-use bevy_xpbd_2d::{math::*, prelude::*};
+use egui::load::SizedTexture;
+use avian2d::{math::*, prelude::*};
 use crate::systems;
 
 systems!(CollisionsWindow::show);
@@ -13,6 +14,7 @@ pub struct CollisionsWindow;
 
 const GROUP_COUNT: usize = 10;
 
+#[derive(Default)]
 pub struct CollisionLayer(pub u32);
 
 impl PhysicsLayer for CollisionLayer {
@@ -43,19 +45,19 @@ impl CollisionsWindow {
                         ui.vertical(|ui| {
                             // todo: center vertically
                             if ui
-                                .add(egui::ImageButton::new(gui_icons.arrow_up, [16.0, 32.0]))
+                                .add(egui::ImageButton::new(SizedTexture::new(gui_icons.arrow_up, [16.0, 32.0])))
                                 .clicked()
                             {
-                                let val = groups.groups_bits();
+                                let val = groups.memberships.0;
                                 let shifted = val >> 1;
                                 let new_val = shifted | ((val & 1) << (GROUP_COUNT - 1));
                                 *groups = CollisionLayers::from_bits(new_val, new_val);
                             }
                             if ui
-                                .add(egui::ImageButton::new(gui_icons.arrow_down, [16.0, 32.0]))
+                                .add(egui::ImageButton::new(SizedTexture::new(gui_icons.arrow_down, [16.0, 32.0])))
                                 .clicked()
                             {
-                                let val = groups.groups_bits();
+                                let val = groups.memberships.0;
                                 let shifted = val << 1;
                                 let new_val = shifted
                                     | ((val & (1 << (GROUP_COUNT - 1))) >> (GROUP_COUNT - 1));
@@ -65,7 +67,7 @@ impl CollisionsWindow {
                         ui.vertical(|ui| {
                             for i in 0..GROUP_COUNT {
                                 let flag = 1 << i;
-                                let mut checked = groups.groups_bits() & flag != 0;
+                                let mut checked = groups.memberships.0 & flag != 0;
                                 if ui
                                     .checkbox(
                                         &mut checked,
@@ -77,9 +79,9 @@ impl CollisionsWindow {
                                     .changed()
                                 {
                                     let new_val = if checked {
-                                        groups.groups_bits() | flag
+                                        groups.memberships.0 | flag
                                     } else {
-                                        groups.groups_bits() & !flag
+                                        groups.memberships.0 & !flag
                                     };
                                     *groups = CollisionLayers::from_bits(new_val, new_val);
                                 }
@@ -88,10 +90,10 @@ impl CollisionsWindow {
                     });
                     ui.horizontal(|ui| {
                         if ui.button("Check all").clicked() {
-                            *groups = CollisionLayers::all::<CollisionLayer>();
+                            *groups = CollisionLayers::ALL;
                         }
                         if ui.button("Uncheck all").clicked() {
-                            *groups = CollisionLayers::none();
+                            *groups = CollisionLayers::NONE;
                         }
                     });
                 });

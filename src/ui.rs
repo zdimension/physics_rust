@@ -7,7 +7,7 @@ use bevy_diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin};
 use bevy_egui::egui::{pos2, Context, Id, Pos2, Ui, Align2};
 use bevy_egui::{egui, EguiContexts};
 use bevy_mouse_tracking_plugin::{MainCamera, MousePos, MousePosWorld};
-use bevy_xpbd_2d::{math::*, prelude::*};
+use avian2d::{math::*, prelude::*};
 use derivative::Derivative;
 
 use crate::objects::laser::LaserRays;
@@ -107,7 +107,7 @@ pub fn ui_example(
         ui.collapsing("FPS", |ui| {
             ui.monospace(format!(
                 "{:.2}",
-                diag.get(FrameTimeDiagnosticsPlugin::FPS)
+                diag.get(&FrameTimeDiagnosticsPlugin::FPS)
                     .unwrap()
                     .value()
                     .unwrap_or(f64::NAN)
@@ -168,7 +168,7 @@ pub fn handle_context_menu(
     mut commands: Commands,
     existing: Query<Entity, With<MenuWindow>>
 ) {
-    for ev in ev.iter() {
+    for ev in ev.read() {
         let entity = ui.selected_entity.map(|sel| sel.entity);
         info!("context menu at {:?} for {:?}", ev.screen_pos, entity);
         if let Ok(existing) = existing.get_single() {
@@ -179,7 +179,7 @@ pub fn handle_context_menu(
             .id();
 
         if let Some(id) = entity {
-            commands.entity(id).push_children(&[wnd]);
+            commands.entity(id).add_children(&[wnd]);
         }
     }
 }
@@ -270,7 +270,7 @@ fn remove_temporary_windows(
     mut events: EventReader<RemoveTemporaryWindowsEvent>,
     wnds: Query<Entity, With<TemporaryWindow>>,
 ) {
-    for _ in events.iter() {
+    for _ in events.read() {
         for id in wnds.iter() {
             commands.entity(id).despawn_recursive();
         }

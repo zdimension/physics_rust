@@ -3,10 +3,10 @@ use crate::ui::icon_button::IconButton;
 use crate::ui::images::GuiIcons;
 use crate::ui::{GravitySetting, RemoveTemporaryWindowsEvent, UiState};
 use bevy::math::Vec2;
-use bevy::prelude::{EventWriter, Local, Res, ResMut};
+use bevy::prelude::{EventWriter, Local, Res, ResMut, Time};
 use bevy_egui::egui::Align2;
 use bevy_egui::{egui, EguiContexts};
-use bevy_xpbd_2d::{math::*, prelude::*};
+use avian2d::{math::*, prelude::*};
 use crate::{systems, update_changed};
 use crate::ui::separator_custom::SeparatorCustom;
 
@@ -18,9 +18,8 @@ pub fn draw_bottom_toolbar(
     tool_icons: Res<ToolIcons>,
     gui_icons: Res<GuiIcons>,
     mut clear_tmp: EventWriter<RemoveTemporaryWindowsEvent>,
-    mut timescale: ResMut<PhysicsTimescale>,
     mut gravity: ResMut<Gravity>,
-    mut physics: ResMut<PhysicsLoop>
+    mut physics: ResMut<Time<Physics>>
 ) {
     egui::Window::new("Tools2")
         .anchor(Align2::CENTER_BOTTOM, [0.0, -1.0])
@@ -46,7 +45,7 @@ pub fn draw_bottom_toolbar(
                 ui.add(SeparatorCustom::default());
 
                 let playpause = ui.add(IconButton::new(
-                    if physics.paused {
+                    if physics.is_paused() {
                         gui_icons.play
                     } else {
                         gui_icons.pause
@@ -55,10 +54,14 @@ pub fn draw_bottom_toolbar(
                 ));
 
                 if playpause.clicked() {
-                    physics.paused = !physics.paused;
+                    if physics.is_paused() {
+                        physics.unpause();
+                    } else {
+                        physics.pause();
+                    }
                 }
                 playpause.context_menu(|ui| {
-                    update_changed!(ui, timescale.0, 0.1..=10.0, |slider| {
+                    update_changed!(ui, || physics.relative_speed() => |x| physics.set_relative_speed(x), 0.1..=10.0, |slider| {
                         slider.logarithmic(true).text("Simulation speed :")
                     });
                 });

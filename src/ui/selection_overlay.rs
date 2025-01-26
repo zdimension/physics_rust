@@ -1,10 +1,7 @@
 use std::ops::Neg;
 
 use bevy::math::{Quat, Vec2, Vec3Swizzles};
-use bevy::prelude::{
-    BuildChildren, Color, Commands, DespawnRecursiveExt, Entity, Query, Res, ResMut, Resource,
-    Transform, With,
-};
+use bevy::prelude::*;
 use bevy_mouse_tracking_plugin::{MainCamera, MousePosWorld};
 use bevy_prototype_lyon::entity::ShapeBundle;
 use bevy_prototype_lyon::geometry::GeometryBuilder;
@@ -122,7 +119,7 @@ pub fn process_draw_overlay(
     if let Some((draw_ent, shape, pos)) = overlay.draw_ent {
         let Some(mut cmds) = commands.get_entity(draw_ent) else {
             overlay.draw_ent = None;
-            return
+            return;
         };
         cmds.despawn_descendants();
         let camera = cameras.single();
@@ -134,6 +131,7 @@ pub fn process_draw_overlay(
                 builder.add(&shapes::Rectangle {
                     extents: size,
                     origin: RectangleOrigin::BottomLeft,
+                    radii: None,
                 }),
             ),
             Overlay::Circle(radius) => (
@@ -159,6 +157,7 @@ pub fn process_draw_overlay(
                                 .add_geometry(Builder::new()),
                             ),
                             transform: Transform::from_rotation(Quat::from_rotation_z(start)),
+                            visibility: Visibility::Inherited,
                             ..Default::default()
                         },
                         crate::make_fill(Color::rgba_u8(0xff, 0x40, 0xff, 128)),
@@ -180,6 +179,7 @@ pub fn process_draw_overlay(
             ShapeBundle {
                 path: builder.build(),
                 transform: Transform::from_translation(pos.extend(FOREGROUND_Z)),
+                visibility: Visibility::Inherited,
                 ..Default::default()
             },
             crate::make_stroke(color, thickness * camera.scale.x),

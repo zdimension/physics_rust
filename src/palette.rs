@@ -1,9 +1,11 @@
 use std::collections::HashMap;
 
-use bevy::asset::AssetLoader;
+use bevy::asset::{AssetLoader, AsyncReadExt, LoadContext};
+use bevy::asset::io::Reader;
 use bevy::asset::LoadedAsset;
 use bevy::prelude::*;
-use bevy::reflect::{TypePath, TypeUuid};
+use bevy::reflect::{TypePath};
+use bevy::utils::BoxedFuture;
 use bevy_egui::egui::epaint::Hsva;
 
 use bevy_turborand::DelegatedRng;
@@ -129,8 +131,7 @@ impl Default for Palette {
     }
 }
 
-#[derive(Debug, Deserialize, TypeUuid, TypePath)]
-#[uuid = "005a11ae-18b1-4c47-9f2e-21827d204835"]
+#[derive(Debug, Deserialize, TypePath, Asset)]
 #[type_path = "physics_rust::palette"]
 pub struct PaletteList(pub HashMap<String, Palette>);
 
@@ -138,15 +139,20 @@ pub struct PaletteList(pub HashMap<String, Palette>);
 pub struct PaletteLoader;
 
 impl AssetLoader for PaletteLoader {
+    type Asset = PaletteList;
+    type Settings = ();
+    type Error = ron::error::SpannedError;
+
     fn load<'a>(
-        &'a self,
-        bytes: &'a [u8],
-        load_context: &'a mut bevy::asset::LoadContext,
-    ) -> bevy::utils::BoxedFuture<'a, Result<(), bevy::asset::Error>> {
+        &self,
+        reader: &'a mut dyn Reader,
+        _settings: &Self::Settings,
+        _load_context: &mut LoadContext,
+    ) -> BoxedFuture<'a, Result<Self::Asset, Self::Error>> {
         Box::pin(async move {
-            let custom_asset = ron::de::from_bytes::<PaletteList>(bytes)?;
-            load_context.set_default_asset(LoadedAsset::new(custom_asset));
-            Ok(())
+            let mut buf = Vec::new();
+            reader.read_to_end(&mut buf).await?;
+            ron::de::from_bytes(&buf)
         })
     }
 

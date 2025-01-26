@@ -25,7 +25,7 @@ pub fn process_pan(
                 *pan_speed = None;
             } else {
                 let mut camera = cameras.single_mut();
-                camera.translation += (*v * time.delta_seconds()).extend(0.0);
+                camera.translation += (*v * time.delta_secs()).extend(0.0);
                 *v *= 0.97;
             }
         }
@@ -35,12 +35,12 @@ pub fn process_pan(
     for PanEvent {
         orig_camera_pos,
         delta,
-    } in events.iter().copied()
+    } in events.read().copied()
     {
         let delta_scaled = delta * camera.scale.xy() * Vec2::new(1.0, -1.0);
         if let Some(v) = *last_delta {
             let old_total = *speed_stat;
-            let (mut new_total, mut new_time) = (old_total.0 + (delta_scaled - v), old_total.1 + time.delta_seconds());
+            let (mut new_total, mut new_time) = (old_total.0 + (delta_scaled - v), old_total.1 + time.delta_secs());
             if new_time > 0.01 {
                 *pan_speed = Some(new_total / new_time);
                 new_total = Vec2::ZERO;

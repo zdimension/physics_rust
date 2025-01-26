@@ -6,7 +6,7 @@ use bevy_prototype_lyon::entity::ShapeBundle;
 use bevy_prototype_lyon::geometry::GeometryBuilder;
 use bevy_prototype_lyon::prelude::RectangleOrigin;
 use bevy_prototype_lyon::shapes;
-use bevy_xpbd_2d::{math::*, prelude::*, components::*};
+use avian2d::{math::*, prelude::*};
 
 use crate::objects::ColorComponent;
 use crate::update_from::UpdateFrom;
@@ -37,7 +37,7 @@ impl PhysicalObject {
         Self {
             rigid_body: RigidBody::Dynamic,
             //velocity: Velocity::default(),
-            mass_props: ColliderMassProperties::new_computed(&collider, 2.0),
+            mass_props: ColliderMassProperties::from_shape(&collider, 2.0),
             collider,
             friction: Friction::default(),
             restitution: Restitution::new(0.7),
@@ -57,13 +57,14 @@ impl PhysicalObject {
     pub fn ball(radius: f32, pos: Vec3) -> Self {
         let radius = radius.abs();
         Self::make(
-            Collider::ball(radius),
+            Collider::circle(radius),
             ShapeBundle {
                 path: GeometryBuilder::build_as(&shapes::Circle {
                     radius,
                     ..Default::default()
                 }),
-                global_transform: GlobalTransform::from_translation(Vec3::new(0.0, 0.0, pos.z)),
+                transform: Transform::from_translation(Vec3::new(0.0, 0.0, pos.z)),
+                visibility: Visibility::Inherited,
                 ..Default::default()
             },
             Position(pos.xy()),
@@ -80,14 +81,15 @@ impl PhysicalObject {
             size.y = -size.y;
         }
         Self::make(
-            Collider::cuboid(size.x, size.y),
+            Collider::rectangle(size.x, size.y),
             ShapeBundle {
                 path: GeometryBuilder::build_as(&shapes::Rectangle {
                     extents: size,
                     origin: RectangleOrigin::Center,
+                    radii: None,
                 }),
-                transform: Transform::from_translation((size / 2.0).extend(0.0)),
-                global_transform: GlobalTransform::from_translation(Vec3::new(0.0, 0.0, pos.z)),
+                transform: Transform::from_translation((size / 2.0).extend(pos.z)),
+                visibility: Visibility::Inherited,
                 ..Default::default()
             },
             Position(pos.xy() + size / 2.0),
@@ -102,7 +104,8 @@ impl PhysicalObject {
                     points,
                     closed: true,
                 }),
-                global_transform: GlobalTransform::from_translation(Vec3::new(0.0, 0.0, pos.z)), // todo: center of mass
+                transform: Transform::from_translation(Vec3::new(0.0, 0.0, pos.z)), // todo: center of mass
+                visibility: Visibility::Inherited,
                 ..Default::default()
             },
             Position(pos.xy()),

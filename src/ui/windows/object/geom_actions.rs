@@ -3,6 +3,7 @@ use crate::ui::images::GuiIcons;
 use crate::ui::{InitialPos, Subwindow};
 use bevy::prelude::{info, Commands, Component, Entity, EventWriter, Parent, Query, Res, With};
 use bevy_egui::{egui, EguiContexts};
+use bevy_egui::egui::load::SizedTexture;
 use crate::systems;
 
 systems!(GeometryActionsWindow::show);
@@ -26,8 +27,8 @@ impl GeometryActionsWindow {
                 .subwindow(id, ctx, &mut initial_pos, &mut commands, |ui, _commands| {
                     if ui
                         .add(egui::Button::image_and_text(
-                            gui_icons.hinge,
-                            [16.0, 16.0],
+                            SizedTexture::new(gui_icons.hinge,
+                            [16.0, 16.0]),
                             "Add center axle",
                         ))
                         .clicked()

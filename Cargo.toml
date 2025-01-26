@@ -6,22 +6,24 @@ edition = "2021"
 [dependencies]
 #bevy-inspector-egui = "0.14.0"
 #bevy_mouse_tracking_plugin = { version = "0.7.0", git = "https://github.com/zdimension/bevy-mouse-tracking.git" }
-bevy_mouse_tracking_plugin = { version = "0.6.0", path = "../bevy-mouse-tracking" }
-bevy = { version = "0.11", features = ["trace"] }
-bevy_diagnostic = "0.11"
-bevy_egui = "0.21"
-bevy_prototype_lyon = "0.9.0"
-bevy_turborand = "0.6.0"
-bevy_xpbd_2d = { version = "0.2.0", git = "https://github.com/Jondolf/bevy_xpbd", features = ["debug-plugin"] }
+bevy_mouse_tracking_plugin = { version = "0.7.0", path = "../bevy-mouse-tracking" }
+bevy = { version = "0.15.1", features = ["trace"] }
+bevy_diagnostic = "0.15.1"
+bevy_egui = "0.32.0"
+egui_plot = "0.30.0"
+bevy_prototype_lyon = "0.13.0"
+bevy_turborand = "0.10.0"
+avian2d = { git = "https://github.com/Jondolf/avian", branch = "main" , features = ["debug-plugin"] }
 derivative = "2.2.0"
-itertools = "0.11.0"
-lyon_path = "1.0.3"
+itertools = "0.14.0"
+lyon_path = "1.0.4"
 num-traits = "0.2.15"
 paste = "1.0.13"
 ron = "0.8.0"
 serde = { version = "1.0.171", features = ["derive"] }
-strum = { version = "0.25.0", features = ["derive"] }
-bevy_mod_debugdump = "0.8.0"
+strum = { version = "0.26.3", features = ["derive"] }
+bevy_mod_debugdump = "0.12.1"
+bevy_dylib = "0.15.1"
 
 [features]
 print-schedule = []
@@ -32,7 +34,7 @@ patches = [
 ]
 
 [patch.crates-io]
-egui = { path = './target/patch/egui-0.22.0' }
+egui = { path = './target/patch/egui-0.30.0' }
 
 # native:
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
@@ -40,10 +42,10 @@ tracing-subscriber = "0.3.17"
 
 # web:
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-console_error_panic_hook = "0.1.7"
-tracing-wasm = "0.2.1"
-wasm-bindgen-futures = "0.4.37"
-wasm-bindgen = "0.2.87"
+console_error_panic_hook = "0.1"
+tracing-wasm = "0.2"
+wasm-bindgen-futures = "0.4"
+wasm-bindgen = "0.2"
 
 # Enable a small amount of optimization in debug mode
 [profile.dev]

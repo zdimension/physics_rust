@@ -2,20 +2,19 @@ use std::ops::{DerefMut, RangeInclusive};
 use bevy::ecs::system::SystemParam;
 use bevy::math::Vec3Swizzles;
 use bevy::prelude::*;
-use bevy::render::texture::ImageSampler;
 use bevy::utils::{HashMap, HashSet};
 
 use bevy_diagnostic::FrameTimeDiagnosticsPlugin;
 use bevy_egui::egui::epaint::{Hsva, Shadow};
 use bevy_egui::egui::style::Widgets;
 use bevy_egui::egui::{Color32, emath, Rounding, Slider, Ui};
-use bevy_egui::{egui::{self}, EguiContexts, EguiPlugin, EguiSettings};
+use bevy_egui::{egui::{self}, EguiContextSettings, EguiContexts, EguiPlugin};
 use bevy_mouse_tracking_plugin::{prelude::*, MainCamera};
 use bevy_prototype_lyon::prelude::*;
-use bevy_xpbd_2d::{math::*, prelude::*};
+use avian2d::{math::*, prelude::*};
+use bevy::image::ImageSampler;
 //use bevy_prototype_lyon::prelude::{DrawMode, FillMode, ShapePlugin};
 use bevy_turborand::prelude::*;
-pub use egui::egui_assert;
 use crate::skin::SkinConfig;
 use mouse::{button, wheel};
 use objects::hinge::HingeObject;
@@ -175,11 +174,10 @@ impl ToRot for Quat {
 pub fn app_main() {
     let mut app = App::new();
     app.insert_resource(ClearColor(Color::rgb(0.0, 0.0, 0.0)))
-        .insert_resource(Msaa::Sample4)
         .add_plugins(DefaultPlugins)
         .add_plugins(EguiPlugin)
         .add_plugins(RngPlugin::default())
-        .add_asset::<PaletteList>()
+        .init_asset::<PaletteList>()
         .init_asset_loader::<PaletteLoader>()
         .init_resource::<PaletteConfig>()
         .init_resource::<UiState>()
@@ -199,8 +197,8 @@ pub fn app_main() {
         .insert_resource(OverlayState::default())
         .insert_resource(cursor::EguiWantsFocus::default())
         .insert_resource({
-            let mut loop_ = PhysicsLoop::default();
-            loop_.paused = true;
+            let mut loop_ = Time::<Physics>::default();
+            loop_.pause();
             loop_
         })
         .add_plugins(PhysicsPlugins::default())
@@ -291,6 +289,7 @@ pub fn app_main() {
     )
     .add_systems(Update, update_draw_modes)
     .add_systems(Update, laser::draw_lasers)
+    .add_systems(Update, update_xpbd_pipeline)
     .add_systems(Update, apply_custom_forces);
     //.add_systems(PostUpdate, despawn_entities)
     // ;
@@ -304,6 +303,10 @@ pub fn app_main() {
         return;
     }
     app.run();
+}
+
+fn update_xpbd_pipeline(mut pipe: SpatialQuery) {
+    pipe.update_pipeline();
 }
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, SystemSet)]
@@ -381,7 +384,7 @@ fn process_unfreeze_entity(
     mut events: EventReader<UnfreezeEntityEvent>,
     mut query: Query<&mut RigidBody>,
 ) {
-    for UnfreezeEntityEvent { entity } in events.iter().copied() {
+    for UnfreezeEntityEvent { entity } in events.read().copied() {
         let Ok(mut body) = query.get_mut(entity) else { continue; };
         *body = RigidBody::Dynamic;
     }
@@ -401,29 +404,34 @@ fn setup_graphics(mut commands: Commands) {
                 .with_translation(Vec3::new(0.0, 0.0, CAMERA_FAR - 0.1))
                 .with_scale(Vec3::new(0.01, 0.01, 1.0)),
         ))
-        .add(InitWorldTracking)
-        .add(|id: Entity, _world: &mut World| {
-            info!("Added main camera with {id:?}");
+        .insert(Msaa::Sample4)
+        .queue(InitWorldTracking)
+        .queue(|id: EntityWorldMut| {
+            info!("Added main camera with {:?}", id.id());
         });
 
-    let mut cursor_bundle = ImageBundle::default();
-    cursor_bundle.style.position_type = PositionType::Absolute;
-    cursor_bundle.style.width = Val::Px(32.0);
-    cursor_bundle.style.height = Val::Px(32.0);
-    cursor_bundle.style.margin = UiRect::px(12.0, 0.0, 16.0, 0.0);
-    commands.spawn((ToolCursor, cursor_bundle));
+    commands.spawn((ToolCursor, (
+        ImageNode::default(),
+        Node {
+            position_type: PositionType::Absolute,
+            width: Val::Px(32.0),
+            height: Val::Px(32.0),
+            margin: UiRect::px(12.0, 0.0, 16.0, 0.0),
+            ..Default::default()
+        }
+        )));
 
     commands.spawn((
         LaserRays::default(),
         Visibility::Visible,
-        ComputedVisibility::default(),
+        ViewVisibility::default(),
         TransformBundle::default(),
     ));
 }
 
 fn hsva_to_rgba(hsva: Hsva) -> Color {
     let color = hsva.to_rgba_premultiplied();
-    Color::rgba_linear(color[0], color[1], color[2], color[3])
+    LinearRgba::new(color[0], color[1], color[2], color[3]).into()
 }
 
 fn make_fill(color: Color) -> Fill {
@@ -492,8 +500,8 @@ impl From<UsedMouseButton> for MouseButton {
     }
 }
 
-fn configure_visuals(mut egui_ctx: EguiContexts, mut egui_set: ResMut<EguiSettings>) {
-    egui_set.sampler_descriptor = ImageSampler::linear();
+fn configure_visuals(mut egui_ctx: EguiContexts) {
+    //egui_set.sampler_descriptor = ImageSampler::linear();
     let ctx = egui_ctx.ctx_mut();
     let mut visuals = egui::Visuals {
         window_rounding: 3.0.into(),
@@ -613,14 +621,27 @@ fn add_slider<T: emath::Numeric>(
 #[macro_export]
 macro_rules! update_changed {
     ($ui:expr, $target:expr, $range:expr, $settings:expr) => {
-        {
+        /*{
             use egui::{Slider, Widget};
-            let current = $target;
+            let mut current = $target;
             fn update_slider<'a, T: Widget + 'a>(f: impl FnOnce(Slider<'a>) -> T, s: Slider<'a>) -> T {
                 f(s)
             }
-            if $ui.add(update_slider($settings, Slider::new(&mut $target, $range))).changed() {
+            if $ui.add(update_slider($settings, Slider::new(&mut current, $range))).changed() {
                 $target = current;
+            }
+        }*/
+        update_changed!($ui, || { $target } => |x| { $target = x; }, $range, $settings)
+    };
+    ($ui:expr, $getter:expr => $setter:expr, $range:expr, $settings:expr) => {
+        {
+            use egui::{Slider, Widget};
+            let mut current = $getter();
+            fn update_slider<'a, T: Widget + 'a>(f: impl FnOnce(Slider<'a>) -> T, s: Slider<'a>) -> T {
+                f(s)
+            }
+            if $ui.add(update_slider($settings, Slider::new(&mut current, $range))).changed() {
+                $setter(current);
             }
         }
     };

@@ -2,7 +2,7 @@ use crate::objects::phy_obj::RefractiveIndex;
 use crate::ui::{InitialPos, Subwindow};
 use bevy::prelude::{Commands, Component, Entity, Parent, Query, With};
 use bevy_egui::{egui, EguiContexts};
-use bevy_xpbd_2d::{math::*, prelude::*};
+use avian2d::{math::*, prelude::*};
 use crate::{add_slider, systems, update_changed};
 use crate::UpdateStatus::Changed;
 
@@ -38,7 +38,7 @@ impl MaterialWindow {
                         slider.text("Restitution :").custom()
                     });
 
-                   update_changed!(ui, refractive.0, 1.0..=f32::INFINITY, |slider| {
+                    update_changed!(ui, refractive.0, 1.0..=f32::INFINITY, |slider| {
                         slider
                             .logarithmic(true)
                             .largest_finite(100.0)

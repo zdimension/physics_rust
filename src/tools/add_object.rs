@@ -6,31 +6,28 @@ use crate::objects::phy_obj::PhysicalObject;
 use crate::objects::{ColorComponent, MotorComponent, SettingComponent, SizeComponent, SpriteOnly};
 use crate::palette::PaletteConfig;
 use crate::ui::images::AppIcons;
+use crate::ui::windows::object::collisions::CollisionLayer;
 use crate::ui::UiState;
 use crate::update_from::UpdateFrom;
-use crate::{BORDER_THICKNESS, InvTransformPoint};
+use crate::{InvTransformPoint, BORDER_THICKNESS};
+use avian2d::{math::*, prelude::*};
 use bevy::hierarchy::BuildChildren;
 use bevy::log::info;
 use bevy::math::{Vec2, Vec3, Vec3Swizzles};
-use bevy::prelude::{Color, Entity, Event, GlobalTransform, SpatialBundle, Sprite, SpriteBundle};
-use bevy::prelude::{
-    Commands, EventReader, EventWriter, Local, Query, Res, Transform, With, Without,
-};
+use bevy::prelude::*;
 use bevy_mouse_tracking_plugin::MainCamera;
 use bevy_prototype_lyon::geometry::GeometryBuilder;
 use bevy_prototype_lyon::prelude::ShapeBundle;
 use bevy_prototype_lyon::shapes;
-use bevy_xpbd_2d::{math::*, prelude::*};
 use bevy_turborand::RngComponent;
-use AddObjectEvent::*;
-use crate::ui::windows::object::collisions::CollisionLayer;
 
 const VIRTUAL_LAYER: u32 = 1 << 31;
 
-static VIRTUAL_LAYER_OBJ: CollisionLayers = CollisionLayers::from_bits(VIRTUAL_LAYER, VIRTUAL_LAYER);
+static VIRTUAL_LAYER_OBJ: CollisionLayers =
+    CollisionLayers::from_bits(VIRTUAL_LAYER, VIRTUAL_LAYER);
 
 pub fn query_only_real() -> SpatialQueryFilter {
-    SpatialQueryFilter::new().with_masks_from_bits(0xffff_ffff ^ VIRTUAL_LAYER)
+    SpatialQueryFilter::from_mask(0xffff_ffff ^ VIRTUAL_LAYER)
 }
 
 #[derive(Debug, Event)]
@@ -63,11 +60,12 @@ pub fn process_add_object(
     mut select_mouse: EventWriter<SelectUnderMouseEvent>,
     sensor: Query<&Sensor>,
     ui_state: Res<UiState>,
-    spatial_query: SpatialQuery
+    spatial_query: SpatialQuery,
 ) {
     let palette = &palette_config.current_palette;
 
-    for ev in events.iter() {
+    for ev in events.read() {
+        use AddObjectEvent::*;
         match *ev {
             Box { pos, size } => {
                 commands
@@ -101,15 +99,11 @@ pub fn process_add_object(
             }
             Fix(pos) => {
                 let (entity1, entity2) = {
-                    let mut entities = select::find_under_mouse(
-                        &spatial_query,
-                        pos,
-                        query_only_real(),
-                        |ent| {
+                    let mut entities =
+                        select::find_under_mouse(&spatial_query, pos, query_only_real(), |ent| {
                             let (transform, _) = query.get(ent).unwrap();
                             transform.translation_vec3a().z
-                        },
-                    );
+                        });
                     (entities.next(), entities.next())
                 };
 
@@ -188,7 +182,13 @@ pub fn process_add_object(
                             continue;
                         };
                         let anchor1 = transform.to_local(pos);
-                        (entity1, anchor1, transform.translation_vec3a().z, entity2, pos)
+                        (
+                            entity1,
+                            anchor1,
+                            transform.translation_vec3a().z,
+                            entity2,
+                            pos,
+                        )
                     }
                     AddHingeEvent::AddCenter(ent) => {
                         let entity1 = ent;
@@ -202,14 +202,20 @@ pub fn process_add_object(
                         let entity2 = select::find_under_mouse(
                             &spatial_query,
                             pos,
-                            query_only_real().without_entities([entity1]),
+                            query_only_real().with_excluded_entities([entity1]),
                             |ent| {
                                 let (transform, _) = query.get(ent).unwrap();
                                 transform.translation_vec3a().z
                             },
                         )
                         .next();
-                        (entity1, anchor1, transform.translation_vec3a().z, entity2, pos)
+                        (
+                            entity1,
+                            anchor1,
+                            transform.translation_vec3a().z,
+                            entity2,
+                            pos,
+                        )
                     }
                 };
 
@@ -231,12 +237,12 @@ pub fn process_add_object(
                                 }),
                                 transform: Transform::from_translation(hinge_pos)
                                     .with_scale(Vec3::new(scale, scale, 1.0)),
+                                visibility: Visibility::Inherited,
                                 ..Default::default()
                             },
                             crate::make_stroke(Color::rgba(0.0, 0.0, 0.0, 0.0), BORDER_THICKNESS),
                             SpriteOnly,
-                            Collider::ball(0.5),
-
+                            Collider::circle(0.5),
                             Sensor,
                             ColorComponent(palette.get_color_hsva_opaque(&mut *rng.single_mut()))
                                 .update_from_this(),
@@ -250,11 +256,8 @@ pub fn process_add_object(
                                 )))
                                 .with_children(|builder| {
                                     builder.spawn((
-                                        SpriteBundle {
-                                            texture: images.hinge_balls.clone(),
-                                            sprite: Sprite {
-                                                ..Default::default()
-                                            },
+                                        Sprite {
+                                            image: images.hinge_balls.clone(),
                                             ..Default::default()
                                         },
                                         UpdateFrom::<ColorComponent>::entity(entity1),
@@ -262,23 +265,17 @@ pub fn process_add_object(
                                 })
                                 .with_children(|builder| {
                                     builder.spawn((
-                                        SpriteBundle {
-                                            texture: images.hinge_background.clone(),
-                                            sprite: Sprite {
-                                                ..Default::default()
-                                            },
+                                        Sprite {
+                                            image: images.hinge_background.clone(),
                                             ..Default::default()
                                         },
                                         UpdateFrom::<ColorComponent>::This,
                                     ));
                                 })
                                 .with_children(|builder| {
-                                    let mut sprite = builder.spawn(SpriteBundle {
-                                        texture: images.hinge_inner.clone(),
-                                        sprite: Sprite {
-                                            color: palette.sky_color,
-                                            ..Default::default()
-                                        },
+                                    let mut sprite = builder.spawn(Sprite {
+                                        image: images.hinge_inner.clone(),
+                                        color: palette.sky_color,
                                         ..Default::default()
                                     });
                                     if let Some(entity2) = entity2 {
@@ -322,21 +319,16 @@ pub fn process_add_object(
                                 UpdateFrom::<MotorComponent>::entity(hinge_real_ent),
                                 RevoluteJoint::new(entity1, entity2)
                                     .with_local_anchor_1(anchor1)
-                                    .with_local_anchor_2(anchor2)
+                                    .with_local_anchor_2(anchor2),
                             ))
                             .set_parent(ui_state.scene);
                     } else {
-                        let rigid =
-                        commands.spawn((
-                            RigidBody::Kinematic,
-                            Position(pos)
-                            )).id();
+                        let rigid = commands.spawn((RigidBody::Kinematic, Position(pos))).id();
                         commands
                             .spawn((
                                 HingeObject,
                                 UpdateFrom::<MotorComponent>::entity(hinge_real_ent),
-                                RevoluteJoint::new(entity1, rigid)
-                                    .with_local_anchor_1(anchor1)
+                                RevoluteJoint::new(entity1, rigid).with_local_anchor_1(anchor1),
                             ))
                             .set_parent(ui_state.scene);
                     }
@@ -357,7 +349,8 @@ pub fn process_add_object(
                         },
                         ColorComponent(palette.get_color_hsva_opaque(&mut *rng.single_mut()))
                             .update_from_this(),
-                        Collider::cuboid(0.5, 0.25),
+                        Collider::rectangle(0.5, 0.25),
+                        VIRTUAL_LAYER_OBJ,
                         SizeComponent(scale),
                         Sensor,
                     ))
@@ -379,25 +372,20 @@ pub fn process_add_object(
                                 ..Default::default()
                             }),
                             transform: Transform::from_translation(z.pos(laser_pos)),
+                            visibility: Visibility::Inherited,
                             ..Default::default()
                         },
                         crate::make_stroke(Color::rgba(0.0, 0.0, 0.0, 0.0), BORDER_THICKNESS),
                         UpdateFrom::<SizeComponent>::This,
                     ))
-                    .with_children(|builder| {
-                        builder.spawn((
-                            SpriteBundle {
-                                texture: images.laserpen.clone(),
-                                transform: Transform::from_scale(Vec3::new(
-                                    1.0 / 256.0,
-                                    1.0 / 256.0,
-                                    1.0,
-                                )),
+                    .with_child((
+                            Sprite {
+                                image: images.laserpen.clone(),
                                 ..Default::default()
                             },
+                            Transform::from_scale(Vec3::new(1.0 / 256.0, 1.0 / 256.0, 1.0)),
                             UpdateFrom::<ColorComponent>::This,
                         ));
-                    });
             }
             ref x => unimplemented!("unimplemented tool {:?}", x),
         }

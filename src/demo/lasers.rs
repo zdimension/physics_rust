@@ -2,7 +2,7 @@ use crate::tools::add_object::AddObjectEvent;
 use bevy::prelude::*;
 
 pub fn init(commands: &mut Commands) {
-    commands.add(|w: &mut World| {
+    commands.queue(|w: &mut World| {
         let mut ev = w.resource_mut::<Events<_>>();
         ev.send(AddObjectEvent::Laser(Vec2::new(-1.0, 6.5)));
 

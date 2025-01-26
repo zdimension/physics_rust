@@ -1,22 +1,20 @@
 use bevy::math::Vec2;
 use bevy_egui::egui;
-use bevy_egui::egui::{
-    pos2, vec2, NumExt, Response, Sense, TextStyle, TextureId, Ui, Widget, WidgetInfo, WidgetText,
-    WidgetType,
-};
+use bevy_egui::egui::{pos2, vec2, NumExt, Response, Sense, TextStyle, TextWrapMode, TextureId, Ui, Widget, WidgetInfo, WidgetText, WidgetType};
+use bevy_egui::egui::load::SizedTexture;
 
 pub struct MenuItem {
-    icon: Option<egui::widgets::Image>,
+    icon: Option<egui::widgets::Image<'static>>,
     text: WidgetText,
-    icon_right: Option<egui::widgets::Image>,
+    icon_right: Option<egui::widgets::Image<'static>>,
     selected: bool,
 }
 
 impl MenuItem {
     const ICON_SIZE: f32 = 16.0;
 
-    fn gen_image(icon: TextureId) -> egui::widgets::Image {
-        egui::widgets::Image::new(icon, Vec2::splat(Self::ICON_SIZE).to_array())
+    fn gen_image(icon: TextureId) -> egui::widgets::Image<'static> {
+        egui::widgets::Image::new(SizedTexture::new(icon, Vec2::splat(Self::ICON_SIZE).to_array()))
     }
 
     pub fn button(icon: Option<TextureId>, text: impl Into<WidgetText>) -> Self {
@@ -59,7 +57,7 @@ impl Widget for MenuItem {
         let icon_width_total = icon_width * icon_count as f32;
         let text_wrap_width = ui.available_width() - button_padding.x * 2.0 - icon_width_total;
 
-        let text = text.into_galley(ui, Some(false), text_wrap_width, TextStyle::Button);
+        let text = text.into_galley(ui, Some(TextWrapMode::Extend), text_wrap_width, TextStyle::Button);
         let mut desired_size = text.size();
         desired_size.x += icon_width_total;
         desired_size.y = desired_size.y.max(Self::ICON_SIZE);
@@ -69,7 +67,7 @@ impl Widget for MenuItem {
         desired_size.x = desired_size.x.at_least(ui.available_width());
 
         let (rect, response) = ui.allocate_at_least(desired_size, Sense::click());
-        response.widget_info(|| WidgetInfo::labeled(WidgetType::Button, text.text()));
+        response.widget_info(|| WidgetInfo::labeled(WidgetType::Button, ui.is_enabled(), text.text()));
 
         if ui.is_rect_visible(rect) {
             let visuals = ui.style().interact(&response);
@@ -99,7 +97,7 @@ impl Widget for MenuItem {
                     rect.center().y - text.size().y / 2.0,
                 )
             };
-            text.paint_with_visuals(ui.painter(), text_pos, visuals);
+            ui.painter().galley(text_pos, text, visuals.text_color());
 
             if let Some(icon) = icon {
                 let image_rect = egui::Rect::from_min_size(

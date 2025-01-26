@@ -1,10 +1,9 @@
-use bevy::input::Input;
 use bevy::log::info;
-use bevy::prelude::{Commands, DespawnRecursiveExt, Entity, EventWriter, MouseButton, Query, Res, ResMut, Time, Transform, With};
+use bevy::prelude::*;
 use bevy::utils::Duration;
 use bevy_egui::EguiContexts;
 use bevy_mouse_tracking_plugin::{MousePos, MousePosWorld};
-use bevy_xpbd_2d::{math::*, prelude::*};
+use avian2d::{math::*, prelude::*};
 
 use pan::PanState;
 
@@ -24,7 +23,7 @@ use crate::UnfreezeEntityEvent;
 use crate::UsedMouseButton;
 
 pub fn left_release(
-    mouse_button_input: Res<Input<MouseButton>>,
+    mouse_button_input: Res<ButtonInput<MouseButton>>,
     mut commands: Commands,
     screen_pos: Res<MousePos>,
     mut ui_state: ResMut<UiState>,
@@ -144,7 +143,7 @@ pub fn left_release(
 }
 
 pub fn left_pressed(
-    mouse_button_input: Res<Input<MouseButton>>,
+    mouse_button_input: Res<ButtonInput<MouseButton>>,
     mut ui_state: ResMut<UiState>,
     mouse_pos: Res<MousePosWorld>,
     screen_pos: Res<MousePos>,

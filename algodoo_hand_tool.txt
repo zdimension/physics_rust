@@ -1,0 +1,30 @@
+m = masse en kg
+d = distance en m
+s = strength en ?
+z = zoom en px/m (augmente quand on se rapproche)
+
+f(z, d, k*s) = k*f(z, d, s)
+f(z, k*d, s) = k*f(z, d, s)
+f(kz, d, s) = f(z, d, s)/k
+
+
+f(z,d,s) = ds/z
+
+N = kgm/s²
+
+m*S*m/px = m²*S/px = kgm/s²
+m*S/px=kg/s²
+m*S=kg*px/s²
+S=N*px
+
+f(263.9017,1,100) = 0.31
+f(131.9,1,100) = 0.62
+
+
+
+à l'envers
+z = zoom en m/px
+
+f(z,d,s) = zds
+
+m*S*

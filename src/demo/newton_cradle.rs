@@ -1,7 +1,7 @@
 use crate::objects::hinge::HingeObject;
 use crate::objects::phy_obj::PhysicalObject;
 use bevy::prelude::*;
-use bevy_xpbd_2d::{math::*, prelude::*};
+use avian2d::{math::*, prelude::*};
 
 pub fn init(commands: &mut ChildBuilder) {
     let mut z = 1.0;

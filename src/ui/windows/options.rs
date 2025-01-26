@@ -4,7 +4,7 @@ use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts};
 use bevy_egui::egui::color_picker::Alpha;
 use bevy_egui::egui::ecolor::HsvaGamma;
-use bevy_egui::egui::{Color32, Stroke};
+use bevy_egui::egui::{vec2, Color32, Stroke};
 use bevy_egui::egui::epaint::Shadow;
 use num_traits::Inv;
 use strum::EnumIter;
@@ -143,6 +143,11 @@ pub fn update_skin(skin: Res<SkinConfig>, mut egui_ctx: EguiContexts) {
     style.visuals.selection.bg_fill = selected;
     style.visuals.selection.stroke = Stroke::NONE;
     style.visuals.widgets.inactive.bg_fill = selected;
-    style.visuals.window_shadow = Shadow::small_dark();
+    style.visuals.window_shadow = Shadow {
+                offset: vec2(6.0, 10.0),
+                blur: 8.0,
+                spread: 0.0,
+                color: Color32::from_black_alpha(96),
+            };
     ctx.set_style(style);
 }

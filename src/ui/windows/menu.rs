@@ -7,7 +7,7 @@ use bevy::hierarchy::{BuildChildren, Parent};
 use bevy::prelude::*;
 use bevy_egui::egui::{pos2, Separator};
 use bevy_egui::{egui, EguiContexts};
-use bevy_xpbd_2d::{math::*, prelude::*};
+use avian2d::{math::*, prelude::*};
 use std::time::Duration;
 use bevy::math::Vec3Swizzles;
 use bevy::render::primitives::Aabb;
@@ -118,7 +118,7 @@ impl MenuWindow {
                                         info!("new wnd: {:?}", new_wnd);
 
                                         if let Some(id) = entity {
-                                            commands.entity(id).push_children(&[new_wnd]);
+                                            commands.entity(id).add_children(&[new_wnd]);
                                         }
 
                                         info_wnd.selected_item = Some((our_id, new_wnd));
@@ -217,7 +217,7 @@ fn handle_zoom_to_scene(
 
     let mut camera = cameras.single_mut();
 
-    for _ in events.iter() {
+    for _ in events.read() {
         let bbox = bboxes
             .iter()
             .map(|(xform, bbox)| Rect::from_center_half_size(xform.0, bbox.half_extents.xy()))

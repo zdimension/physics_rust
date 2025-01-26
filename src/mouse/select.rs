@@ -5,10 +5,11 @@ use std::collections::btree_set::BTreeSet;
 use bevy::log::info;
 use bevy::math::{Vec2, Vec2Swizzles};
 use bevy::prelude::*;
-use bevy_egui::egui::epaint::util::{FloatOrd, OrderedFloat};
+use bevy_egui::egui::epaint::util::OrderedFloat;
 use bevy_mouse_tracking_plugin::MousePos;
-use bevy_xpbd_2d::{math::*, prelude::*};
-use bevy_xpbd_2d::{math::*, prelude::*};
+use avian2d::{math::*, prelude::*};
+use avian2d::{math::*, prelude::*};
+use bevy_egui::egui::emath::Float;
 use derivative::Derivative;
 
 #[derive(Event)]
@@ -24,7 +25,7 @@ pub fn process_select(
     mut menu_event: EventWriter<ContextMenuEvent>,
     screen_pos: Res<MousePos>,
 ) {
-    for SelectEvent { entity, open_menu } in events.iter() {
+    for SelectEvent { entity, open_menu } in events.read() {
         if let Some(entity) = entity {
             info!("Selecting entity: {:?}", entity);
             commands.entity(*entity).log_components();
@@ -57,7 +58,7 @@ pub fn find_under_mouse(
 
     let mut set = BTreeSet::new();
 
-    query.point_intersections_callback(pos, filter, |ent| {
+    query.point_intersections_callback(pos, &filter, |ent| {
         set.insert(EntityZ {
             entity: ent,
             z: z(ent).ord(),
@@ -82,7 +83,7 @@ pub fn process_select_under_mouse(
     mut commands: Commands,
     wnds: Query<Entity, With<TemporaryWindow>>,
 ) {
-    for SelectUnderMouseEvent { pos, open_menu } in events.iter().copied() {
+    for SelectUnderMouseEvent { pos, open_menu } in events.read().copied() {
         for id in wnds.iter() {
             commands.entity(id).despawn_recursive();
         }

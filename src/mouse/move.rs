@@ -10,10 +10,9 @@ use crate::{CustomForce, InvTransformPoint, UsedMouseButton};
 use bevy::math::Vec2;
 use bevy::prelude::{BuildChildren, Commands, Event, EventReader, EventWriter, GlobalTransform, Parent, Query, Res, ResMut, Transform, With, Without};
 use bevy_mouse_tracking_plugin::{MainCamera, MousePosWorld};
-use bevy_xpbd_2d::{math::*, prelude::*};
-use bevy_xpbd_2d::{math::*, prelude::*};
-use bevy_xpbd_2d::{math::*, prelude::*};
-use bevy_xpbd_2d::components::ExternalForce;
+use avian2d::{math::*, prelude::*};
+use avian2d::{math::*, prelude::*};
+use avian2d::{math::*, prelude::*};
 
 #[derive(Event)]
 pub struct MouseLongOrMovedWriteback {
@@ -30,7 +29,7 @@ pub fn mouse_long_or_moved_writeback(
     mut read: EventReader<MouseLongOrMovedWriteback>,
     mut write: EventWriter<MouseLongOrMoved>,
 ) {
-    for event in read.iter() {
+    for event in read.read() {
         write.send(event.event);
     }
 }
@@ -50,8 +49,8 @@ pub fn mouse_long_or_moved(
     use crate::{DrawObject, UsedMouseButton};
     use bevy::log::info;
     use bevy::math::Vec3Swizzles;
-    use bevy_xpbd_2d::{math::*, prelude::*};
-    for MouseLongOrMoved(hover_tool, pos, button) in events.iter() {
+    use avian2d::{math::*, prelude::*};
+    for MouseLongOrMoved(hover_tool, pos, button) in events.read() {
         let clickpos = *pos;
         let curpos = mouse_pos.xy();
         info!("long or moved!");

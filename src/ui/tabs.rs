@@ -1,5 +1,5 @@
 use std::ops::DerefMut;
-use bevy_egui::egui::{NumExt, pos2, Response, Sense, TextStyle, Ui, Widget, WidgetInfo, WidgetText, WidgetType};
+use bevy_egui::egui::{NumExt, pos2, Response, Sense, TextStyle, Ui, Widget, WidgetInfo, WidgetText, WidgetType, TextWrapMode};
 use strum::IntoEnumIterator;
 
 pub trait Tab: PartialEq + Copy + IntoEnumIterator + Send + Sync + 'static {
@@ -20,13 +20,13 @@ impl Widget for TabButton {
         let button_padding = ui.spacing().button_padding;
         let text_wrap_width = ui.available_width() - button_padding.x * 2.0;
 
-        let text = text.into_galley(ui, Some(false), text_wrap_width, TextStyle::Button);
+        let text = text.into_galley(ui, Some(TextWrapMode::Extend), text_wrap_width, TextStyle::Button);
         let mut desired_size = text.size();
         desired_size.y = desired_size.y.at_least(ui.spacing().interact_size.y);
         desired_size += button_padding * 2.0;
 
         let (rect, response) = ui.allocate_at_least(desired_size, Sense::click());
-        response.widget_info(|| WidgetInfo::labeled(WidgetType::Button, text.text()));
+        response.widget_info(|| WidgetInfo::labeled(WidgetType::Button, ui.is_enabled(), text.text()));
 
         if ui.is_rect_visible(rect) {
             let selection = ui.visuals().widgets.hovered;
@@ -45,7 +45,8 @@ impl Widget for TabButton {
                     rect.center().y - text.size().y / 2.0,
                 )
             };
-            text.paint_with_visuals(ui.painter(), text_pos, &selection);
+            let visuals = ui.style().interact(&response);
+            ui.painter().galley(text_pos, text, visuals.text_color());
         }
 
         response

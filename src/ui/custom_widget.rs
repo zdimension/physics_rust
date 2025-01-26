@@ -3,7 +3,7 @@ use bevy::ecs::system::{SystemParam, SystemState};
 use bevy::prelude::*;
 use bevy::utils::HashMap;
 use bevy_egui::egui::Ui;
-use bevy_xpbd_2d::{math::*, prelude::*};
+use avian2d::{math::*, prelude::*};
 
 pub trait WidgetSystem: SystemParam {
     type Args;

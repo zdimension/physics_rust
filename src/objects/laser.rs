@@ -7,7 +7,7 @@ use bevy_egui::egui::ecolor::Hsva;
 use bevy_prototype_lyon::geometry::GeometryBuilder;
 use bevy_prototype_lyon::prelude::ShapeBundle;
 use bevy_prototype_lyon::shapes;
-use bevy_xpbd_2d::{math::*, prelude::*};
+use avian2d::{math::*, prelude::*};
 use num_traits::float::FloatConst;
 
 use crate::objects::phy_obj::RefractiveIndex;
@@ -129,14 +129,14 @@ impl<'a, 'w, 's, ObjInfo: Fn(Entity) -> ObjectInfo> LaserCompute<'a, 'w, 's, Obj
 
         self.query.ray_hits_callback(
             ray_origin,
-            ray_dir,
+            Dir2::new_unchecked(ray_dir),
             ray.length_clipped(),
             false,
-            query_only_real(),
+            &query_only_real(),
             |hit| {
-                if hit.time_of_impact > 0.0001 && hit.time_of_impact < min_dist {
+                if hit.distance > 0.0001 && hit.distance < min_dist {
                     intersection = Some(hit);
-                    min_dist = hit.time_of_impact;
+                    min_dist = hit.distance;
                 }
                 true
             },
@@ -145,7 +145,7 @@ impl<'a, 'w, 's, ObjInfo: Fn(Entity) -> ObjectInfo> LaserCompute<'a, 'w, 's, Obj
         if let Some(
             RayHitData {
                 entity: ent,
-                time_of_impact: toi,
+                distance: toi,
                 normal
             }
         ) = intersection
@@ -176,7 +176,7 @@ impl<'a, 'w, 's, ObjInfo: Fn(Entity) -> ObjectInfo> LaserCompute<'a, 'w, 's, Obj
             // tood: slow
             self.query.point_intersections_callback(
                 ray.start + (toi / 2.0) * ray_dir,
-                query_only_real(),
+                &query_only_real(),
                 |scrutinee| {
                     if ent == scrutinee {
                         inside_object = true;
@@ -223,7 +223,7 @@ impl<'a, 'w, 's, ObjInfo: Fn(Entity) -> ObjectInfo> LaserCompute<'a, 'w, 's, Obj
                     let mut object_other = None;
                     self.query.point_intersections_callback(
                         point,
-                        query_only_real().without_entities([ent]),
+                        &query_only_real().with_excluded_entities([ent]),
                         |ent| {
                             object_other = Some(ent);
                             false
@@ -344,7 +344,7 @@ pub fn draw_lasers(
 
         let start = glob.transform_point(Vec3::new(0.5, 0.0, 1.0)).xy();
         let mut object_other = None;
-        spatial_query.point_intersections_callback(start, query_only_real(), |ent| {
+        spatial_query.point_intersections_callback(start, &query_only_real(), |ent| {
             object_other = Some(ent);
             false
         });
@@ -412,6 +412,7 @@ pub fn draw_lasers(
                             0.0,
                             transform.translation.z - 0.1,
                         )),
+                visibility: Visibility::Inherited,
                         ..Default::default()
                     },
                     crate::make_fill(crate::hsva_to_rgba(ray.color_blended())),
