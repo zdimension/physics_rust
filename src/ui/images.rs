@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use bevy::prelude::*;
 use bevy_egui::egui::TextureId;
 use bevy_egui::{EguiTextureHandle, EguiUserTextures};
@@ -15,11 +17,12 @@ impl LoadedImage {
 
 macro_rules! icon_set {
     ($type:ident, $root:literal, [$($name:ident),*$(,)?]) => {
-        #[derive(Resource, Copy, Clone)]
+        #[derive(Resource)]
         pub struct $type {
             $(
                 pub $name: TextureId,
             )*
+            image_ids: HashSet<AssetId<Image>>,
         }
 
         impl FromWorld for $type {
@@ -27,15 +30,24 @@ macro_rules! icon_set {
                 let unsafe_world = world.as_unsafe_world_cell();
                 let mut egui_ctx = unsafe { unsafe_world.get_resource_mut::<EguiUserTextures>().unwrap() };
                 let asset_server = unsafe { unsafe_world.get_resource::<AssetServer>().unwrap() };
+                let mut image_ids = HashSet::new();
                 Self {
                     $(
                         $name: {
                             let handle = asset_server.load(concat!($root, stringify!($name), ".png"));
+                            image_ids.insert(handle.id());
                             let egui_id = egui_ctx.add_image(EguiTextureHandle::Strong(handle));
                             egui_id
                         },
                     )*
+                    image_ids,
                 }
+            }
+        }
+
+        impl $type {
+            pub(crate) fn contains_image(&self, image_id: AssetId<Image>) -> bool {
+                self.image_ids.contains(&image_id)
             }
         }
     }

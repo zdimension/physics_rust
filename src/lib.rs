@@ -186,6 +186,7 @@ pub fn app_main() {
         .init_resource::<UiState>()
         .init_resource::<AppIcons>()
         .init_resource::<ToolIcons>()
+        .init_resource::<tools::EguiImageAlphaState>()
         .init_resource::<GuiIcons>()
         .init_resource::<SkinConfig>()
         .init_resource::<AppConfig>()        .init_resource::<DragConfig>()
@@ -241,7 +242,10 @@ pub fn app_main() {
             )
                 .chain(),
         )
-        .add_systems(Update, update_from_palette);
+        .add_systems(
+            Update,
+            (update_from_palette, tools::premultiply_egui_image_alpha),
+        );
     ui::add_systems(&mut app);
     measures::add_systems(&mut app);
     app.add_systems(

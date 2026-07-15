@@ -127,7 +127,7 @@ pub fn update_skin(skin: Res<SkinConfig>, mut egui_ctx: EguiContexts) {
     let selected = HsvaGamma {
         h: hsva.h,
         s: hsva.s * sat_factor,
-        v: hsva.v * 0.49 + 0.40,
+        v: hsva.v * 0.49 + 0.60,
         a: hsva.a * 0.7
     }.into();
 

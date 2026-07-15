@@ -4,6 +4,9 @@ pub(crate) mod r#move;
 pub(crate) mod pan;
 pub(crate) mod rotate;
 
+use std::collections::HashSet;
+
+use crate::ui::images::GuiIcons;
 use paste::paste;
 
 macro_rules! tools_enum {
@@ -62,6 +65,17 @@ macro_rules! tools_enum {
                     }
                 }
             }
+
+            impl ToolIcons {
+                fn contains_image(&self, image_id: AssetId<Image>) -> bool {
+                    [
+                        $(
+                            self.[<icon_ $pic>].id(),
+                        )*
+                    ]
+                    .contains(&image_id)
+                }
+            }
         }
     }
 }
@@ -87,4 +101,73 @@ tools_enum! {
     thruster => Thruster(()),
     zoom => Zoom(Option<Entity>),
     pan => Pan(Option<PanState>),
+}
+
+#[derive(Resource, Default)]
+pub(crate) struct EguiImageAlphaState {
+    self_modified: HashSet<AssetId<Image>>,
+}
+
+pub(crate) fn premultiply_egui_image_alpha(
+    tool_icons: Res<ToolIcons>,
+    gui_icons: Res<GuiIcons>,
+    mut image_events: MessageReader<AssetEvent<Image>>,
+    mut images: ResMut<Assets<Image>>,
+    mut alpha_state: ResMut<EguiImageAlphaState>,
+) {
+    for event in image_events.read() {
+        let (image_id, is_modified) = match event {
+            AssetEvent::LoadedWithDependencies { id } => (*id, false),
+            AssetEvent::Modified { id } => (*id, true),
+            _ => continue,
+        };
+        if !tool_icons.contains_image(image_id) && !gui_icons.contains_image(image_id) {
+            continue;
+        }
+        if is_modified && alpha_state.self_modified.remove(&image_id) {
+            continue;
+        }
+
+        let Some(mut image) = images.get_mut(image_id) else {
+            continue;
+        };
+        if premultiply_image_alpha(&mut image) {
+            alpha_state.self_modified.insert(image_id);
+        }
+    }
+}
+
+fn premultiply_image_alpha(image: &mut Image) -> bool {
+    let Some(data) = image.data.as_mut() else {
+        return false;
+    };
+    if data.len() % 4 != 0 {
+        return false;
+    }
+
+    premultiply_rgba(data);
+    true
+}
+
+fn premultiply_rgba(data: &mut [u8]) {
+    for pixel in data.chunks_exact_mut(4) {
+        let alpha = pixel[3] as u16;
+        for component in &mut pixel[..3] {
+            *component = (*component as u16 * alpha / 255) as u8;
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::premultiply_rgba;
+
+    #[test]
+    fn premultiplies_straight_alpha_pixels() {
+        let mut pixels = [255, 255, 255, 0, 255, 255, 255, 128, 255, 255, 255, 255];
+
+        premultiply_rgba(&mut pixels);
+
+        assert_eq!(pixels, [0, 0, 0, 0, 128, 128, 128, 128, 255, 255, 255, 255]);
+    }
 }
