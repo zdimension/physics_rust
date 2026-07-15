@@ -35,7 +35,7 @@ use crate::config::AppConfig;
 
 use crate::mouse::r#move::{MouseLongOrMoved, MouseLongOrMovedWriteback};
 use crate::mouse::select::{SelectEvent, SelectUnderMouseEvent};
-use crate::objects::SpriteOnly;
+use crate::objects::{CircleAngleMarker, SpriteOnly};
 use crate::tools::drag::{DragConfig, DragEvent};
 use crate::tools::r#move::MoveEvent;
 use crate::tools::ToolIcons;
@@ -188,8 +188,8 @@ pub fn app_main() {
         .init_resource::<ToolIcons>()
         .init_resource::<GuiIcons>()
         .init_resource::<SkinConfig>()
-        .init_resource::<AppConfig>()
-        .init_resource::<DragConfig>()
+        .init_resource::<AppConfig>()        .init_resource::<DragConfig>()
+        .init_resource::<wheel::SmoothZoom>()
         .insert_resource(SubstepCount(50))
         .insert_resource(Gravity(Vec2::NEG_Y * 9.81))
         /*.insert_resource(RapierConfiguration {
@@ -248,6 +248,7 @@ pub fn app_main() {
         Update,
         (
             wheel::mouse_wheel,
+            wheel::smooth_zoom.in_set(wheel::CameraZoomSet),
             button::left_pressed,
             button::left_release,
             add_object::process_add_object,
@@ -356,22 +357,20 @@ fn update_draw_modes(
     mut draws: Query<(
         Entity,
         Option<&mut Fill>,
-        &mut Stroke,
+        Option<&mut Stroke>,
         &UpdateFrom<ColorComponent>,
         Option<&SpriteOnly>,
+        Option<&CircleAngleMarker>,
     )>,
     parents: Query<(Option<&ChildOf>, Option<Ref<ColorComponent>>)>,
     ui_state: Res<UiState>,
 ) {
-    for (entity, fill, mut stroke, update_source, sprite_only) in draws.iter_mut() {
+    for (entity, fill, stroke, update_source, sprite_only, angle_marker) in draws.iter_mut() {
         let (entity, color) = update_source
             .find_component(entity, &parents)
             .expect("no color component found");
 
-        if let Some(mut fill) = fill {
-            fill.color = hsva_to_rgba(color);
-        }
-        stroke.color = if ui_state.selected_entity == Some(EntitySelection { entity }) {
+        let border_color = if ui_state.selected_entity == Some(EntitySelection { entity }) {
             Color::WHITE
         } else {
             hsva_to_rgba(Hsva {
@@ -380,6 +379,16 @@ fn update_draw_modes(
                 ..color
             })
         };
+        if let Some(mut fill) = fill {
+            fill.color = if angle_marker.is_some() {
+                border_color
+            } else {
+                hsva_to_rgba(color)
+            };
+        }
+        if let Some(mut stroke) = stroke {
+            stroke.color = border_color;
+        }
     }
 }
 

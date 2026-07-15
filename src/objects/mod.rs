@@ -89,13 +89,16 @@ pub fn update_motors(
     }*/
 }
 
-systems!(update_sprites_color, update_size_scales, update_motors);
+systems!(update_sprites_color, update_size_scales, update_motors, phy_obj::spawn_circle_angle_markers);
 
 #[derive(Component)]
 pub struct ColorComponent(pub Hsva);
 
 #[derive(Component)]
 pub struct SpriteOnly;
+
+#[derive(Component)]
+pub struct CircleAngleMarker;
 
 impl SettingComponent for ColorComponent {
     type Value = Hsva;

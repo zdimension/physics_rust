@@ -312,6 +312,7 @@ pub fn process_add_object(
                         commands
                             .spawn((
                                 HingeObject,
+                                JointCollisionDisabled,
                                 UpdateFrom::<MotorComponent>::entity(hinge_real_ent),
                                 RevoluteJoint::new(entity1, entity2)
                                     .with_local_anchor1(anchor1)
@@ -323,6 +324,7 @@ pub fn process_add_object(
                         commands
                             .spawn((
                                 HingeObject,
+                                JointCollisionDisabled,
                                 UpdateFrom::<MotorComponent>::entity(hinge_real_ent),
                                 RevoluteJoint::new(entity1, rigid).with_local_anchor1(anchor1),
                             ))

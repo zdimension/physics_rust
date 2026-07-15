@@ -8,9 +8,12 @@ use crate::lyon_compat::RectangleOrigin;
 use crate::lyon_compat::shapes;
 use avian2d::{math::*, prelude::*};
 
-use crate::objects::ColorComponent;
+use crate::objects::{CircleAngleMarker, ColorComponent};
 use crate::update_from::UpdateFrom;
-use crate::FillStroke;
+use crate::{FillStroke, BORDER_THICKNESS};
+
+#[derive(Component)]
+pub struct CircleVisual(pub f32);
 
 #[derive(Bundle)]
 pub struct PhysicalObject {
@@ -29,6 +32,7 @@ pub struct PhysicalObject {
     fill_stroke: FillStroke,
     sleeping: SleepingDisabled,
     pos: Position,
+    circle_visual: CircleVisual,
 }
 
 impl PhysicalObject {
@@ -49,23 +53,26 @@ impl PhysicalObject {
             fill_stroke: FillStroke::default(),
             sleeping: SleepingDisabled, // todo: better
             pos,
-        }
+            circle_visual: CircleVisual(0.0),
+}
     }
 
     pub fn ball(radius: f32, pos: Vec3) -> Self {
         let radius = radius.abs();
-        Self::make(
+        let mut object = Self::make(
             Collider::circle(radius),
             ShapeBundle::new(
                 GeometryBuilder::build_as(&shapes::Circle {
-                    radius,
+                    radius: (radius - BORDER_THICKNESS * 0.5).max(radius * 0.5),
                     ..Default::default()
                 }),
                 Transform::from_translation(Vec3::new(0.0, 0.0, pos.z)),
                 Visibility::Inherited,
             ),
             Position(pos.xy()),
-        )
+        );
+        object.circle_visual = CircleVisual(radius);
+        object
     }
 
     pub fn rect(mut size: Vec2, mut pos: Vec3) -> Self {
@@ -81,7 +88,7 @@ impl PhysicalObject {
             Collider::rectangle(size.x, size.y),
             ShapeBundle::new(
                 GeometryBuilder::build_as(&shapes::Rectangle {
-                    extents: size,
+                    extents: (size - Vec2::splat(BORDER_THICKNESS)).max(Vec2::splat(f32::EPSILON)),
                     origin: RectangleOrigin::Center,
                     radii: None,
                 }),
@@ -114,5 +121,38 @@ pub struct RefractiveIndex(pub(crate) f32);
 impl Default for RefractiveIndex {
     fn default() -> Self {
         RefractiveIndex(1.5)
+    }
+}
+pub fn spawn_circle_angle_markers(
+    circles: Query<(Entity, &CircleVisual), Added<CircleVisual>>,
+    mut commands: Commands,
+) {
+    for (entity, circle) in circles.iter() {
+        if circle.0 <= 0.0 {
+            continue;
+        }
+        commands.entity(entity).with_children(|parent| {
+            const SEGMENTS: usize = 6;
+            let marker_radius = (circle.0 - BORDER_THICKNESS).max(circle.0 * 0.5);
+            let mut points = Vec::with_capacity(SEGMENTS + 2);
+            points.push(Vec2::ZERO);
+            for step in 0..=SEGMENTS {
+                let angle = (-5.0 + 10.0 * step as f32 / SEGMENTS as f32).to_radians();
+                points.push(Vec2::from_angle(angle) * marker_radius);
+            }
+            parent.spawn((
+                ShapeBundle::new(
+                    GeometryBuilder::build_as(&shapes::Polygon {
+                        points,
+                        closed: true,
+                    }),
+                    Transform::from_translation(Vec3::new(0.0, 0.0, 0.25)),
+                    Visibility::Inherited,
+                ),
+                crate::make_fill(Color::WHITE),
+                UpdateFrom::<ColorComponent>::entity(entity),
+                CircleAngleMarker,
+            ));
+        });
     }
 }

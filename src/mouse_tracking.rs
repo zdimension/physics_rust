@@ -12,7 +12,10 @@ impl Plugin for MousePosPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(MousePos::default())
             .insert_resource(MousePosWorld::default())
-            .add_systems(Update, update_mouse_positions);
+            .add_systems(
+                Update,
+                update_mouse_positions.after(crate::mouse::wheel::CameraZoomSet),
+            );
     }
 }
 
