@@ -8,10 +8,17 @@ pub struct MoveEvent {
     pub pos: Vec2,
 }
 
-pub fn process_move(mut events: MessageReader<MoveEvent>, mut query: Query<&mut Position>) {
+pub fn process_move(
+    mut events: MessageReader<MoveEvent>,
+    mut query: Query<(&mut Position, &mut Transform)>,
+) {
     for MoveEvent { entity, pos } in events.read().copied() {
-        let mut transform = query.get_mut(entity).unwrap();
-        transform.0 = pos;
+        let Ok((mut position, mut transform)) = query.get_mut(entity) else {
+            continue;
+        };
+        position.0 = pos;
+        transform.translation.x = pos.x;
+        transform.translation.y = pos.y;
     }
 }
 

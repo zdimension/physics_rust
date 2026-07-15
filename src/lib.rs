@@ -1,14 +1,20 @@
 use std::ops::{DerefMut, RangeInclusive};
 use bevy::ecs::system::SystemParam;
+use bevy::input::InputSystems;
 use bevy::math::Vec3Swizzles;
 use bevy::prelude::*;
+use bevy::window::{PresentMode, WindowPlugin};
 use std::collections::{HashMap, HashSet};
 
 use bevy_diagnostic::FrameTimeDiagnosticsPlugin;
 use bevy_egui::egui::epaint::{Hsva, Shadow};
 use bevy_egui::egui::style::Widgets;
 use bevy_egui::egui::{Color32, emath, Rounding, Slider, Ui};
-use bevy_egui::{egui::{self}, EguiContextSettings, EguiContexts, EguiPlugin, EguiStartupSet};
+use bevy_egui::{
+    egui::{self},
+    EguiContextSettings, EguiContexts, EguiPlugin, EguiPostUpdateSet, EguiPreUpdateSet,
+    EguiStartupSet,
+};
 use crate::mouse_tracking::{prelude::*, MainCamera};
 use crate::lyon_compat::*;
 use avian2d::{math::*, prelude::*};
@@ -177,7 +183,13 @@ impl ToRot for Quat {
 pub fn app_main() {
     let mut app = App::new();
     app.insert_resource(ClearColor(Color::srgb(0.0, 0.0, 0.0)))
-        .add_plugins(DefaultPlugins)
+        .add_plugins(DefaultPlugins.set(WindowPlugin {
+            primary_window: Some(Window {
+                present_mode: PresentMode::AutoNoVsync,
+                ..Default::default()
+            }),
+            ..Default::default()
+        }))
         .add_plugins(EguiPlugin::default())
         .add_plugins(WorldInspectorPlugin::new())
         .init_asset::<PaletteList>()
@@ -189,7 +201,9 @@ pub fn app_main() {
         .init_resource::<tools::EguiImageAlphaState>()
         .init_resource::<GuiIcons>()
         .init_resource::<SkinConfig>()
-        .init_resource::<AppConfig>()        .init_resource::<DragConfig>()
+        .init_resource::<AppConfig>()
+        .init_resource::<DragConfig>()
+        .init_resource::<cursor::ToolCursorCache>()
         .init_resource::<wheel::SmoothZoom>()
         .insert_resource(SubstepCount(50))
         .insert_resource(Gravity(Vec2::NEG_Y * 9.81))
@@ -249,12 +263,18 @@ pub fn app_main() {
     ui::add_systems(&mut app);
     measures::add_systems(&mut app);
     app.add_systems(
-        Update,
+        PreUpdate,
+        wheel::smooth_zoom
+            .in_set(wheel::CameraZoomSet)
+            .after(InputSystems),
+    )
+    .add_systems(
+        PostUpdate,
+        wheel::mouse_wheel.after(EguiPostUpdateSet::EndPass),
+    )
+    .add_systems(
+        PreUpdate,
         (
-            wheel::mouse_wheel,
-            wheel::smooth_zoom
-                .in_set(wheel::CameraZoomSet)
-                .after(wheel::mouse_wheel),
             button::left_pressed,
             button::left_release.after(button::left_pressed),
             add_object::process_add_object.after(button::left_release),
@@ -264,9 +284,11 @@ pub fn app_main() {
             mouse::r#move::mouse_long_or_moved_writeback
                 .after(mouse::r#move::mouse_long_or_moved),
         )
+            .after(MousePositionSet)
+            .after(EguiPreUpdateSet::ProcessInput),
     )
     .add_systems(
-        Update,
+        PreUpdate,
         (
             pan::process_pan,
             r#move::process_move,
@@ -276,34 +298,41 @@ pub fn app_main() {
         ).after(mouse::select::process_select),
     )
     .add_systems(
-        Update,
-        selection_overlay::process_draw_overlay.after(button::left_release),
+        PreUpdate,
+        selection_overlay::process_draw_overlay
+            .after(button::left_release)
+            .after(MousePositionSet),
     )
     .add_systems(
-        Update,
+        PreUpdate,
         mouse::select::process_select_under_mouse
             .after(button::left_release)
             .after(add_object::process_add_object)
             .before(mouse::select::process_select),
     )
     .add_systems(
-        Update,
+        PreUpdate,
         mouse::select::process_select
             .before(ui::handle_context_menu)
             .after(button::left_release),
     )
     .add_systems(
-        Update,
+        PreUpdate,
         ui::handle_context_menu
             .after(mouse::select::process_select_under_mouse)
             .after(mouse::select::process_select),
     )
-    .add_systems(Update, cursor::check_egui_wants_focus)
     .add_systems(
-        Update,
+        PreUpdate,
+        cursor::check_egui_wants_focus.after(EguiPreUpdateSet::ProcessInput),
+    )
+    .add_systems(
+        PreUpdate,
         cursor::show_current_tool_icon
             .after(wheel::mouse_wheel)
-            .after(cursor::check_egui_wants_focus),
+            .after(cursor::check_egui_wants_focus)
+            .after(button::left_pressed)
+            .after(MousePositionSet),
     )
     .add_systems(Update, update_draw_modes)
     .add_systems(

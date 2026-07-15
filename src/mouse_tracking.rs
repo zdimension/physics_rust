@@ -1,9 +1,11 @@
 use std::{fmt::Display, ops::Deref};
 
-use bevy::{ecs::system::EntityCommand, prelude::*, window::PrimaryWindow};
+use bevy::{ecs::system::EntityCommand, input::InputSystems, prelude::*, window::PrimaryWindow};
 
 pub mod prelude {
-    pub use crate::mouse_tracking::{InitMouseTracking, InitWorldTracking, MousePosPlugin};
+    pub use crate::mouse_tracking::{
+        InitMouseTracking, InitWorldTracking, MousePosPlugin, MousePositionSet,
+    };
 }
 
 pub struct MousePosPlugin;
@@ -13,11 +15,17 @@ impl Plugin for MousePosPlugin {
         app.insert_resource(MousePos::default())
             .insert_resource(MousePosWorld::default())
             .add_systems(
-                Update,
-                update_mouse_positions.after(crate::mouse::wheel::CameraZoomSet),
+                PreUpdate,
+                update_mouse_positions
+                    .in_set(MousePositionSet)
+                    .after(InputSystems)
+                    .after(crate::mouse::wheel::CameraZoomSet),
             );
     }
 }
+
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub struct MousePositionSet;
 
 #[derive(Debug, Default, Resource, Clone, Copy, PartialEq)]
 pub struct MousePos(Vec2);

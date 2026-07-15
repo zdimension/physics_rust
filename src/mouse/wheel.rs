@@ -2,6 +2,7 @@ use bevy::input::mouse::MouseWheel;
 use bevy::math::{Vec2, Vec3};
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
+use bevy_egui::EguiContexts;
 
 use crate::mouse_tracking::MainCamera;
 
@@ -19,8 +20,13 @@ pub fn mouse_wheel(
     mut mouse_wheel_events: MessageReader<MouseWheel>,
     cameras: Query<&Transform, With<MainCamera>>,
     mut zoom: ResMut<SmoothZoom>,
+    mut egui_ctx: EguiContexts,
 ) {
     if mouse_wheel_events.is_empty() {
+        return;
+    }
+    let events = mouse_wheel_events.read().copied().collect::<Vec<_>>();
+    if egui_caught_scroll(&mut egui_ctx) {
         return;
     }
 
@@ -31,7 +37,7 @@ pub fn mouse_wheel(
     let current_scale = cameras.single().unwrap().scale.x;
     let mut target_scale = zoom.target_scale.unwrap_or(current_scale);
 
-    for event in mouse_wheel_events.read() {
+    for event in events {
         const FACTOR: f32 = 0.1;
         let factor = if event.y < 0.0 {
             1.0 + FACTOR
@@ -43,6 +49,13 @@ pub fn mouse_wheel(
 
     zoom.target_scale = Some(target_scale);
     zoom.focus = pos;
+}
+
+fn egui_caught_scroll(egui_ctx: &mut EguiContexts) -> bool {
+    let Ok(ctx) = egui_ctx.ctx_mut() else {
+        return false;
+    };
+    ctx.input(|input| input.smooth_scroll_delta.y.abs() <= f32::EPSILON)
 }
 
 pub fn smooth_zoom(
