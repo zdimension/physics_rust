@@ -248,14 +248,18 @@ pub fn app_main() {
         Update,
         (
             wheel::mouse_wheel,
-            wheel::smooth_zoom.in_set(wheel::CameraZoomSet),
+            wheel::smooth_zoom
+                .in_set(wheel::CameraZoomSet)
+                .after(wheel::mouse_wheel),
             button::left_pressed,
-            button::left_release,
-            add_object::process_add_object,
-            mouse::r#move::mouse_long_or_moved.before(mouse::select::process_select),
-            mouse::r#move::mouse_long_or_moved_writeback,
+            button::left_release.after(button::left_pressed),
+            add_object::process_add_object.after(button::left_release),
+            mouse::r#move::mouse_long_or_moved
+                .after(button::left_pressed)
+                .before(mouse::select::process_select),
+            mouse::r#move::mouse_long_or_moved_writeback
+                .after(mouse::r#move::mouse_long_or_moved),
         )
-            .chain(),
     )
     .add_systems(
         Update,
@@ -264,7 +268,7 @@ pub fn app_main() {
             r#move::process_move,
             process_unfreeze_entity,
             rotate::process_rotate,
-            drag::process_drag,
+            drag::update_drag_target,
         ).after(mouse::select::process_select),
     )
     .add_systems(
@@ -273,7 +277,10 @@ pub fn app_main() {
     )
     .add_systems(
         Update,
-        mouse::select::process_select_under_mouse.before(mouse::select::process_select),
+        mouse::select::process_select_under_mouse
+            .after(button::left_release)
+            .after(add_object::process_add_object)
+            .before(mouse::select::process_select),
     )
     .add_systems(
         Update,
@@ -300,8 +307,11 @@ pub fn app_main() {
         lyon_compat::sync_draw_components.before(bevy_prototype_lyon::plugin::BuildShapes),
     )
     .add_systems(Update, laser::draw_lasers)
-    .add_systems(Update, update_xpbd_pipeline)
-    .add_systems(Update, apply_custom_forces);
+    .add_systems(Update, apply_custom_forces)
+    .add_systems(
+        PhysicsSchedule,
+        drag::apply_drag_force.in_set(PhysicsStepSystems::BroadPhase),
+    );
     //.add_systems(PostUpdate, despawn_entities)
     // ;
     objects::add_systems(&mut app);
@@ -315,8 +325,6 @@ pub fn app_main() {
     }
     app.run();
 }
-
-fn update_xpbd_pipeline() {}
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, SystemSet)]
 //#[system_set(base)]
@@ -625,13 +633,11 @@ pub struct CustomForce(Vec2);
 pub struct CustomForceDespawn;
 
 pub fn apply_custom_forces(
-    forces: Query<(Entity, &ChildOf, Ref<CustomForce>, Option<&CustomForceDespawn>)>,
+    forces: Query<Entity, With<CustomForceDespawn>>,
     mut commands: Commands,
 ) {
-    for (id, _, _, despawn) in forces.iter() {
-        if despawn.is_some() {
-            commands.entity(id).despawn();
-        }
+    for id in forces.iter() {
+        commands.entity(id).despawn();
     }
 }
 

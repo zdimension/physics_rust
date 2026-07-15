@@ -55,41 +55,7 @@ pub fn update_size_scales(
     }
 }
 
-pub fn update_motors(
-    //mut motors: Query<(Entity, &mut ImpulseJoint, &UpdateFrom<MotorComponent>)>,
-    parents: Query<(Option<&ChildOf>, Option<Ref<MotorComponent>>)>,
-) {
-    /*for (entity, mut motor, update_source) in motors.iter_mut() {
-        let (_, motor_component) = update_source
-            .find_component(entity, &parents)
-            .expect("motor not found");
-        motor.data.set_motor(
-            JointAxis::AngX,
-            0.0,
-            {
-                let vel = motor_component.vel * f32::PI() / 30.0;
-                if motor_component.reversed {
-                    -vel
-                } else {
-                    vel
-                }
-            },
-            0.0,
-            motor_component.torque,
-        );
-        motor
-            .data
-            .raw
-            .set_motor_model(JointAxis::AngX.into(), MotorModel::ForceBased);
-        motor
-            .data
-            .raw
-            .motor_axes
-            .set(JointAxis::AngX.into(), motor_component.enabled);
-    }*/
-}
-
-systems!(update_sprites_color, update_size_scales, update_motors, phy_obj::spawn_circle_angle_markers);
+systems!(update_sprites_color, update_size_scales, phy_obj::spawn_circle_angle_markers);
 
 #[derive(Component)]
 pub struct ColorComponent(pub Hsva);

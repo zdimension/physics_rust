@@ -248,16 +248,10 @@ pub fn left_pressed(
                         }
                     }
                     Some(Drag(Some(state))) => {
-                        if let Some(EntitySelection { entity }) = ui_state.selected_entity {
-                            ev_drag.write(DragEvent {
-                                state: state,
-                                mouse_pos: pos,
-                            });
-                        } else {
-                            info!("drag target disappeared, resetting");
-                            *state_pos = None;
-                            *state_button = None;
-                        }
+                        ev_drag.write(DragEvent {
+                            state,
+                            mouse_pos: pos,
+                        });
                     }
                     Some(Box(Some(draw_ent))) => {
                         *overlay = OverlayState {
