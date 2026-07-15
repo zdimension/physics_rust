@@ -15,6 +15,7 @@ egui_systems! {
     mod plot,
     mod script,
     mod selection,
+    mod spring,
     mod text,
     mod velocities,
 }

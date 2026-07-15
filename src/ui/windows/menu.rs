@@ -1,4 +1,5 @@
 use crate::objects::laser::LaserBundle;
+use crate::objects::spring::{SpringEndHandle, SpringObject};
 use crate::objects::{ColorComponent, MotorComponent};
 use crate::ui::images::GuiIcons;
 use crate::ui::{InitialPos, Subwindow, TemporaryWindow};
@@ -25,6 +26,7 @@ use crate::ui::windows::object::material::MaterialWindow;
 use crate::ui::windows::object::plot::PlotWindow;
 use crate::ui::windows::object::script::ScriptMenuWindow;
 use crate::ui::windows::object::selection::SelectionWindow;
+use crate::ui::windows::object::spring::SpringWindow;
 
 use crate::ui::windows::object::velocities::VelocitiesWindow;
 
@@ -60,6 +62,8 @@ impl MenuWindow {
             Option<&LaserBundle>,
             Option<&RigidBody>,
             Option<&MotorComponent>,
+            Option<&SpringObject>,
+            Option<&SpringEndHandle>,
         )>,
         mut cameras: Query<&mut Transform, With<MainCamera>>,
         mut zoom2scene: MessageWriter<ZoomToScene>
@@ -102,20 +106,14 @@ impl MenuWindow {
                                     };
 
                                     if selected {
-                                        info!("clicked: {}", $text);
-
                                         if let Some((_, id)) = info_wnd.selected_item {
                                             commands.get_entity(id).map(|mut ent| _ = ent.despawn());
                                         }
-
-                                        info!("rect: {:?}", menu.rect);
 
                                         let new_wnd = commands.spawn((
                                             <$wnd as Default>::default(),
                                             InitialPos::initial(menu.rect.right_top())
                                         )).id();
-
-                                        info!("new wnd: {:?}", new_wnd);
 
                                         if let Some(id) = entity {
                                             commands.entity(id).add_children(&[new_wnd]);
@@ -169,6 +167,9 @@ impl MenuWindow {
                             }
                             if info.5.is_some() {
                                 menu!("Axles", hinge, HingeWindow);
+                            }
+                            if info.6.is_some() || info.7.is_some() {
+                                menu!("Springs", /, SpringWindow);
                             }
                             if info.3.is_some() {
                                 menu!("Laser pens", lasermenu, LaserWindow);

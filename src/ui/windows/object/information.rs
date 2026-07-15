@@ -50,7 +50,7 @@ impl InformationWindow {
                             line(
                                 ui,
                                 "Moment of inertia",
-                                format!("{:.3} kgmÂ²", cmp.angular_inertia),
+                                format!("{:.3} kg·m²", cmp.angular_inertia),
                             );
                         }
 

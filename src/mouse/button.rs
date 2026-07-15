@@ -14,6 +14,7 @@ use crate::tools::pan;
 use crate::tools::pan::PanEvent;
 use crate::tools::r#move::MoveEvent;
 use crate::tools::rotate::RotateEvent;
+use crate::objects::spring::{FinishSpringEvent, UpdateSpringPreviewEvent};
 use crate::ui::selection_overlay::{Overlay, OverlayState};
 use crate::ui::{EntitySelection, UiState};
 //use crate::Despawn;
@@ -31,6 +32,7 @@ pub fn left_release(
     mut add_obj: MessageWriter<AddObjectEvent>,
     mut unfreeze: MessageWriter<UnfreezeEntityEvent>,
     mut select_mouse: MessageWriter<SelectUnderMouseEvent>,
+    mut ev_spring_finish: MessageWriter<FinishSpringEvent>,
     mut overlay: ResMut<OverlayState>,
     drag: Query<(Entity), With<DragObject>>,
 ) {
@@ -112,8 +114,15 @@ pub fn left_release(
                     });
                     *state_button = Some(Circle(None));
                 }
-                Spring(Some(_)) => {
-                    todo!()
+                Spring(Some(state)) if screen_pos.distance(click_pos_screen) > 6.0 => {
+                    ev_spring_finish.write(FinishSpringEvent {
+                        state,
+                        end_pos: pos,
+                    });
+                    *state_button = Some(Spring(None));
+                }
+                Spring(Some(state)) => {
+                    commands.entity(state.preview).despawn();
                 }
                 Thruster(_) => {
                     todo!()
@@ -153,6 +162,7 @@ pub fn left_pressed(
     mut ev_move: MessageWriter<MoveEvent>,
     mut ev_rotate: MessageWriter<RotateEvent>,
     mut ev_drag: MessageWriter<DragEvent>,
+    mut ev_spring_preview: MessageWriter<UpdateSpringPreviewEvent>,
     mut overlay: ResMut<OverlayState>,
     time: Res<Time>,
     xform: Query<(&Rotation, &Position)>,
@@ -251,6 +261,12 @@ pub fn left_pressed(
                         ev_drag.write(DragEvent {
                             state,
                             mouse_pos: pos,
+                        });
+                    }
+                    Some(Spring(Some(state))) => {
+                        ev_spring_preview.write(UpdateSpringPreviewEvent {
+                            preview: state.preview,
+                            end_pos: pos,
                         });
                     }
                     Some(Box(Some(draw_ent))) => {

@@ -220,7 +220,7 @@ impl PlotWindow {
                                 }
 
                                 let integ = values.windows(2).take(idx).map(|w| (w[0].y + w[1].y) * (w[1].x - w[0].x) / 2.0).sum::<f64>();
-                                base += &format!("\nâˆ«dt = {:.2}", integ);
+                                base += &format!("\n∫dt = {:.2}", integ);
                             }
                             base
                         } else {

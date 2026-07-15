@@ -6,12 +6,15 @@ use crate::tools::r#move::MoveState;
 use crate::tools::rotate::RotateState;
 use crate::tools::ToolEnum;
 use crate::ui::UiState;
+use crate::ui::images::AppIcons;
 use crate::{CustomForce, InvTransformPoint, UsedMouseButton};
 use bevy::math::Vec2;
 use bevy::prelude::{Commands, Message, MessageReader, MessageWriter, GlobalTransform, ChildOf, Query, Res, ResMut, Transform, With, Without};
 use crate::mouse_tracking::{MainCamera, MousePosWorld};
-use avian2d::{math::*, prelude::*};
-use avian2d::{math::*, prelude::*};
+use crate::objects::spring::{self, SpringEnd, SpringPlacementState};
+use crate::objects::ColorComponent;
+use crate::palette::PaletteConfig;
+use crate::rng::RngComponent;
 use avian2d::{math::*, prelude::*};
 
 #[derive(Message)]
@@ -39,11 +42,14 @@ pub fn mouse_long_or_moved(
     mut ev_writeback: MessageWriter<MouseLongOrMovedWriteback>,
     mut cameras: Query<&mut Transform, With<MainCamera>>,
     mut ui_state: ResMut<UiState>,
-    mut query: Query<(&mut GlobalTransform, &Position, &Rotation, Option<&RigidBody>), Without<MainCamera>>,
+    query: Query<(&GlobalTransform, &Position, &Rotation, Option<&RigidBody>), Without<MainCamera>>,
     mut commands: Commands,
     mut select_mouse: MessageWriter<SelectEvent>,
     mouse_pos: Res<MousePosWorld>,
-    spatial_query: SpatialQuery
+    spatial_query: SpatialQuery,
+    images: Res<AppIcons>,
+    palette: Res<PaletteConfig>,
+    mut rng: Query<&mut RngComponent>,
 ) {
     use crate::tools::ToolEnum::*;
     use crate::{DrawObject, UsedMouseButton};
@@ -67,6 +73,7 @@ pub fn mouse_long_or_moved(
         }*/
         // todo: is this really needed?
 
+        let scene = ui_state.scene;
         let ui_button = match button {
             UsedMouseButton::Left => &mut ui_state.mouse_left,
             UsedMouseButton::Right => &mut ui_state.mouse_right,
@@ -101,10 +108,47 @@ pub fn mouse_long_or_moved(
                 }
 
                 match (hover_tool, under_mouse, selected_entity.map(|s| s.entity)) {
-                    (Spring(None), _, _) => todo!(),
+                    (Spring(None), _, _) => {
+                        let start_body = select::find_under_mouse(
+                            &spatial_query,
+                            clickpos,
+                            crate::tools::add_object::query_only_real(),
+                            |ent| {
+                                query
+                                    .get(ent)
+                                    .map(|(transform, _, _, _)| transform.translation_vec3a().z)
+                                    .unwrap_or(f32::NEG_INFINITY)
+                            },
+                        )
+                        .find(|ent| query.get(*ent).is_ok_and(|(_, _, _, body)| body.is_some()));
+                        let start = if let Some(entity) = start_body {
+                            let (transform, _, _, _) = query.get(entity).unwrap();
+                            SpringEnd::from_body(entity, transform, clickpos)
+                        } else {
+                            SpringEnd::sky(clickpos)
+                        };
+                        let camera = cameras.single_mut().unwrap();
+                        let unit_size = spring::unit_size_for_camera(&camera);
+                        let preview = spring::spawn_spring(
+                            &mut commands,
+                            scene,
+                            &images,
+                            ColorComponent(
+                                palette
+                                    .current_palette
+                                    .get_color_hsva_opaque(&mut *rng.single_mut().unwrap()),
+                            ),
+                            start,
+                            SpringEnd::sky(curpos),
+                            unit_size,
+                            crate::FOREGROUND_Z,
+                            true,
+                        );
+                        *ui_button = Some(Spring(Some(SpringPlacementState { preview, start })));
+                    }
                     (Drag(None), Some(ent), _) => {
                         info!("start drag {:?}", ent);
-                        let grab_local_point = query.get_mut(ent).unwrap().0.to_local(curpos);
+                        let grab_local_point = query.get(ent).unwrap().0.to_local(curpos);
                         let drag_entity = commands
                             .spawn((
                                 DragObject,
@@ -124,7 +168,7 @@ pub fn mouse_long_or_moved(
                         })));
                     }
                     (Rotate(None), Some(under), _) => {
-                        let (_, _, rot, body) = query.get_mut(under).unwrap();
+                        let (_, _, rot, body) = query.get(under).unwrap();
                         info!("start rotate {:?}", under);
                         *ui_button = Some(Rotate(Some(RotateState {
                             orig_obj_rot: rot.as_radians(),
@@ -139,7 +183,7 @@ pub fn mouse_long_or_moved(
                         ev_writeback.write(MouseLongOrMoved(Pan(None), clickpos, *button).into());
                     }
                     (_, Some(under), Some(sel)) if under == sel => {
-                        let (_, pos, _, body) = query.get_mut(under).unwrap();
+                        let (_, pos, _, body) = query.get(under).unwrap();
                         *ui_button = Some(Move(Some(MoveState {
                             obj_delta: pos.0 - curpos,
                         })));

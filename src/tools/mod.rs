@@ -84,6 +84,7 @@ use crate::tools::drag::DragState;
 use crate::tools::pan::PanState;
 use crate::tools::r#move::MoveState;
 use crate::tools::rotate::RotateState;
+use crate::objects::spring::SpringPlacementState;
 use bevy::prelude::*;
 use bevy_egui::{egui::TextureId, EguiTextureHandle, EguiUserTextures};
 
@@ -93,7 +94,7 @@ tools_enum! {
     rotate => Rotate(Option<RotateState>),
     box => Box(Option<Entity>),
     circle => Circle(Option<Entity>),
-    spring => Spring(Option<Entity>),
+    spring => Spring(Option<SpringPlacementState>),
     fixjoint => Fix(()),
     hinge => Hinge(()),
     tracer => Tracer(()),

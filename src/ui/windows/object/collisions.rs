@@ -76,7 +76,7 @@ impl CollisionsWindow {
                                         &mut checked,
                                         format!(
                                             "Collision layer {}",
-                                            ('A' as u8 + i as u8) as char
+                                            (b'A' + i as u8) as char
                                         ),
                                     )
                                     .changed()
@@ -87,7 +87,7 @@ impl CollisionsWindow {
                                         groups.memberships.0 & !flag
                                     };
                                     groups = CollisionLayers::from_bits(new_val, new_val);
-                                changed = true;
+                                    changed = true;
                                 }
                             }
                         });
@@ -103,6 +103,9 @@ impl CollisionsWindow {
                         }
                     });
                 });
+            if changed {
+                commands.entity(parent.parent()).insert(groups);
+            }
         }
     }
 }

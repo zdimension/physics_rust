@@ -119,5 +119,5 @@ icon_set!(
 image_set!(
     AppIcons,
     "app/",
-    [hinge_background, hinge_balls, hinge_inner, laserpen]
+    [hinge_background, hinge_balls, hinge_inner, laserpen, spring]
 );
