@@ -11,14 +11,14 @@ pub struct HingeWindow;
 
 impl HingeWindow {
     pub fn show(
-        mut wnds: Query<(Entity, &Parent, &mut InitialPos), With<HingeWindow>>,
+        mut wnds: Query<(Entity, &ChildOf, &mut InitialPos), With<HingeWindow>>,
         mut ents: Query<&mut MotorComponent>,
         mut egui_ctx: EguiContexts,
         mut commands: Commands,
     ) {
-        let ctx = egui_ctx.ctx_mut();
+        let ctx = egui_ctx.ctx_mut().expect("primary egui context");
         for (id, parent, mut initial_pos) in wnds.iter_mut() {
-            let mut motor = ents.get_mut(parent.get()).unwrap();
+            let mut motor = ents.get_mut(parent.parent()).unwrap();
             egui::Window::new("Axle")
                 .resizable(false)
                 .default_size(egui::Vec2::ZERO)

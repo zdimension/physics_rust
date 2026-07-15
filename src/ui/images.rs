@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 use bevy_egui::egui::TextureId;
-use bevy_egui::EguiUserTextures;
+use bevy_egui::{EguiTextureHandle, EguiUserTextures};
 
 pub struct LoadedImage {
     bevy: Handle<Image>,
@@ -31,7 +31,7 @@ macro_rules! icon_set {
                     $(
                         $name: {
                             let handle = asset_server.load(concat!($root, stringify!($name), ".png"));
-                            let egui_id = egui_ctx.add_image(handle);
+                            let egui_id = egui_ctx.add_image(EguiTextureHandle::Strong(handle));
                             egui_id
                         },
                     )*
@@ -59,7 +59,7 @@ macro_rules! image_set {
                     $(
                         $name: {
                             let handle = asset_server.load(concat!($root, stringify!($name), ".png"));
-                            let egui_id = egui_ctx.add_image(handle.clone());
+                            let egui_id = egui_ctx.add_image(EguiTextureHandle::Strong(handle.clone()));
                             LoadedImage {
                                 bevy: handle,
                                 egui: egui_id,

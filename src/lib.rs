@@ -2,19 +2,19 @@ use std::ops::{DerefMut, RangeInclusive};
 use bevy::ecs::system::SystemParam;
 use bevy::math::Vec3Swizzles;
 use bevy::prelude::*;
-use bevy::utils::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 
 use bevy_diagnostic::FrameTimeDiagnosticsPlugin;
 use bevy_egui::egui::epaint::{Hsva, Shadow};
 use bevy_egui::egui::style::Widgets;
 use bevy_egui::egui::{Color32, emath, Rounding, Slider, Ui};
 use bevy_egui::{egui::{self}, EguiContextSettings, EguiContexts, EguiPlugin};
-use bevy_mouse_tracking_plugin::{prelude::*, MainCamera};
-use bevy_prototype_lyon::prelude::*;
+use crate::mouse_tracking::{prelude::*, MainCamera};
+use crate::lyon_compat::*;
 use avian2d::{math::*, prelude::*};
 use bevy::image::ImageSampler;
+use bevy_inspector_egui::quick::WorldInspectorPlugin;
 //use bevy_prototype_lyon::prelude::{DrawMode, FillMode, ShapePlugin};
-use bevy_turborand::prelude::*;
 use crate::skin::SkinConfig;
 use mouse::{button, wheel};
 use objects::hinge::HingeObject;
@@ -47,6 +47,9 @@ mod measures;
 mod mouse;
 mod objects;
 mod palette;
+mod mouse_tracking;
+mod rng;
+mod lyon_compat;
 mod tools;
 mod ui;
 mod update_from;
@@ -93,7 +96,7 @@ impl<'w, 's> BevyPhysicsHooks for CollideHooks<'w, 's> {
                 return false;
             };
 
-            joint.parent == second
+            joint.ChildOf == second
         }
 
         let first = context.collider1();
@@ -173,10 +176,10 @@ impl ToRot for Quat {
 
 pub fn app_main() {
     let mut app = App::new();
-    app.insert_resource(ClearColor(Color::rgb(0.0, 0.0, 0.0)))
+    app.insert_resource(ClearColor(Color::srgb(0.0, 0.0, 0.0)))
         .add_plugins(DefaultPlugins)
-        .add_plugins(EguiPlugin)
-        .add_plugins(RngPlugin::default())
+        .add_plugins(EguiPlugin::default())
+        .add_plugins(WorldInspectorPlugin::new())
         .init_asset::<PaletteList>()
         .init_asset_loader::<PaletteLoader>()
         .init_resource::<PaletteConfig>()
@@ -213,18 +216,18 @@ pub fn app_main() {
         .add_plugins(MousePosPlugin)
         .add_plugins(ShapePlugin)
         .add_plugins(FrameTimeDiagnosticsPlugin::default())
-        .add_event::<AddObjectEvent>()
-        .add_event::<MouseLongOrMoved>()
-        .add_event::<MouseLongOrMovedWriteback>()
-        .add_event::<PanEvent>()
-        .add_event::<MoveEvent>()
-        .add_event::<UnfreezeEntityEvent>()
-        .add_event::<RotateEvent>()
-        .add_event::<DragEvent>()
-        .add_event::<SelectUnderMouseEvent>()
-        .add_event::<SelectEvent>()
-        .add_event::<ContextMenuEvent>()
-        .add_event::<RemoveTemporaryWindowsEvent>()
+        .add_message::<AddObjectEvent>()
+        .add_message::<MouseLongOrMoved>()
+        .add_message::<MouseLongOrMovedWriteback>()
+        .add_message::<PanEvent>()
+        .add_message::<MoveEvent>()
+        .add_message::<UnfreezeEntityEvent>()
+        .add_message::<RotateEvent>()
+        .add_message::<DragEvent>()
+        .add_message::<SelectUnderMouseEvent>()
+        .add_message::<SelectEvent>()
+        .add_message::<ContextMenuEvent>()
+        .add_message::<RemoveTemporaryWindowsEvent>()
         .add_systems(
             Startup,
             (
@@ -288,6 +291,7 @@ pub fn app_main() {
             .after(cursor::check_egui_wants_focus),
     )
     .add_systems(Update, update_draw_modes)
+    .add_systems(Update, lyon_compat::sync_draw_components.after(update_draw_modes))
     .add_systems(Update, laser::draw_lasers)
     .add_systems(Update, update_xpbd_pipeline)
     .add_systems(Update, apply_custom_forces);
@@ -305,16 +309,14 @@ pub fn app_main() {
     app.run();
 }
 
-fn update_xpbd_pipeline(mut pipe: SpatialQuery) {
-    pipe.update_pipeline();
-}
+fn update_xpbd_pipeline() {}
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, SystemSet)]
 //#[system_set(base)]
 pub struct AfterUpdate;
 
-fn setup_rng(mut commands: Commands, mut global_rng: ResMut<GlobalRng>) {
-    commands.spawn((RngComponent::from(&mut global_rng),));
+fn setup_rng(mut commands: Commands) {
+    commands.spawn((crate::rng::RngComponent::default(),));
 }
 
 #[derive(Component)]
@@ -334,10 +336,10 @@ fn despawn_entities(entities: Query<(Entity, &Despawn)>, mut commands: Commands)
                 commands.entity(entity).despawn();
             }
             Despawn::Recursive => {
-                commands.entity(entity).despawn_recursive();
+                commands.entity(entity).despawn();
             }
             Despawn::Descendants => {
-                commands.entity(entity).despawn_descendants();
+                commands.entity(entity).despawn_children();
                 commands.entity(entity).remove::<Despawn>();
             }
         }
@@ -352,7 +354,7 @@ fn update_draw_modes(
         &UpdateFrom<ColorComponent>,
         Option<&SpriteOnly>,
     )>,
-    parents: Query<(Option<&Parent>, Option<Ref<ColorComponent>>)>,
+    parents: Query<(Option<&ChildOf>, Option<Ref<ColorComponent>>)>,
     ui_state: Res<UiState>,
 ) {
     for (entity, fill, mut stroke, update_source, sprite_only) in draws.iter_mut() {
@@ -375,18 +377,17 @@ fn update_draw_modes(
     }
 }
 
-#[derive(Copy, Clone, Event)]
+#[derive(Copy, Clone, Message)]
 pub struct UnfreezeEntityEvent {
     entity: Entity,
 }
 
 fn process_unfreeze_entity(
-    mut events: EventReader<UnfreezeEntityEvent>,
-    mut query: Query<&mut RigidBody>,
+    mut events: MessageReader<UnfreezeEntityEvent>,
+    mut commands: Commands,
 ) {
     for UnfreezeEntityEvent { entity } in events.read().copied() {
-        let Ok(mut body) = query.get_mut(entity) else { continue; };
-        *body = RigidBody::Dynamic;
+        commands.entity(entity).insert(RigidBody::Dynamic);
     }
 }
 
@@ -398,12 +399,12 @@ fn setup_graphics(mut commands: Commands) {
     // Add a camera so we can see the debug-render.
     // note: camera's scale means meters per pixel
     commands
-        .spawn((Camera2dBundle::new_with_far(CAMERA_FAR), MainCamera))
-        .insert(TransformBundle::from(
+        .spawn((Camera2d, MainCamera))
+        .insert(
             Transform::default()
                 .with_translation(Vec3::new(0.0, 0.0, CAMERA_FAR - 0.1))
                 .with_scale(Vec3::new(0.01, 0.01, 1.0)),
-        ))
+        )
         .insert(Msaa::Sample4)
         .queue(InitWorldTracking)
         .queue(|id: EntityWorldMut| {
@@ -425,7 +426,7 @@ fn setup_graphics(mut commands: Commands) {
         LaserRays::default(),
         Visibility::Visible,
         ViewVisibility::default(),
-        TransformBundle::default(),
+        Transform::default(),
     ));
 }
 
@@ -451,11 +452,11 @@ impl Default for FillStroke {
     fn default() -> Self {
         Self {
             fill: Fill {
-                color: Color::rgba(0.0, 0.0, 0.0, 0.0),
+                color: Color::srgba(0.0, 0.0, 0.0, 0.0),
                 options: FillOptions::default().with_tolerance(STROKE_TOLERANCE),
             },
             stroke: Stroke {
-                color: Color::rgba(0.0, 0.0, 0.0, 0.0),
+                color: Color::srgba(0.0, 0.0, 0.0, 0.0),
                 options: StrokeOptions::default()
                     .with_tolerance(STROKE_TOLERANCE)
                     .with_line_width(BORDER_THICKNESS),
@@ -502,9 +503,9 @@ impl From<UsedMouseButton> for MouseButton {
 
 fn configure_visuals(mut egui_ctx: EguiContexts) {
     //egui_set.sampler_descriptor = ImageSampler::linear();
-    let ctx = egui_ctx.ctx_mut();
+    let ctx = egui_ctx.ctx_mut().expect("primary egui context");
     let mut visuals = egui::Visuals {
-        window_rounding: 3.0.into(),
+        window_corner_radius: Rounding::same(3),
         /*window_shadow: Shadow {
             extrusion: 10.0,
             color: Color32::from_black_alpha(96),
@@ -518,11 +519,11 @@ fn configure_visuals(mut egui_ctx: EguiContexts) {
         },
         ..Default::default()
     };
-    visuals.widgets.noninteractive.rounding = Rounding::same(3.0);
-    visuals.widgets.inactive.rounding = Rounding::same(3.0);
-    visuals.widgets.hovered.rounding = Rounding::same(3.0);
-    visuals.widgets.active.rounding = Rounding::same(3.0);
-    visuals.widgets.open.rounding = Rounding::same(3.0);
+    visuals.widgets.noninteractive.corner_radius = Rounding::same(3);
+    visuals.widgets.inactive.corner_radius = Rounding::same(3);
+    visuals.widgets.hovered.corner_radius = Rounding::same(3);
+    visuals.widgets.active.corner_radius = Rounding::same(3);
+    visuals.widgets.open.corner_radius = Rounding::same(3);
     ctx.set_visuals(visuals);
     let mut style: egui::Style = (*ctx.style()).clone();
     style.spacing.slider_width = 260.0;
@@ -545,7 +546,7 @@ macro_rules! systems {
 
             $(app.add_systems(bevy::prelude::Update, ($($p),*));)?
 
-            $(app.add_event::<$e>();)*
+            $(app.add_message::<$e>();)*
         }
     };
     (@ [$($p:tt)*] [$($f:tt)*] [$($e:tt)*] event $system:ident $(, $($x:tt)*)?) => {
@@ -566,38 +567,20 @@ macro_rules! systems {
 }
 
 #[derive(Component, Default)]
-pub struct CustomForce(ExternalForce);
+pub struct CustomForce(Vec2);
 
 #[derive(Component)]
 pub struct CustomForceDespawn;
 
 pub fn apply_custom_forces(
-    forces: Query<(Entity, &Parent, Ref<CustomForce>, Option<&CustomForceDespawn>)>,
-    mut rapier_forces: Query<&mut ExternalForce>,
-    mut commands: Commands
+    forces: Query<(Entity, &ChildOf, Ref<CustomForce>, Option<&CustomForceDespawn>)>,
+    mut commands: Commands,
 ) {
-    /*let mut changed_set = HashSet::new();
-    let mut forces_map: HashMap<_, ExternalForce> = HashMap::new();
-    for (id, parent, force, despawn) in forces.iter() {
-        let entry = forces_map.entry(parent.get()).or_default();
-
+    for (id, _, _, despawn) in forces.iter() {
         if despawn.is_some() {
-            changed_set.insert(parent.get());
             commands.entity(id).despawn();
-            continue;
         }
-
-        if force.is_changed() {
-            changed_set.insert(parent.get());
-        }
-
-        *entry += force.0;
     }
-    for body in changed_set {
-        if let Ok(mut force) = rapier_forces.get_mut(body) {
-            *force = forces_map[&body];
-        }
-    }*/
 }
 
 enum UpdateStatus<T> {

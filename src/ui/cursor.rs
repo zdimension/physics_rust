@@ -4,7 +4,7 @@ use crate::{tools::ToolIcons, UsedMouseButton};
 use bevy::prelude::{Component, Deref, DerefMut, DetectChanges, DetectChangesMut, ImageNode, Query, Res, ResMut, Resource, Visibility, With};
 use bevy::ui::{Node, Val};
 use bevy_egui::EguiContexts;
-use bevy_mouse_tracking_plugin::MousePos;
+use crate::mouse_tracking::MousePos;
 
 #[derive(Component)]
 pub struct ToolCursor;
@@ -13,7 +13,7 @@ pub struct ToolCursor;
 pub struct EguiWantsFocus(bool);
 
 pub fn check_egui_wants_focus(mut egui_ctx: EguiContexts, mut wants_focus: ResMut<EguiWantsFocus>) {
-    let ctx = egui_ctx.ctx_mut();
+    let ctx = egui_ctx.ctx_mut().expect("primary egui context");
     wants_focus.set_if_neq(EguiWantsFocus(ctx.is_using_pointer() || ctx.is_pointer_over_area()));
 }
 
@@ -27,7 +27,7 @@ pub fn show_current_tool_icon(
     if !(egui_input.is_changed() || mouse_pos.is_changed()) {
         return;
     }
-    let (mut icon, mut transform, mut vis) = icon.single_mut();
+    let (mut icon, mut transform, mut vis) = icon.single_mut().unwrap();
     if egui_input.0 {
         vis.set_if_neq(Visibility::Hidden);
     } else {

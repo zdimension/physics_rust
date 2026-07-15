@@ -21,13 +21,13 @@ pub fn draw_scene_actions(
         .title_bar(false)
         .resizable(false)
         .default_size(egui::Vec2::ZERO)
-        .show(&mut egui_ctx.ctx_mut().clone(), |ui| {
+        .show(egui_ctx.ctx_mut().expect("primary egui context"), |ui| {
             ui.vertical(|ui| {
                 let btn = ui.add(IconButton::new(gui_icons.new, 32.0));
-                let ns = ns_window.get_single();
+                let ns = ns_window.single();
                 if btn.clicked() {
                     match ns {
-                        Ok(ent) => { commands.entity(ent).despawn_recursive(); }
+                        Ok(ent) => { commands.entity(ent).despawn(); }
                         Err(_) => { commands.spawn((NewSceneWindow, InitialPos::initial(btn.rect.right_top()))); }
                     }
                 }
@@ -49,7 +49,7 @@ impl NewSceneWindow {
         assets: Res<Assets<PaletteList>>,
         ui_state: Res<UiState>,
     ) {
-        let ctx = egui_ctx.ctx_mut();
+        let ctx = egui_ctx.ctx_mut().expect("primary egui context");
         for (id, mut initial_pos) in wnds.iter_mut() {
             egui::Window::new("New scene")
                 .resizable(false)
@@ -65,7 +65,7 @@ impl NewSceneWindow {
                         {
                             if ui.button(name).clicked() {
                                 palette_config.current_palette = *palette;
-                                commands.entity(ui_state.scene).despawn_descendants();
+                                commands.entity(ui_state.scene).despawn_children();
                                 commands.entity(id).despawn();
                             }
                         }

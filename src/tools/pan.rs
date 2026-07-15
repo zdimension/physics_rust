@@ -1,17 +1,17 @@
 use crate::CAMERA_Z;
 use bevy::math::{Vec2, Vec3Swizzles};
 use bevy::prelude::*;
-use bevy_mouse_tracking_plugin::MainCamera;
+use crate::mouse_tracking::MainCamera;
 use crate::config::AppConfig;
 
-#[derive(Copy, Clone, Event)]
+#[derive(Copy, Clone, Message)]
 pub struct PanEvent {
     pub orig_camera_pos: Vec2,
     pub delta: Vec2,
 }
 
 pub fn process_pan(
-    mut events: EventReader<PanEvent>,
+    mut events: MessageReader<PanEvent>,
     mut cameras: Query<&mut Transform, With<MainCamera>>,
     mut pan_speed: Local<Option<Vec2>>,
     mut speed_stat: Local<(Vec2, f32)>,
@@ -24,14 +24,14 @@ pub fn process_pan(
             if v.length() < 0.1 {
                 *pan_speed = None;
             } else {
-                let mut camera = cameras.single_mut();
+                let mut camera = cameras.single_mut().unwrap();
                 camera.translation += (*v * time.delta_secs()).extend(0.0);
                 *v *= 0.97;
             }
         }
         return;
     }
-    let mut camera = cameras.single_mut();
+    let mut camera = cameras.single_mut().unwrap();
     for PanEvent {
         orig_camera_pos,
         delta,

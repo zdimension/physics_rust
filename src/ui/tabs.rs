@@ -33,9 +33,10 @@ impl Widget for TabButton {
             if response.hovered() || selected {
                 ui.painter().rect(
                     rect.expand(selection.expansion),
-                    selection.rounding,
+                    selection.corner_radius,
                     selection.bg_fill,
                     selection.bg_stroke,
+                    bevy_egui::egui::StrokeKind::Outside,
                 );
             }
 

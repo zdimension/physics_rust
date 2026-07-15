@@ -8,13 +8,13 @@ use crate::tools::ToolEnum;
 use crate::ui::UiState;
 use crate::{CustomForce, InvTransformPoint, UsedMouseButton};
 use bevy::math::Vec2;
-use bevy::prelude::{BuildChildren, Commands, Event, EventReader, EventWriter, GlobalTransform, Parent, Query, Res, ResMut, Transform, With, Without};
-use bevy_mouse_tracking_plugin::{MainCamera, MousePosWorld};
+use bevy::prelude::{Commands, Message, MessageReader, MessageWriter, GlobalTransform, ChildOf, Query, Res, ResMut, Transform, With, Without};
+use crate::mouse_tracking::{MainCamera, MousePosWorld};
 use avian2d::{math::*, prelude::*};
 use avian2d::{math::*, prelude::*};
 use avian2d::{math::*, prelude::*};
 
-#[derive(Event)]
+#[derive(Message)]
 pub struct MouseLongOrMovedWriteback {
     event: MouseLongOrMoved,
 }
@@ -26,22 +26,22 @@ impl From<MouseLongOrMoved> for MouseLongOrMovedWriteback {
 }
 
 pub fn mouse_long_or_moved_writeback(
-    mut read: EventReader<MouseLongOrMovedWriteback>,
-    mut write: EventWriter<MouseLongOrMoved>,
+    mut read: MessageReader<MouseLongOrMovedWriteback>,
+    mut write: MessageWriter<MouseLongOrMoved>,
 ) {
     for event in read.read() {
-        write.send(event.event);
+        write.write(event.event);
     }
 }
 
 pub fn mouse_long_or_moved(
-    mut events: EventReader<MouseLongOrMoved>,
-    mut ev_writeback: EventWriter<MouseLongOrMovedWriteback>,
+    mut events: MessageReader<MouseLongOrMoved>,
+    mut ev_writeback: MessageWriter<MouseLongOrMovedWriteback>,
     mut cameras: Query<&mut Transform, With<MainCamera>>,
     mut ui_state: ResMut<UiState>,
-    mut query: Query<(&mut GlobalTransform, &Position, &Rotation, Option<&mut RigidBody>), Without<MainCamera>>,
+    mut query: Query<(&mut GlobalTransform, &Position, &Rotation, Option<&RigidBody>), Without<MainCamera>>,
     mut commands: Commands,
-    mut select_mouse: EventWriter<SelectEvent>,
+    mut select_mouse: MessageWriter<SelectEvent>,
     mouse_pos: Res<MousePosWorld>,
     spatial_query: SpatialQuery
 ) {
@@ -76,7 +76,7 @@ pub fn mouse_long_or_moved(
             Pan(None) => {
                 info!("panning");
                 *ui_button = Some(Pan(Some(PanState {
-                    orig_camera_pos: cameras.single_mut().translation.xy(),
+                    orig_camera_pos: cameras.single_mut().unwrap().translation.xy(),
                 })));
             }
             Zoom(None) => {
@@ -94,7 +94,7 @@ pub fn mouse_long_or_moved(
                     hover_tool,
                     Move(None) | Rotate(None) | Drag(None) | Fix(()) | Hinge(()) | Tracer(())
                 ) {
-                    select_mouse.send(SelectEvent {
+                    select_mouse.write(SelectEvent {
                         entity: under_mouse,
                         open_menu: false,
                     });
@@ -108,7 +108,7 @@ pub fn mouse_long_or_moved(
                         *ui_button = Some(Drag(Some(DragState {
                             entity: ent,
                             orig_obj_pos: rel_pos,
-                            drag_entity: commands.spawn((DragObject, CustomForce::default())).set_parent(ent).id()
+                            drag_entity: commands.spawn((DragObject, CustomForce::default())).insert(ChildOf(ent)).id()
                         })));
                     }
                     (Rotate(None), Some(under), _) => {
@@ -117,22 +117,22 @@ pub fn mouse_long_or_moved(
                         *ui_button = Some(Rotate(Some(RotateState {
                             orig_obj_rot: rot.as_radians(),
                             overlay_ent: commands.spawn(DrawObject).id(),
-                            scale: cameras.single_mut().scale.x,
+                            scale: cameras.single_mut().unwrap().scale.x,
                         })));
-                        if let Some(mut body) = body {
-                            *body = RigidBody::Static;
+                        if body.is_some() {
+                            commands.entity(under).insert(RigidBody::Static);
                         }
                     }
                     (Rotate(None) | Move(None), None, _) => {
-                        ev_writeback.send(MouseLongOrMoved(Pan(None), clickpos, *button).into());
+                        ev_writeback.write(MouseLongOrMoved(Pan(None), clickpos, *button).into());
                     }
                     (_, Some(under), Some(sel)) if under == sel => {
                         let (_, pos, _, body) = query.get_mut(under).unwrap();
                         *ui_button = Some(Move(Some(MoveState {
                             obj_delta: pos.0 - curpos,
                         })));
-                        if let Some(mut body) = body {
-                            *body = RigidBody::Static;
+                        if body.is_some() {
+                            commands.entity(under).insert(RigidBody::Static);
                         }
                     }
                     (Box(None), _, _) => {
@@ -151,5 +151,5 @@ pub fn mouse_long_or_moved(
     }
 }
 
-#[derive(Copy, Clone, Event)]
+#[derive(Copy, Clone, Message)]
 pub struct MouseLongOrMoved(pub ToolEnum, pub Vec2, pub UsedMouseButton);

@@ -19,7 +19,7 @@ impl BackgroundWindow {
         mut commands: Commands,
         mut palette: ResMut<PaletteConfig>,
     ) {
-        let ctx = egui_ctx.ctx_mut();
+        let ctx = egui_ctx.ctx_mut().expect("primary egui context");
         for (id, mut initial_pos) in wnds.iter_mut() {
             let LinearRgba { red, green, blue, alpha } = palette.current_palette.sky_color.to_linear();
             let mut color = Hsva::from_rgba_premultiplied(red, green, blue, alpha);

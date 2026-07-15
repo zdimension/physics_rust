@@ -4,11 +4,11 @@ use bevy::asset::{AssetLoader, AsyncReadExt, LoadContext};
 use bevy::asset::io::Reader;
 use bevy::asset::LoadedAsset;
 use bevy::prelude::*;
-use bevy::reflect::{TypePath};
-use bevy::utils::BoxedFuture;
+use bevy::reflect::TypePath;
+use bevy::tasks::BoxedFuture;
 use bevy_egui::egui::epaint::Hsva;
 
-use bevy_turborand::DelegatedRng;
+use crate::rng::DelegatedRng;
 use serde;
 use serde::Deserialize;
 
@@ -68,7 +68,7 @@ where
     if !(0.0..=1.0).contains(&r) || !(0.0..=1.0).contains(&g) || !(0.0..=1.0).contains(&b) || !(0.0..=1.0).contains(&a) {
         return Err(Error::custom("RGBA is invalid"));
     }
-    Ok(Color::rgba(r, g, b, a))
+    Ok(Color::srgba(r, g, b, a))
 }
 
 fn f32_between(rng: &mut impl DelegatedRng, min: f32, max: f32) -> f32 {
@@ -86,7 +86,7 @@ pub trait ToRgba {
 impl ToRgba for Hsva {
     fn to_rgba(&self) -> Color {
         let [r, g, b, a] = self.to_srgba_unmultiplied();
-        Color::rgba_u8(r, g, b, a)
+        Color::srgba_u8(r, g, b, a)
     }
 }
 
@@ -121,8 +121,8 @@ impl Default for Palette {
         Self {
             object_appearance: ObjectAppearance::default(),
             draw_clouds: true,
-            sky_color: Color::rgba(0.45, 0.55, 1.0000000, 1.0000000),
-            selection_color: Color::rgba(0.0, 0.0, 0.0, 0.0),
+            sky_color: Color::srgba(0.45, 0.55, 1.0000000, 1.0000000),
+            selection_color: Color::srgba(0.0, 0.0, 0.0, 0.0),
             color_range: HsvaRange(
                 Hsva::new(0.0, 0.0, 0.0, 1.0),
                 Hsva::new(359.9, 1.0, 1.0, 1.0),
@@ -136,12 +136,13 @@ impl Default for Palette {
 pub struct PaletteList(pub HashMap<String, Palette>);
 
 #[derive(Default)]
+#[derive(TypePath)]
 pub struct PaletteLoader;
 
 impl AssetLoader for PaletteLoader {
     type Asset = PaletteList;
     type Settings = ();
-    type Error = ron::error::SpannedError;
+    type Error = Box<dyn std::error::Error + Send + Sync>;
 
     fn load<'a>(
         &self,
@@ -152,7 +153,7 @@ impl AssetLoader for PaletteLoader {
         Box::pin(async move {
             let mut buf = Vec::new();
             reader.read_to_end(&mut buf).await?;
-            ron::de::from_bytes(&buf)
+            Ok(ron::de::from_bytes(&buf)?)
         })
     }
 

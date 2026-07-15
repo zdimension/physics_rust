@@ -39,18 +39,20 @@ impl Widget for TextButton {
             if response.hovered() {
                 ui.painter().rect(
                     rect.expand(visuals.expansion),
-                    visuals.rounding,
+                    visuals.corner_radius,
                     visuals.bg_fill,
                     visuals.bg_stroke,
+                    bevy_egui::egui::StrokeKind::Outside,
                 );
             }
             if selected {
                 let selection = ui.visuals().selection;
                 ui.painter().rect(
                     rect.expand(visuals.expansion),
-                    visuals.rounding,
+                    visuals.corner_radius,
                     selection.bg_fill,
                     selection.stroke,
+                    bevy_egui::egui::StrokeKind::Outside,
                 );
             }
 

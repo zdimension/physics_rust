@@ -3,7 +3,7 @@ use crate::ui::icon_button::IconButton;
 use crate::ui::images::GuiIcons;
 use crate::ui::{GravitySetting, RemoveTemporaryWindowsEvent, UiState};
 use bevy::math::Vec2;
-use bevy::prelude::{EventWriter, Local, Res, ResMut, Time};
+use bevy::prelude::{MessageWriter, Local, Res, ResMut, Time};
 use bevy_egui::egui::Align2;
 use bevy_egui::{egui, EguiContexts};
 use avian2d::{math::*, prelude::*};
@@ -17,7 +17,7 @@ pub fn draw_bottom_toolbar(
     mut gravity_conf: Local<GravitySetting>,
     tool_icons: Res<ToolIcons>,
     gui_icons: Res<GuiIcons>,
-    mut clear_tmp: EventWriter<RemoveTemporaryWindowsEvent>,
+    mut clear_tmp: MessageWriter<RemoveTemporaryWindowsEvent>,
     mut gravity: ResMut<Gravity>,
     mut physics: ResMut<Time<Physics>>
 ) {
@@ -25,20 +25,20 @@ pub fn draw_bottom_toolbar(
         .anchor(Align2::CENTER_BOTTOM, [0.0, -1.0])
         .title_bar(false)
         .resizable(false)
-        .show(&egui_ctx.ctx_mut().clone(), |ui| {
+        .show(egui_ctx.ctx_mut().expect("primary egui context"), |ui| {
             ui.style_mut().spacing.item_spacing = egui::Vec2::new(3.0, 3.0);
             ui.horizontal(|ui| {
                 let ui_state = &mut *ui_state;
                 for def in ui_state.toolbox_bottom.iter() {
                     if ui
                         .add(
-                            IconButton::new(egui_ctx.add_image(def.icon(&tool_icons)), 32.0)
+                            IconButton::new(def.egui_icon(&tool_icons), 32.0)
                                 .selected(ui_state.toolbox_selected.is_same(def)),
                         )
                         .clicked()
                     {
                         ui_state.toolbox_selected = *def;
-                        clear_tmp.send(RemoveTemporaryWindowsEvent);
+                        clear_tmp.write(RemoveTemporaryWindowsEvent);
                     }
                 }
 

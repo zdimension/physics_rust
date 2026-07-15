@@ -1,6 +1,6 @@
 use crate::ui::images::GuiIcons;
 use crate::ui::{InitialPos, Subwindow};
-use bevy::hierarchy::Parent;
+use bevy::prelude::ChildOf;
 use bevy::prelude::{Commands, Component, Entity, Query, Res, With};
 use bevy_egui::{egui, EguiContexts};
 use egui::load::SizedTexture;
@@ -29,15 +29,16 @@ impl PhysicsLayer for CollisionLayer {
 
 impl CollisionsWindow {
     pub fn show(
-        mut wnds: Query<(Entity, &Parent, &mut InitialPos), With<CollisionsWindow>>,
-        mut ents: Query<&mut CollisionLayers>,
+        mut wnds: Query<(Entity, &ChildOf, &mut InitialPos), With<CollisionsWindow>>,
+        ents: Query<&CollisionLayers>,
         gui_icons: Res<GuiIcons>,
         mut egui_ctx: EguiContexts,
         mut commands: Commands,
     ) {
-        let ctx = egui_ctx.ctx_mut();
+        let ctx = egui_ctx.ctx_mut().expect("primary egui context");
         for (id, parent, mut initial_pos) in wnds.iter_mut() {
-            let mut groups = ents.get_mut(parent.get()).unwrap();
+            let mut groups = *ents.get(parent.parent()).unwrap();
+            let mut changed = false;
             egui::Window::new("Collisions")
                 .resizable(false)
                 .subwindow(id, ctx, &mut initial_pos, &mut commands, |ui, _commands| {
@@ -51,7 +52,8 @@ impl CollisionsWindow {
                                 let val = groups.memberships.0;
                                 let shifted = val >> 1;
                                 let new_val = shifted | ((val & 1) << (GROUP_COUNT - 1));
-                                *groups = CollisionLayers::from_bits(new_val, new_val);
+                                groups = CollisionLayers::from_bits(new_val, new_val);
+                                changed = true;
                             }
                             if ui
                                 .add(egui::ImageButton::new(SizedTexture::new(gui_icons.arrow_down, [16.0, 32.0])))
@@ -61,7 +63,8 @@ impl CollisionsWindow {
                                 let shifted = val << 1;
                                 let new_val = shifted
                                     | ((val & (1 << (GROUP_COUNT - 1))) >> (GROUP_COUNT - 1));
-                                *groups = CollisionLayers::from_bits(new_val, new_val);
+                                groups = CollisionLayers::from_bits(new_val, new_val);
+                                changed = true;
                             }
                         });
                         ui.vertical(|ui| {
@@ -83,17 +86,20 @@ impl CollisionsWindow {
                                     } else {
                                         groups.memberships.0 & !flag
                                     };
-                                    *groups = CollisionLayers::from_bits(new_val, new_val);
+                                    groups = CollisionLayers::from_bits(new_val, new_val);
+                                changed = true;
                                 }
                             }
                         });
                     });
                     ui.horizontal(|ui| {
                         if ui.button("Check all").clicked() {
-                            *groups = CollisionLayers::ALL;
+                            groups = CollisionLayers::ALL;
+                            changed = true;
                         }
                         if ui.button("Uncheck all").clicked() {
-                            *groups = CollisionLayers::NONE;
+                            groups = CollisionLayers::NONE;
+                            changed = true;
                         }
                     });
                 });

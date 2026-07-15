@@ -1,12 +1,11 @@
 use std::fmt::{Debug, Formatter};
 
-use bevy::hierarchy::{BuildChildren, DespawnRecursiveExt};
 use bevy::math::{EulerRot, Vec2, Vec3, Vec3Swizzles};
 use bevy::prelude::*;
 use bevy_egui::egui::ecolor::Hsva;
-use bevy_prototype_lyon::geometry::GeometryBuilder;
-use bevy_prototype_lyon::prelude::ShapeBundle;
-use bevy_prototype_lyon::shapes;
+use crate::lyon_compat::GeometryBuilder;
+use crate::lyon_compat::ShapeBundle;
+use crate::lyon_compat::shapes;
 use avian2d::{math::*, prelude::*};
 use num_traits::float::FloatConst;
 
@@ -68,9 +67,9 @@ impl LaserRay {
         self.start + Vec2::from_angle(self.angle) * self.length_clipped()
     }
 
-    fn end_strength(&self, parent: &LaserBundle) -> f32 {
+    fn end_strength(&self, laser: &LaserBundle) -> f32 {
         0.0f32
-            .max(self.strength * (1.0 - self.length / (parent.fade_distance - self.start_distance)))
+            .max(self.strength * (1.0 - self.length / (laser.fade_distance - self.start_distance)))
     }
 
     fn end_distance(&self) -> f32 {
@@ -336,8 +335,8 @@ pub fn draw_lasers(
     mut commands: Commands,
     spatial_query: SpatialQuery,
 ) {
-    let (rays, mut rays_obj) = rays.single_mut();
-    commands.entity(rays).despawn_descendants();
+    let (rays, mut rays_obj) = rays.single_mut().unwrap();
+    commands.entity(rays).despawn_children();
 
     for (transform, glob, laser, color, rot) in lasers.iter() {
         let ray_width = transform.scale.x * LASER_WIDTH;
@@ -405,19 +404,18 @@ pub fn draw_lasers(
             };
             commands
                 .spawn((
-                    ShapeBundle {
-                        path: GeometryBuilder::build_as(&poly),
-                        transform: Transform::from_translation(Vec3::new(
+                    ShapeBundle::new(
+                        GeometryBuilder::build_as(&poly),
+                        Transform::from_translation(Vec3::new(
                             0.0,
                             0.0,
                             transform.translation.z - 0.1,
                         )),
-                visibility: Visibility::Inherited,
-                        ..Default::default()
-                    },
+                        Visibility::Inherited,
+                    ),
                     crate::make_fill(crate::hsva_to_rgba(ray.color_blended())),
                 ))
-                .set_parent(rays);
+                .insert(ChildOf(rays));
         }
 
         rays_obj.debug = debug;

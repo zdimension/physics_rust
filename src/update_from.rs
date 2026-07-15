@@ -1,5 +1,5 @@
 use crate::objects::SettingComponent;
-use bevy::hierarchy::Parent;
+use bevy::prelude::ChildOf;
 use bevy::prelude::{Component, Entity, Query, Ref};
 use std::marker::PhantomData;
 
@@ -17,7 +17,7 @@ impl<T: SettingComponent> UpdateFrom<T> {
     pub fn find_component(
         &self,
         base: Entity,
-        parents: &Query<(Option<&Parent>, Option<Ref<T>>)>,
+        parents: &Query<(Option<&ChildOf>, Option<Ref<T>>)>,
     ) -> Option<(Entity, T::Value)> {
         let mut root = match self {
             UpdateFrom::This => base,
@@ -29,7 +29,7 @@ impl<T: SettingComponent> UpdateFrom<T> {
                 return Some((root, col.get()));
             }
             root = match p {
-                Some(p) => p.get(),
+                Some(p) => p.parent(),
                 None => return None,
             };
         }

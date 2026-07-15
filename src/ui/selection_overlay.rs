@@ -2,11 +2,11 @@ use std::ops::Neg;
 
 use bevy::math::{Quat, Vec2, Vec3Swizzles};
 use bevy::prelude::*;
-use bevy_mouse_tracking_plugin::{MainCamera, MousePosWorld};
-use bevy_prototype_lyon::entity::ShapeBundle;
-use bevy_prototype_lyon::geometry::GeometryBuilder;
-use bevy_prototype_lyon::prelude::{Geometry, Path, RectangleOrigin};
-use bevy_prototype_lyon::shapes;
+use crate::mouse_tracking::{MainCamera, MousePosWorld};
+use crate::lyon_compat::ShapeBundle;
+use crate::lyon_compat::GeometryBuilder;
+use crate::lyon_compat::RectangleOrigin;
+use crate::lyon_compat::shapes;
 use lyon_path::geom::euclid::{Transform2D, Vector2D};
 use lyon_path::math::vector;
 use lyon_path::path::Builder;
@@ -117,11 +117,11 @@ pub fn process_draw_overlay(
     mouse: Res<MousePosWorld>,
 ) {
     if let Some((draw_ent, shape, pos)) = overlay.draw_ent {
-        let Some(mut cmds) = commands.get_entity(draw_ent) else {
+        let Ok(mut cmds) = commands.get_entity(draw_ent) else {
             overlay.draw_ent = None;
             return;
         };
-        cmds.despawn_descendants();
+        cmds.despawn_children();
         let camera = cameras.single();
         let builder = GeometryBuilder::new();
         let (thickness, color, builder) = match shape {
@@ -143,30 +143,27 @@ pub fn process_draw_overlay(
                 }),
             ),
             Overlay::Rotate(_rot_value, scale, rot, click) => {
-                let start = -(click - pos).angle_between(Vec2::X);
+                let start = -((click - pos).perp_dot(Vec2::X).atan2((click - pos).dot(Vec2::X)));
                 let end = _rot_value - rot;
                 cmds.with_children(|builder| {
                     builder.spawn((
-                        ShapeBundle {
-                            path: Path(
-                                CircleSector {
-                                    radius: mouse.xy().distance(pos),
-                                    center: Vec2::ZERO,
-                                    end_angle: end,
-                                }
-                                .add_geometry(Builder::new()),
-                            ),
-                            transform: Transform::from_rotation(Quat::from_rotation_z(start)),
-                            visibility: Visibility::Inherited,
-                            ..Default::default()
-                        },
-                        crate::make_fill(Color::rgba_u8(0xff, 0x40, 0xff, 128)),
+                        ShapeBundle::new(
+                            CircleSector {
+                                radius: mouse.xy().distance(pos),
+                                center: Vec2::ZERO,
+                                end_angle: end,
+                            }
+                            .add_geometry(Builder::new()),
+                            Transform::from_rotation(Quat::from_rotation_z(start)),
+                            Visibility::Inherited,
+                        ),
+                        crate::make_fill(Color::srgba_u8(0xff, 0x40, 0xff, 128)),
                     ));
                 });
 
                 (
                     3.0,
-                    Color::rgba(1.0, 1.0, 1.0, 0.4),
+                    Color::srgba(1.0, 1.0, 1.0, 0.4),
                     builder.add(&shapes::Circle {
                         radius: scale * ROTATE_HELPER_RADIUS,
                         ..Default::default()
@@ -176,13 +173,12 @@ pub fn process_draw_overlay(
         };
         // todo: rotate helper 2
         cmds.insert((
-            ShapeBundle {
-                path: builder.build(),
-                transform: Transform::from_translation(pos.extend(FOREGROUND_Z)),
-                visibility: Visibility::Inherited,
-                ..Default::default()
-            },
-            crate::make_stroke(color, thickness * camera.scale.x),
+            ShapeBundle::new(
+                builder.build(),
+                Transform::from_translation(pos.extend(FOREGROUND_Z)),
+                Visibility::Inherited,
+            ),
+            crate::make_stroke(color, thickness * camera.unwrap().scale.x),
         ));
     }
 }

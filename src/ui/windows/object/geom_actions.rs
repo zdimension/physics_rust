@@ -1,7 +1,7 @@
 use crate::tools::add_object::{AddHingeEvent, AddObjectEvent};
 use crate::ui::images::GuiIcons;
 use crate::ui::{InitialPos, Subwindow};
-use bevy::prelude::{info, Commands, Component, Entity, EventWriter, Parent, Query, Res, With};
+use bevy::prelude::{info, Commands, Component, Entity, MessageWriter, ChildOf, Query, Res, With};
 use bevy_egui::{egui, EguiContexts};
 use bevy_egui::egui::load::SizedTexture;
 use crate::systems;
@@ -13,13 +13,13 @@ pub struct GeometryActionsWindow;
 
 impl GeometryActionsWindow {
     pub fn show(
-        mut wnds: Query<(Entity, &Parent, &mut InitialPos), With<GeometryActionsWindow>>,
+        mut wnds: Query<(Entity, &ChildOf, &mut InitialPos), With<GeometryActionsWindow>>,
         mut egui_ctx: EguiContexts,
         mut commands: Commands,
-        mut add_obj: EventWriter<AddObjectEvent>,
+        mut add_obj: MessageWriter<AddObjectEvent>,
         gui_icons: Res<GuiIcons>,
     ) {
-        let ctx = egui_ctx.ctx_mut();
+        let ctx = egui_ctx.ctx_mut().expect("primary egui context");
         for (id, parent, mut initial_pos) in wnds.iter_mut() {
             egui::Window::new("Geom actions")
                 .resizable(false)
@@ -33,9 +33,9 @@ impl GeometryActionsWindow {
                         ))
                         .clicked()
                     {
-                        info!("Add center axle {:?}", parent.get());
-                        add_obj.send(AddObjectEvent::Hinge(AddHingeEvent::AddCenter(
-                            parent.get(),
+                        info!("Add center axle {:?}", parent.parent());
+                        add_obj.write(AddObjectEvent::Hinge(AddHingeEvent::AddCenter(
+                            parent.parent(),
                         )));
                     }
                 });

@@ -3,16 +3,16 @@ use crate::objects::{ColorComponent, MotorComponent};
 use crate::ui::images::GuiIcons;
 use crate::ui::{InitialPos, Subwindow, TemporaryWindow};
 use crate::{CAMERA_Z,  systems};
-use bevy::hierarchy::{BuildChildren, Parent};
+use bevy::prelude::ChildOf;
 use bevy::prelude::*;
 use bevy_egui::egui::{pos2, Separator};
 use bevy_egui::{egui, EguiContexts};
 use avian2d::{math::*, prelude::*};
 use std::time::Duration;
 use bevy::math::Vec3Swizzles;
-use bevy::render::primitives::Aabb;
+use bevy::camera::primitives::Aabb;
 use bevy::window::PrimaryWindow;
-use bevy_mouse_tracking_plugin::MainCamera;
+use crate::mouse_tracking::MainCamera;
 
 use crate::ui::windows::object::appearance::AppearanceWindow;
 use crate::ui::windows::object::collisions::CollisionsWindow;
@@ -47,7 +47,7 @@ pub struct MenuWindow {
 
 impl MenuWindow {
     fn show(
-        mut wnds: Query<(Entity, Option<&Parent>, &mut MenuWindow, &mut InitialPos)>,
+        mut wnds: Query<(Entity, Option<&ChildOf>, &mut MenuWindow, &mut InitialPos)>,
         is_temp: Query<Option<&TemporaryWindow>>,
         time: Res<Time>,
         mut egui_ctx: EguiContexts,
@@ -62,18 +62,18 @@ impl MenuWindow {
             Option<&MotorComponent>,
         )>,
         mut cameras: Query<&mut Transform, With<MainCamera>>,
-        mut zoom2scene: EventWriter<ZoomToScene>
+        mut zoom2scene: MessageWriter<ZoomToScene>
     ) {
-        let ctx = egui_ctx.ctx_mut();
+        let ctx = egui_ctx.ctx_mut().expect("primary egui context");
         for (wnd_id, entity, mut info_wnd, mut initial_pos) in wnds.iter_mut() {
-            let entity = entity.map(Parent::get);
+            let entity = entity.map(ChildOf::parent);
             egui::Window::new("context menu")
                 .default_size(egui::Vec2::ZERO)
                 .resizable(false)
                 .subwindow(wnd_id, ctx, &mut initial_pos, &mut commands, |ui, commands| {
                     if let Some((_, id)) = info_wnd.selected_item {
                         if matches!(is_temp.get(id), Err(_) | Ok(None)) {
-                            commands.entity(wnd_id).despawn_recursive();
+                            commands.entity(wnd_id).despawn();
                         }
                     }
 
@@ -105,7 +105,7 @@ impl MenuWindow {
                                         info!("clicked: {}", $text);
 
                                         if let Some((_, id)) = info_wnd.selected_item {
-                                            commands.get_entity(id).map(|mut ent| _ = ent.despawn_recursive());
+                                            commands.get_entity(id).map(|mut ent| _ = ent.despawn());
                                         }
 
                                         info!("rect: {:?}", menu.rect);
@@ -145,14 +145,14 @@ impl MenuWindow {
                             let info = entity_info.get(id).expect("Missing entity info");
 
                             if item!("Erase", erase) {
-                                commands.entity(id).despawn_recursive();
+                                commands.entity(id).despawn();
                             }
                             if item!("Mirror", mirror) {}
                             if item!("Show plot", plot) {
                                 commands.entity(id).with_children(|parent| {
                                     parent.spawn((PlotWindow::default(), InitialPos::persistent(pos2(100.0, 100.0))));
                                 });
-                                commands.entity(wnd_id).despawn_recursive();
+                                commands.entity(wnd_id).despawn();
                             }
                             ui.add(Separator::default().horizontal());
 
@@ -186,10 +186,10 @@ impl MenuWindow {
                         }
                         None => {
                             if item!("Zoom to scene", zoom2scene) {
-                                zoom2scene.send(ZoomToScene);
+                                zoom2scene.write(ZoomToScene);
                             }
                             if item!("Default view") {
-                                let mut camera = cameras.single_mut();
+                                let mut camera = cameras.single_mut().unwrap();
                                 camera.translation = Vec3::new(0.0, 2.0, CAMERA_Z);
                                 let scale = 1.0 / 182.0; // todo: depends on window size
                                 camera.scale = Vec3::new(scale, scale, 1.0);
@@ -202,20 +202,20 @@ impl MenuWindow {
     }
 }
 
-#[derive(Event)]
+#[derive(Message)]
 struct ZoomToScene;
 
 fn handle_zoom_to_scene(
-    mut events: EventReader<ZoomToScene>,
+    mut events: MessageReader<ZoomToScene>,
     mut cameras: Query<&mut Transform, With<MainCamera>>,
     bboxes: Query<(&Position, &Aabb), Without<MainCamera>>,
     windows: Query<&Window, With<PrimaryWindow>>
 ) {
-    let prim = windows.get_single().unwrap();
+    let prim = windows.single().unwrap();
     const FIT_MARGIN: f32 = 0.66;
     let win_size = Vec2::new(prim.width(), prim.height()) * FIT_MARGIN;
 
-    let mut camera = cameras.single_mut();
+    let mut camera = cameras.single_mut().unwrap();
 
     for _ in events.read() {
         let bbox = bboxes

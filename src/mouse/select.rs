@@ -1,28 +1,24 @@
 use crate::ui::{ContextMenuEvent, EntitySelection, TemporaryWindow, UiState};
-use std::collections::btree_set::BTreeSet;
 
 //use crate::Despawn;
 use bevy::log::info;
 use bevy::math::{Vec2, Vec2Swizzles};
 use bevy::prelude::*;
-use bevy_egui::egui::epaint::util::OrderedFloat;
-use bevy_mouse_tracking_plugin::MousePos;
+use crate::mouse_tracking::MousePos;
 use avian2d::{math::*, prelude::*};
 use avian2d::{math::*, prelude::*};
-use bevy_egui::egui::emath::Float;
-use derivative::Derivative;
 
-#[derive(Event)]
+#[derive(Message)]
 pub struct SelectEvent {
     pub(crate) entity: Option<Entity>,
     pub(crate) open_menu: bool,
 }
 
 pub fn process_select(
-    mut events: EventReader<SelectEvent>,
+    mut events: MessageReader<SelectEvent>,
     mut state: ResMut<UiState>,
     mut commands: Commands,
-    mut menu_event: EventWriter<ContextMenuEvent>,
+    mut menu_event: MessageWriter<ContextMenuEvent>,
     screen_pos: Res<MousePos>,
 ) {
     for SelectEvent { entity, open_menu } in events.read() {
@@ -35,7 +31,7 @@ pub fn process_select(
 
         state.selected_entity = entity.map(|entity| EntitySelection { entity });
         if *open_menu {
-            menu_event.send(ContextMenuEvent {
+            menu_event.write(ContextMenuEvent {
                 screen_pos: screen_pos.xy(),
             });
         }
@@ -48,44 +44,34 @@ pub fn find_under_mouse(
     filter: SpatialQueryFilter,
     mut z: impl FnMut(Entity) -> f32,
 ) -> impl Iterator<Item = Entity> {
-    #[derive(Derivative)]
-    #[derivative(PartialEq, PartialOrd, Eq, Ord)]
-    struct EntityZ {
-        #[derivative(PartialEq = "ignore", PartialOrd = "ignore")]
-        entity: Entity,
-        z: OrderedFloat<f32>,
-    }
-
-    let mut set = BTreeSet::new();
+    let mut hits = Vec::new();
 
     query.point_intersections_callback(pos, &filter, |ent| {
-        set.insert(EntityZ {
-            entity: ent,
-            z: z(ent).ord(),
-        });
+        hits.push((ent, z(ent)));
         true
     });
 
-    set.into_iter().rev().map(|EntityZ { entity, .. }| entity)
+    hits.sort_by(|a, b| a.1.total_cmp(&b.1));
+    hits.into_iter().rev().map(|(entity, _)| entity)
 }
 
-#[derive(Copy, Clone, Event)]
+#[derive(Copy, Clone, Message)]
 pub struct SelectUnderMouseEvent {
     pub(crate) pos: Vec2,
     pub(crate) open_menu: bool,
 }
 
 pub fn process_select_under_mouse(
-    mut events: EventReader<SelectUnderMouseEvent>,
+    mut events: MessageReader<SelectUnderMouseEvent>,
     spatial_query: SpatialQuery,
-    mut select: EventWriter<SelectEvent>,
+    mut select: MessageWriter<SelectEvent>,
     query: Query<&Transform>,
     mut commands: Commands,
     wnds: Query<Entity, With<TemporaryWindow>>,
 ) {
     for SelectUnderMouseEvent { pos, open_menu } in events.read().copied() {
         for id in wnds.iter() {
-            commands.entity(id).despawn_recursive();
+            commands.entity(id).despawn();
         }
         let selected = find_under_mouse(&spatial_query, pos, Default::default(), |ent| {
             let Ok(transform) = query.get(ent) else {
@@ -94,7 +80,7 @@ pub fn process_select_under_mouse(
             transform.translation.z
         })
         .next();
-        select.send(SelectEvent {
+        select.write(SelectEvent {
             entity: selected,
             open_menu,
         });

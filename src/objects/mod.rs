@@ -1,6 +1,6 @@
 use crate::palette::ToRgba;
 use crate::update_from::UpdateFrom;
-use bevy::hierarchy::Parent;
+use bevy::prelude::ChildOf;
 use bevy::math::Vec3;
 use bevy::prelude::{App, Component, Entity, Query, Ref, Sprite, Transform};
 use bevy_egui::egui::ecolor::Hsva;
@@ -32,7 +32,7 @@ pub trait SettingComponent: Component + Sized {
 
 pub fn update_sprites_color(
     mut sprites: Query<(Entity, &mut Sprite, &UpdateFrom<ColorComponent>)>,
-    parents: Query<(Option<&Parent>, Option<Ref<ColorComponent>>)>,
+    parents: Query<(Option<&ChildOf>, Option<Ref<ColorComponent>>)>,
 ) {
     for (entity, mut sprite, update_source) in sprites.iter_mut() {
         sprite.color = update_source
@@ -45,7 +45,7 @@ pub fn update_sprites_color(
 
 pub fn update_size_scales(
     mut scales: Query<(Entity, &mut Transform, &UpdateFrom<SizeComponent>)>,
-    parents: Query<(Option<&Parent>, Option<Ref<SizeComponent>>)>,
+    parents: Query<(Option<&ChildOf>, Option<Ref<SizeComponent>>)>,
 ) {
     for (entity, mut scale, update_source) in scales.iter_mut() {
         let (_, size) = update_source
@@ -57,7 +57,7 @@ pub fn update_size_scales(
 
 pub fn update_motors(
     //mut motors: Query<(Entity, &mut ImpulseJoint, &UpdateFrom<MotorComponent>)>,
-    parents: Query<(Option<&Parent>, Option<Ref<MotorComponent>>)>,
+    parents: Query<(Option<&ChildOf>, Option<Ref<MotorComponent>>)>,
 ) {
     /*for (entity, mut motor, update_source) in motors.iter_mut() {
         let (_, motor_component) = update_source

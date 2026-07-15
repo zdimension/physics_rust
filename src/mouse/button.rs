@@ -1,8 +1,8 @@
 use bevy::log::info;
 use bevy::prelude::*;
-use bevy::utils::Duration;
+use std::time::Duration;
 use bevy_egui::EguiContexts;
-use bevy_mouse_tracking_plugin::{MousePos, MousePosWorld};
+use crate::mouse_tracking::{MousePos, MousePosWorld};
 use avian2d::{math::*, prelude::*};
 
 use pan::PanState;
@@ -28,9 +28,9 @@ pub fn left_release(
     screen_pos: Res<MousePos>,
     mut ui_state: ResMut<UiState>,
     mouse_pos: Res<MousePosWorld>,
-    mut add_obj: EventWriter<AddObjectEvent>,
-    mut unfreeze: EventWriter<UnfreezeEntityEvent>,
-    mut select_mouse: EventWriter<SelectUnderMouseEvent>,
+    mut add_obj: MessageWriter<AddObjectEvent>,
+    mut unfreeze: MessageWriter<UnfreezeEntityEvent>,
+    mut select_mouse: MessageWriter<SelectUnderMouseEvent>,
     mut overlay: ResMut<OverlayState>,
     drag: Query<(Entity), With<DragObject>>,
 ) {
@@ -77,15 +77,15 @@ pub fn left_release(
             *overlay = OverlayState { draw_ent: None };
             match tool {
                 Box(Some(ent)) => {
-                    commands.entity(ent).despawn_recursive();
+                    commands.entity(ent).despawn();
                 }
                 Circle(Some(ent)) => {
-                    commands.entity(ent).despawn_recursive();
+                    commands.entity(ent).despawn();
                 }
                 Rotate(Some(state)) => {
                     commands
                         .entity(state.overlay_ent)
-                        .despawn_recursive();
+                        .despawn();
                 }
                 Drag(Some(state)) => {
                     commands.entity(state.drag_entity).insert(CustomForceDespawn);
@@ -95,18 +95,18 @@ pub fn left_release(
             match tool {
                 Move(Some(_)) | Rotate(Some(_)) => {
                     if let Some(EntitySelection { entity }) = ui_state.selected_entity {
-                        unfreeze.send(UnfreezeEntityEvent { entity });
+                        unfreeze.write(UnfreezeEntityEvent { entity });
                     }
                 }
                 Box(Some(_ent)) if screen_pos.distance(click_pos_screen) > 6.0 => {
-                    add_obj.send(AddObjectEvent::Box {
+                    add_obj.write(AddObjectEvent::Box {
                         pos: click_pos,
                         size: pos - click_pos,
                     });
                     *state_button = Some(Box(None));
                 }
                 Circle(Some(_ent)) if screen_pos.distance(click_pos_screen) > 6.0 => {
-                    add_obj.send(AddObjectEvent::Circle {
+                    add_obj.write(AddObjectEvent::Circle {
                         center: click_pos,
                         radius: (pos - click_pos).length(),
                     });
@@ -119,13 +119,13 @@ pub fn left_release(
                     todo!()
                 }
                 Fix(()) => {
-                    add_obj.send(AddObjectEvent::Fix(pos));
+                    add_obj.write(AddObjectEvent::Fix(pos));
                 }
                 Hinge(()) => {
-                    add_obj.send(AddObjectEvent::Hinge(AddHingeEvent::Mouse(pos)));
+                    add_obj.write(AddObjectEvent::Hinge(AddHingeEvent::Mouse(pos)));
                 }
                 Laser(()) => {
-                    add_obj.send(AddObjectEvent::Laser(pos));
+                    add_obj.write(AddObjectEvent::Laser(pos));
                 }
                 Tracer(()) => {
                     todo!()
@@ -135,7 +135,7 @@ pub fn left_release(
                 }
                 _ => {
                     info!("selecting under mouse");
-                    select_mouse.send(sel_ev);
+                    select_mouse.write(sel_ev);
                 }
             }
         }
@@ -148,11 +148,11 @@ pub fn left_pressed(
     mouse_pos: Res<MousePosWorld>,
     screen_pos: Res<MousePos>,
     mut egui_ctx: EguiContexts,
-    mut ev_long_or_moved: EventWriter<MouseLongOrMoved>,
-    mut ev_pan: EventWriter<PanEvent>,
-    mut ev_move: EventWriter<MoveEvent>,
-    mut ev_rotate: EventWriter<RotateEvent>,
-    mut ev_drag: EventWriter<DragEvent>,
+    mut ev_long_or_moved: MessageWriter<MouseLongOrMoved>,
+    mut ev_pan: MessageWriter<PanEvent>,
+    mut ev_move: MessageWriter<MoveEvent>,
+    mut ev_rotate: MessageWriter<RotateEvent>,
+    mut ev_drag: MessageWriter<DragEvent>,
     mut overlay: ResMut<OverlayState>,
     time: Res<Time>,
     xform: Query<(&Rotation, &Position)>,
@@ -202,14 +202,14 @@ pub fn left_pressed(
             if let Some((at, click_pos, click_pos_screen)) = *state_pos {
                 match *state_button {
                     Some(Pan(Some(PanState { orig_camera_pos }))) => {
-                        ev_pan.send(PanEvent {
+                        ev_pan.write(PanEvent {
                             orig_camera_pos,
                             delta: click_pos_screen - screen_pos,
                         });
                     }
                     Some(Move(Some(state))) => {
                         if let Some(EntitySelection { entity }) = ui_state.selected_entity {
-                            ev_move.send(MoveEvent {
+                            ev_move.write(MoveEvent {
                                 entity,
                                 pos: pos + state.obj_delta,
                             });
@@ -221,7 +221,7 @@ pub fn left_pressed(
                     }
                     Some(Rotate(Some(state))) => {
                         if let Some(EntitySelection { entity }) = ui_state.selected_entity {
-                            ev_rotate.send(RotateEvent {
+                            ev_rotate.write(RotateEvent {
                                 entity,
                                 orig_obj_rot: state.orig_obj_rot,
                                 click_pos,
@@ -249,7 +249,7 @@ pub fn left_pressed(
                     }
                     Some(Drag(Some(state))) => {
                         if let Some(EntitySelection { entity }) = ui_state.selected_entity {
-                            ev_drag.send(DragEvent {
+                            ev_drag.write(DragEvent {
                                 state: state,
                                 mouse_pos: pos,
                             });
@@ -284,13 +284,13 @@ pub fn left_pressed(
                         let long_or_moved = long_press || moved;
                         if long_or_moved {
                             info!("sending long/moved (button was {:?})", state_button);
-                            ev_long_or_moved.send(MouseLongOrMoved(tool, click_pos, button));
+                            ev_long_or_moved.write(MouseLongOrMoved(tool, click_pos, button));
                         }
                     }
                 }
             } else if mouse_button_input.just_pressed(button.into())
-                && !egui_ctx.ctx_mut().is_using_pointer()
-                && !egui_ctx.ctx_mut().is_pointer_over_area()
+                && !egui_ctx.ctx_mut().expect("primary egui context").is_using_pointer()
+                && !egui_ctx.ctx_mut().expect("primary egui context").is_pointer_over_area()
             {
                 info!("button pressed ({:?})", button);
                 *state_button = Some(tool);

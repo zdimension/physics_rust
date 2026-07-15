@@ -1,9 +1,9 @@
 use crate::ToRot;
 use bevy::math::{Quat, Vec2, Vec3Swizzles};
-use bevy::prelude::{Entity, Event, EventReader, Query, Transform};
+use bevy::prelude::{Entity, Message, MessageReader, Query, Transform};
 use avian2d::prelude::{Position, Rotation};
 
-#[derive(Copy, Clone, Event)]
+#[derive(Copy, Clone, Message)]
 pub struct RotateEvent {
     pub entity: Entity,
     pub orig_obj_rot: f32,
@@ -12,7 +12,7 @@ pub struct RotateEvent {
     pub scale: f32,
 }
 
-pub fn process_rotate(mut events: EventReader<RotateEvent>, mut query: Query<(&Position, &mut Rotation)>) {
+pub fn process_rotate(mut events: MessageReader<RotateEvent>, mut query: Query<(&Position, &mut Rotation)>) {
     for RotateEvent {
         entity,
         orig_obj_rot,
@@ -24,7 +24,7 @@ pub fn process_rotate(mut events: EventReader<RotateEvent>, mut query: Query<(&P
         let Ok((position, mut transform)) = query.get_mut(entity) else { continue };
         let start = click_pos - position.0;
         let current = mouse_pos - position.0;
-        let mut angle = orig_obj_rot + start.angle_between(current);
+        let mut angle = orig_obj_rot + start.perp_dot(current).atan2(start.dot(current));
         if current.length() <= ROTATE_HELPER_RADIUS * scale {
             let count = angle / ROTATE_HELPER_ROUND_TO;
             let rounded = count.round();

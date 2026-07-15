@@ -12,14 +12,14 @@ pub struct LaserWindow;
 
 impl LaserWindow {
     pub fn show(
-        mut wnds: Query<(Entity, &Parent, &mut InitialPos), With<LaserWindow>>,
+        mut wnds: Query<(Entity, &ChildOf, &mut InitialPos), With<LaserWindow>>,
         mut ents: Query<(&mut LaserBundle, &mut SizeComponent)>,
         mut egui_ctx: EguiContexts,
         mut commands: Commands,
     ) {
-        let ctx = egui_ctx.ctx_mut();
+        let ctx = egui_ctx.ctx_mut().expect("primary egui context");
         for (id, parent, mut initial_pos) in wnds.iter_mut() {
-            let (mut laser, mut size) = ents.get_mut(parent.get()).unwrap();
+            let (mut laser, mut size) = ents.get_mut(parent.parent()).unwrap();
             egui::Window::new("Laser pens")
                 .resizable(false)
                 .default_size(egui::Vec2::ZERO)

@@ -1,9 +1,10 @@
+use bevy::ecs::hierarchy::ChildSpawnerCommands;
 use crate::objects::hinge::HingeObject;
 use crate::objects::phy_obj::PhysicalObject;
 use bevy::prelude::*;
 use avian2d::{math::*, prelude::*};
 
-pub fn init(commands: &mut ChildBuilder) {
+pub fn init(commands: &mut ChildSpawnerCommands) {
     let mut z = 1.0;
     let mut z = || {
         z += 0.1;

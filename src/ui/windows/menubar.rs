@@ -1,4 +1,4 @@
-use bevy::prelude::{Commands, DespawnRecursiveExt, Entity, Query, Res, With};
+use bevy::prelude::{Commands, Entity, Query, Res, With};
 use crate::{systems};
 
 use bevy_egui::egui::Align2;
@@ -25,13 +25,13 @@ pub fn draw_menubar(
         .title_bar(false)
         .resizable(false)
         .default_size(egui::Vec2::ZERO)
-        .show(&egui_ctx.ctx_mut(), |ui| {
+        .show(egui_ctx.ctx_mut().expect("primary egui context"), |ui| {
             ui.horizontal(|ui| {
                 ui.add(TextButton::new("File"));
-                let opt = opt_window.get_single();
+                let opt = opt_window.single();
                 if ui.add(IconButton::new(gui_icons.options, 16.0).selected(opt.is_ok())).clicked() {
                     match opt {
-                        Ok(ent) => { commands.entity(ent).despawn_recursive(); }
+                        Ok(ent) => { commands.entity(ent).despawn(); }
                         Err(_) => { commands.spawn((OptionsWindow, InitialPos::ScreenCenter)); }
                     }
                 }

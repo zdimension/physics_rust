@@ -1,6 +1,6 @@
 use crate::objects::phy_obj::RefractiveIndex;
 use crate::ui::{InitialPos, Subwindow};
-use bevy::prelude::{Commands, Component, Entity, Parent, Query, With};
+use bevy::prelude::{Commands, Component, Entity, ChildOf, Query, With};
 use bevy_egui::{egui, EguiContexts};
 use avian2d::{math::*, prelude::*};
 use crate::{add_slider, systems, update_changed};
@@ -13,15 +13,15 @@ pub struct MaterialWindow;
 
 impl MaterialWindow {
     pub fn show(
-        mut wnds: Query<(Entity, &Parent, &mut InitialPos), With<MaterialWindow>>,
+        mut wnds: Query<(Entity, &ChildOf, &mut InitialPos), With<MaterialWindow>>,
         mut ents: Query<(&mut Restitution, &mut RefractiveIndex, &mut Friction)>,
         mut egui_ctx: EguiContexts,
         mut commands: Commands,
     ) {
-        let ctx = egui_ctx.ctx_mut();
+        let ctx = egui_ctx.ctx_mut().expect("primary egui context");
         for (id, parent, mut initial_pos) in wnds.iter_mut() {
             let (mut restitution, mut refractive, mut friction) =
-                ents.get_mut(parent.get()).unwrap();
+                ents.get_mut(parent.parent()).unwrap();
             egui::Window::new("Material")
                 .resizable(false)
                 .default_size(egui::Vec2::ZERO)

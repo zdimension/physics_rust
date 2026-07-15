@@ -1,6 +1,6 @@
 use crate::measures::{GravityEnergy, KineticEnergy};
 use crate::ui::{InitialPos, Subwindow};
-use bevy::hierarchy::Parent;
+use bevy::prelude::ChildOf;
 use bevy::prelude::{Commands, Component, Entity, GlobalTransform, Query, Res, Transform, With};
 use bevy_egui::egui::Ui;
 use bevy_egui::{egui, EguiContexts};
@@ -16,7 +16,7 @@ pub struct InformationWindow;
 
 impl InformationWindow {
     pub fn show(
-        mut wnds: Query<(Entity, &Parent, &mut InitialPos), With<InformationWindow>>,
+        mut wnds: Query<(Entity, &ChildOf, &mut InitialPos), With<InformationWindow>>,
         ents: Query<(
             Option<&Position>,
             Option<&GravityEnergy>,
@@ -29,9 +29,9 @@ impl InformationWindow {
         mut egui_ctx: EguiContexts,
         mut commands: Commands,
     ) {
-        let ctx = egui_ctx.ctx_mut();
+        let ctx = egui_ctx.ctx_mut().expect("primary egui context");
         for (id, parent, mut initial_pos) in wnds.iter_mut() {
-            let (xform, grav, linvel, angvel, coll_mass, kine) = ents.get(parent.get()).unwrap();
+            let (xform, grav, linvel, angvel, coll_mass, kine) = ents.get(parent.parent()).unwrap();
             egui::Window::new("info").subwindow(
                 id,
                 ctx,

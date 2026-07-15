@@ -1,7 +1,7 @@
 use crate::measures::{GravityEnergy, KineticEnergy, Momentum};
 use crate::ui::images::GuiIcons;
 use crate::ui::{InitialPos, Subwindow};
-use bevy::hierarchy::Parent;
+use bevy::prelude::ChildOf;
 use bevy::prelude::{Commands, Component, Entity, Query, Res, Time, Transform};
 use egui_plot::{Line, Plot, PlotPoint, PlotPoints};
 use egui::load::SizedTexture;
@@ -182,7 +182,7 @@ impl Eq for &'static PlotQuantity {}
 
 impl PlotWindow {
     pub(crate) fn show(
-        mut wnds: Query<(Entity, &Parent, &mut InitialPos, &mut PlotWindow)>,
+        mut wnds: Query<(Entity, &ChildOf, &mut InitialPos, &mut PlotWindow)>,
         ents: Query<PlotQuery>,
         mut egui_ctx: EguiContexts,
         mut commands: Commands,
@@ -190,10 +190,10 @@ impl PlotWindow {
         gui_icons: Res<GuiIcons>,
         physics: Res<Time<Physics>>
     ) {
-        let ctx = egui_ctx.ctx_mut();
+        let ctx = egui_ctx.ctx_mut().expect("primary egui context");
         for (id, parent, mut initial_pos, mut plot) in wnds.iter_mut() {
             if !physics.is_paused() {
-                let data = ents.get(parent.get()).unwrap();
+                let data = ents.get(parent.parent()).unwrap();
                 let cur_time = plot.time;
                 for (name, series) in plot.series.iter_mut() {
                     let x = (name.x.measure)(cur_time, &data);
@@ -276,7 +276,7 @@ impl PlotWindow {
                         .label_formatter(fmt)
                         .show(ui, |plot_ui| {
                             for (name, series) in &plot.series {
-                                plot_ui.line(Line::new(PlotPoints::Owned(series.values.clone())).name(name));
+                                plot_ui.line(Line::new(format!("{name:?}"), PlotPoints::Owned(series.values.clone())));
                             }
                         });
                 });

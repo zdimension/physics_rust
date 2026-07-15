@@ -2,10 +2,10 @@ use bevy::math::{Vec2, Vec3, Vec3Swizzles};
 use bevy::prelude::*;
 use bevy_egui::egui::ecolor::Hsva;
 
-use bevy_prototype_lyon::entity::ShapeBundle;
-use bevy_prototype_lyon::geometry::GeometryBuilder;
-use bevy_prototype_lyon::prelude::RectangleOrigin;
-use bevy_prototype_lyon::shapes;
+use crate::lyon_compat::ShapeBundle;
+use crate::lyon_compat::GeometryBuilder;
+use crate::lyon_compat::RectangleOrigin;
+use crate::lyon_compat::shapes;
 use avian2d::{math::*, prelude::*};
 
 use crate::objects::ColorComponent;
@@ -28,7 +28,6 @@ pub struct PhysicalObject {
     color_upd: UpdateFrom<ColorComponent>,
     fill_stroke: FillStroke,
     sleeping: SleepingDisabled,
-    ext_forces: ExternalForce,
     pos: Position,
 }
 
@@ -49,7 +48,6 @@ impl PhysicalObject {
             color_upd: UpdateFrom::This,
             fill_stroke: FillStroke::default(),
             sleeping: SleepingDisabled, // todo: better
-            ext_forces: ExternalForce::default().with_persistence(false),
             pos,
         }
     }
@@ -58,15 +56,14 @@ impl PhysicalObject {
         let radius = radius.abs();
         Self::make(
             Collider::circle(radius),
-            ShapeBundle {
-                path: GeometryBuilder::build_as(&shapes::Circle {
+            ShapeBundle::new(
+                GeometryBuilder::build_as(&shapes::Circle {
                     radius,
                     ..Default::default()
                 }),
-                transform: Transform::from_translation(Vec3::new(0.0, 0.0, pos.z)),
-                visibility: Visibility::Inherited,
-                ..Default::default()
-            },
+                Transform::from_translation(Vec3::new(0.0, 0.0, pos.z)),
+                Visibility::Inherited,
+            ),
             Position(pos.xy()),
         )
     }
@@ -82,16 +79,15 @@ impl PhysicalObject {
         }
         Self::make(
             Collider::rectangle(size.x, size.y),
-            ShapeBundle {
-                path: GeometryBuilder::build_as(&shapes::Rectangle {
+            ShapeBundle::new(
+                GeometryBuilder::build_as(&shapes::Rectangle {
                     extents: size,
                     origin: RectangleOrigin::Center,
                     radii: None,
                 }),
-                transform: Transform::from_translation((size / 2.0).extend(pos.z)),
-                visibility: Visibility::Inherited,
-                ..Default::default()
-            },
+                Transform::from_translation((size / 2.0).extend(pos.z)),
+                Visibility::Inherited,
+            ),
             Position(pos.xy() + size / 2.0),
         )
     }
@@ -99,15 +95,14 @@ impl PhysicalObject {
     pub fn poly(points: Vec<Vec2>, pos: Vec3) -> Self {
         Self::make(
             Collider::convex_hull(points.clone()).unwrap(),
-            ShapeBundle {
-                path: GeometryBuilder::build_as(&shapes::Polygon {
+            ShapeBundle::new(
+                GeometryBuilder::build_as(&shapes::Polygon {
                     points,
                     closed: true,
                 }),
-                transform: Transform::from_translation(Vec3::new(0.0, 0.0, pos.z)), // todo: center of mass
-                visibility: Visibility::Inherited,
-                ..Default::default()
-            },
+                Transform::from_translation(Vec3::new(0.0, 0.0, pos.z)), // todo: center of mass
+                Visibility::Inherited,
+            ),
             Position(pos.xy()),
         )
     }

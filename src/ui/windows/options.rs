@@ -41,8 +41,8 @@ impl OptionsWindow {
         mut skin: ResMut<SkinConfig>,
         mut app: ResMut<AppConfig>
     ) {
-        let ctx = egui_ctx.ctx_mut();
-        let Ok((id, mut initial_pos)) = wnds.get_single_mut() else { return };
+        let ctx = egui_ctx.ctx_mut().expect("primary egui context");
+        let Ok((id, mut initial_pos)) = wnds.single_mut() else { return };
         // C'EST PARCE QUE LE PIVOT EST AU CENTRE QUE ÇA S'AGRANDIT DU CENTRE ESPÈCE DE DÉBILE
         egui::Window::new("Options")
             .resizable(false)
@@ -131,7 +131,7 @@ pub fn update_skin(skin: Res<SkinConfig>, mut egui_ctx: EguiContexts) {
         a: hsva.a * 0.7
     }.into();
 
-    let ctx = egui_ctx.ctx_mut();
+    let ctx = egui_ctx.ctx_mut().expect("primary egui context");
     let mut style = ctx.style().deref().clone();
     style.visuals.window_fill = fill_color;
     style.visuals.panel_fill = fill_color;
@@ -144,9 +144,9 @@ pub fn update_skin(skin: Res<SkinConfig>, mut egui_ctx: EguiContexts) {
     style.visuals.selection.stroke = Stroke::NONE;
     style.visuals.widgets.inactive.bg_fill = selected;
     style.visuals.window_shadow = Shadow {
-                offset: vec2(6.0, 10.0),
-                blur: 8.0,
-                spread: 0.0,
+                offset: [6, 10],
+                blur: 8,
+                spread: 0,
                 color: Color32::from_black_alpha(96),
             };
     ctx.set_style(style);

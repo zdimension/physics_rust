@@ -22,7 +22,7 @@ impl KineticEnergy {
         mut commands: Commands,
     ) {
         for (id, mass, lin, ang) in bodies.iter() {
-            let Some(mut cmds) = commands.get_entity(id) else { continue; };
+            let Ok(mut cmds) = commands.get_entity(id) else { continue; };
             let linear = mass.mass* lin.0.length_squared() / 2.0;
             let angular = mass.angular_inertia * ang.0 * ang.0 / 2.0;
             cmds.insert(KineticEnergy { linear, angular });
@@ -46,7 +46,7 @@ impl GravityEnergy {
         mut commands: Commands,
     ) {
         for (id, Mass(mass), pos) in bodies.iter() {
-            let Some(mut cmds) = commands.get_entity(id) else { continue; };
+            let Ok(mut cmds) = commands.get_entity(id) else { continue; };
             let energy = mass * -gravity.0.y * pos.0.y;
             cmds.insert(GravityEnergy { energy });
         }
@@ -65,7 +65,7 @@ impl Momentum {
         mut commands: Commands,
     ) {
         for (id, props, lin, ang) in bodies.iter() {
-            let Some(mut cmds) = commands.get_entity(id) else { continue; };
+            let Ok(mut cmds) = commands.get_entity(id) else { continue; };
             let linear = props.mass * lin.0;
             let angular = props.angular_inertia * ang.0;
             cmds.insert(Momentum { linear, angular });
@@ -119,7 +119,7 @@ impl Forces {
         use ForceKind::*;
 
         for (id, Mass(mass)) in bodies.iter() {
-            let Some(mut cmds) = commands.get_entity(id) else { continue; };
+            let Ok(mut cmds) = commands.get_entity(id) else { continue; };
             let mut forces = vec![];
 
             forces.push(AppliedForce {

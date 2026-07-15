@@ -11,15 +11,14 @@ use crate::ui::UiState;
 use crate::update_from::UpdateFrom;
 use crate::{InvTransformPoint, BORDER_THICKNESS};
 use avian2d::{math::*, prelude::*};
-use bevy::hierarchy::BuildChildren;
 use bevy::log::info;
 use bevy::math::{Vec2, Vec3, Vec3Swizzles};
 use bevy::prelude::*;
-use bevy_mouse_tracking_plugin::MainCamera;
-use bevy_prototype_lyon::geometry::GeometryBuilder;
-use bevy_prototype_lyon::prelude::ShapeBundle;
-use bevy_prototype_lyon::shapes;
-use bevy_turborand::RngComponent;
+use crate::mouse_tracking::MainCamera;
+use crate::lyon_compat::GeometryBuilder;
+use crate::lyon_compat::ShapeBundle;
+use crate::lyon_compat::shapes;
+use crate::rng::RngComponent;
 
 const VIRTUAL_LAYER: u32 = 1 << 31;
 
@@ -30,13 +29,13 @@ pub fn query_only_real() -> SpatialQueryFilter {
     SpatialQueryFilter::from_mask(0xffff_ffff ^ VIRTUAL_LAYER)
 }
 
-#[derive(Debug, Event)]
+#[derive(Debug, Message)]
 pub enum AddHingeEvent {
     Mouse(Vec2),
     AddCenter(Entity),
 }
 
-#[derive(Debug, Event)]
+#[derive(Debug, Message)]
 pub enum AddObjectEvent {
     Hinge(AddHingeEvent),
     Fix(Vec2),
@@ -49,15 +48,15 @@ pub enum AddObjectEvent {
 const DEFAULT_OBJ_SIZE: f32 = 66.0;
 
 pub fn process_add_object(
-    mut events: EventReader<AddObjectEvent>,
-    mut query: Query<(&mut GlobalTransform, &mut RigidBody), Without<MainCamera>>,
+    mut events: MessageReader<AddObjectEvent>,
+    query: Query<(&GlobalTransform, &RigidBody), Without<MainCamera>>,
     images: Res<AppIcons>,
     mut commands: Commands,
     mut cameras: Query<&mut Transform, With<MainCamera>>,
     palette_config: Res<PaletteConfig>,
     mut z: Local<DepthSorter>,
     mut rng: Query<&mut RngComponent>,
-    mut select_mouse: EventWriter<SelectUnderMouseEvent>,
+    mut select_mouse: MessageWriter<SelectUnderMouseEvent>,
     sensor: Query<&Sensor>,
     ui_state: Res<UiState>,
     spatial_query: SpatialQuery,
@@ -70,9 +69,9 @@ pub fn process_add_object(
             Box { pos, size } => {
                 commands
                     .spawn(PhysicalObject::rect(size, z.pos(pos)))
-                    .set_parent(ui_state.scene)
+                    .insert(ChildOf(ui_state.scene))
                     .insert(
-                        ColorComponent(palette.get_color_hsva(&mut *rng.single_mut()))
+                        ColorComponent(palette.get_color_hsva(&mut *rng.single_mut().unwrap()))
                             .update_from_this(),
                     )
                     .log_components();
@@ -80,9 +79,9 @@ pub fn process_add_object(
             Circle { center, radius } => {
                 commands
                     .spawn(PhysicalObject::ball(radius, z.pos(center)))
-                    .set_parent(ui_state.scene)
+                    .insert(ChildOf(ui_state.scene))
                     .insert(
-                        ColorComponent(palette.get_color_hsva(&mut *rng.single_mut()))
+                        ColorComponent(palette.get_color_hsva(&mut *rng.single_mut().unwrap()))
                             .update_from_this(),
                     )
                     .log_components();
@@ -90,9 +89,9 @@ pub fn process_add_object(
             Polygon { pos, ref points } => {
                 commands
                     .spawn(PhysicalObject::poly(points.clone(), z.pos(pos)))
-                    .set_parent(ui_state.scene)
+                    .insert(ChildOf(ui_state.scene))
                     .insert(
-                        ColorComponent(palette.get_color_hsva(&mut *rng.single_mut()))
+                        ColorComponent(palette.get_color_hsva(&mut *rng.single_mut().unwrap()))
                             .update_from_this(),
                     )
                     .log_components();
@@ -109,14 +108,14 @@ pub fn process_add_object(
 
                 if let Some(entity1) = entity1 {
                     if sensor.get(entity1).is_ok() {
-                        select_mouse.send(SelectUnderMouseEvent {
+                        select_mouse.write(SelectUnderMouseEvent {
                             pos,
                             open_menu: false,
                         });
                         return;
                     }
 
-                    let (transform, _) = query.get_mut(entity1).unwrap();
+                    let (transform, _) = query.get(entity1).unwrap();
                     let anchor1 = transform
                         .affine()
                         .inverse()
@@ -124,7 +123,7 @@ pub fn process_add_object(
                         .xy();
 
                     /*if let Some(entity2) = entity2 {
-                        let (transform, _) = query.get_mut(entity2).unwrap();
+                        let (transform, _) = query.get(entity2).unwrap();
                         let anchor2 = transform
                             .compute_affine()
                             .inverse()
@@ -147,7 +146,7 @@ pub fn process_add_object(
                                 ),
                                 RigidBody::Dynamic,
                             ))
-                            .set_parent(ui_state.scene);
+                            .insert(ChildOf(ui_state.scene));
                     }*/
                 }
             }
@@ -170,7 +169,7 @@ pub fn process_add_object(
                         };
                         if sensor.get(entity1).is_ok() {
                             info!("Add hinge on sensor; selecting");
-                            select_mouse.send(SelectUnderMouseEvent {
+                            select_mouse.write(SelectUnderMouseEvent {
                                 pos,
                                 open_menu: false,
                             });
@@ -224,36 +223,33 @@ pub fn process_add_object(
                     let hinge_delta = hinge_z - entity1z;
                     let hinge_pos = anchor1.extend(hinge_delta);
                     const HINGE_RADIUS: f32 = DEFAULT_OBJ_SIZE / 2.0;
-                    let scale = cameras.single_mut().scale.x * DEFAULT_OBJ_SIZE;
+                    let scale = cameras.single_mut().unwrap().scale.x * DEFAULT_OBJ_SIZE;
                     const IMAGE_SCALE: f32 = 1.0 / 256.0;
                     const IMAGE_SCALE_VEC: Vec3 = Vec3::new(IMAGE_SCALE, IMAGE_SCALE, 1.0);
                     // group the three sprites in an entity containing the transform
                     let hinge_real_ent = commands
                         .spawn((
-                            ShapeBundle {
-                                path: GeometryBuilder::build_as(&shapes::Circle {
+                            ShapeBundle::new(
+                                GeometryBuilder::build_as(&shapes::Circle {
                                     radius: 0.5 * 1.1, // make selection display a bit bigger
                                     ..Default::default()
                                 }),
-                                transform: Transform::from_translation(hinge_pos)
+                                Transform::from_translation(hinge_pos)
                                     .with_scale(Vec3::new(scale, scale, 1.0)),
-                                visibility: Visibility::Inherited,
-                                ..Default::default()
-                            },
-                            crate::make_stroke(Color::rgba(0.0, 0.0, 0.0, 0.0), BORDER_THICKNESS),
+                                Visibility::Inherited,
+                            ),
+                            crate::make_stroke(Color::srgba(0.0, 0.0, 0.0, 0.0), BORDER_THICKNESS),
                             SpriteOnly,
                             Collider::circle(0.5),
                             Sensor,
-                            ColorComponent(palette.get_color_hsva_opaque(&mut *rng.single_mut()))
+                            ColorComponent(palette.get_color_hsva_opaque(&mut *rng.single_mut().unwrap()))
                                 .update_from_this(),
                             MotorComponent::default(),
                         ))
-                        .set_parent(entity1)
+                        .insert(ChildOf(entity1))
                         .with_children(|builder| {
                             builder
-                                .spawn(SpatialBundle::from_transform(Transform::from_scale(
-                                    IMAGE_SCALE_VEC,
-                                )))
+                                .spawn(Transform::from_scale(IMAGE_SCALE_VEC))
                                 .with_children(|builder| {
                                     builder.spawn((
                                         Sprite {
@@ -286,7 +282,7 @@ pub fn process_add_object(
                         })
                         .id();
                     if let Some(entity2) = entity2 {
-                        /*let (transform, _) = query.get_mut(entity2).unwrap();
+                        /*let (transform, _) = query.get(entity2).unwrap();
                         let anchor2 = transform
                             .compute_affine()
                             .inverse()
@@ -307,7 +303,7 @@ pub fn process_add_object(
                             ),
                             ActiveHooks::FILTER_CONTACT_PAIRS,
                         ));*/
-                        let (transform, _) = query.get_mut(entity2).unwrap();
+                        let (transform, _) = query.get(entity2).unwrap();
                         let anchor2 = transform.to_local(pos);
                         info!(
                             "hinge: {:?} {:?} {:?} {:?}",
@@ -318,19 +314,19 @@ pub fn process_add_object(
                                 HingeObject,
                                 UpdateFrom::<MotorComponent>::entity(hinge_real_ent),
                                 RevoluteJoint::new(entity1, entity2)
-                                    .with_local_anchor_1(anchor1)
-                                    .with_local_anchor_2(anchor2),
+                                    .with_local_anchor1(anchor1)
+                                    .with_local_anchor2(anchor2),
                             ))
-                            .set_parent(ui_state.scene);
+                            .insert(ChildOf(ui_state.scene));
                     } else {
                         let rigid = commands.spawn((RigidBody::Kinematic, Position(pos))).id();
                         commands
                             .spawn((
                                 HingeObject,
                                 UpdateFrom::<MotorComponent>::entity(hinge_real_ent),
-                                RevoluteJoint::new(entity1, rigid).with_local_anchor_1(anchor1),
+                                RevoluteJoint::new(entity1, rigid).with_local_anchor1(anchor1),
                             ))
-                            .set_parent(ui_state.scene);
+                            .insert(ChildOf(ui_state.scene));
                     }
                 }
             }
@@ -341,20 +337,20 @@ pub fn process_add_object(
                     })
                     .next();
 
-                let scale = cameras.single_mut().scale.x * DEFAULT_OBJ_SIZE;
+                let scale = cameras.single_mut().unwrap().scale.x * DEFAULT_OBJ_SIZE;
                 let laser = commands
                     .spawn((
                         LaserBundle {
                             fade_distance: 10.0,
                         },
-                        ColorComponent(palette.get_color_hsva_opaque(&mut *rng.single_mut()))
+                        ColorComponent(palette.get_color_hsva_opaque(&mut *rng.single_mut().unwrap()))
                             .update_from_this(),
                         Collider::rectangle(0.5, 0.25),
                         VIRTUAL_LAYER_OBJ,
                         SizeComponent(scale),
                         Sensor,
                     ))
-                    .set_parent(ui_state.scene)
+                    .insert(ChildOf(ui_state.scene))
                     .id();
 
                 let laser_pos = if let Some(entity) = entity {
@@ -366,16 +362,15 @@ pub fn process_add_object(
                 commands
                     .entity(laser)
                     .insert((
-                        ShapeBundle {
-                            path: GeometryBuilder::build_as(&shapes::Rectangle {
+                        ShapeBundle::new(
+                            GeometryBuilder::build_as(&shapes::Rectangle {
                                 extents: Vec2::new(1.0, 0.5) * 1.1, // make selection display a bit bigger
                                 ..Default::default()
                             }),
-                            transform: Transform::from_translation(z.pos(laser_pos)),
-                            visibility: Visibility::Inherited,
-                            ..Default::default()
-                        },
-                        crate::make_stroke(Color::rgba(0.0, 0.0, 0.0, 0.0), BORDER_THICKNESS),
+                            Transform::from_translation(z.pos(laser_pos)),
+                            Visibility::Inherited,
+                        ),
+                        crate::make_stroke(Color::srgba(0.0, 0.0, 0.0, 0.0), BORDER_THICKNESS),
                         UpdateFrom::<SizeComponent>::This,
                     ))
                     .with_child((

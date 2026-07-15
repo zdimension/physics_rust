@@ -6,7 +6,7 @@ use bevy::prelude::*;
 use bevy_diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin};
 use bevy_egui::egui::{pos2, Context, Id, Pos2, Ui, Align2};
 use bevy_egui::{egui, EguiContexts};
-use bevy_mouse_tracking_plugin::{MainCamera, MousePos, MousePosWorld};
+use crate::mouse_tracking::{MainCamera, MousePos, MousePosWorld};
 use avian2d::{math::*, prelude::*};
 use derivative::Derivative;
 
@@ -79,15 +79,15 @@ pub fn ui_example(
         *is_initialized = true;
     }
 
-    egui::Window::new("Debug").show(egui_ctx.ctx_mut(), |ui| {
+    egui::Window::new("Debug").show(egui_ctx.ctx_mut().expect("primary egui context"), |ui| {
         ui.collapsing("Mouse", |ui| {
             ui.label(format!("World: {:.2} m", mouse.xy()));
             ui.label(format!("Screen: {:.2} px", mouse_sc.xy()));
         });
         ui.collapsing("Laser", |ui| {
-            ui.monospace(&laser.single().debug);
+            ui.monospace(&laser.single().unwrap().debug);
         });
-        let Ok(tr) = cameras.get_single() else {
+        let Ok(tr) = cameras.single() else {
             // dump all components
 
             panic!("cams found={:#?}", mc.iter().count());
@@ -157,13 +157,13 @@ impl InitialPos {
 #[derive(Component)]
 pub struct TemporaryWindow;
 
-#[derive(Event)]
+#[derive(Message)]
 pub struct ContextMenuEvent {
     pub screen_pos: Vec2,
 }
 
 pub fn handle_context_menu(
-    mut ev: EventReader<ContextMenuEvent>,
+    mut ev: MessageReader<ContextMenuEvent>,
     ui: ResMut<UiState>,
     mut commands: Commands,
     existing: Query<Entity, With<MenuWindow>>
@@ -171,8 +171,8 @@ pub fn handle_context_menu(
     for ev in ev.read() {
         let entity = ui.selected_entity.map(|sel| sel.entity);
         info!("context menu at {:?} for {:?}", ev.screen_pos, entity);
-        if let Ok(existing) = existing.get_single() {
-            commands.entity(existing).despawn_recursive();
+        if let Ok(existing) = existing.single() {
+            commands.entity(existing).despawn();
         }
         let wnd = commands
             .spawn((MenuWindow::default(), InitialPos::initial(ev.screen_pos)))
@@ -238,7 +238,7 @@ impl<'a> Subwindow for egui::Window<'a> {
         contents: impl FnOnce(&mut Ui, &mut Commands),
     ) {
         let mut open = true;
-        let center = ctx.input(|i| i.screen_rect.size()) / 2.0;
+        let center = ctx.input(|i| i.screen_rect().size()) / 2.0;
         let (wnd, begin) = match initial_pos {
             InitialPos::Pos(begin, _) => {
                 (self.pivot(Align2::LEFT_TOP).default_pos(*begin), *begin) // heu... du coup ça marche pas ?
@@ -257,22 +257,22 @@ impl<'a> Subwindow for egui::Window<'a> {
             .map(|resp| { *initial_pos = InitialPos::Pos(begin, resp.response.rect.left_top()); });
         if !open {
             info!("closing window");
-            commands.entity(id).despawn_recursive();
+            commands.entity(id).despawn();
         }
     }
 }
 
-#[derive(Event)]
+#[derive(Message)]
 pub struct RemoveTemporaryWindowsEvent;
 
 fn remove_temporary_windows(
     mut commands: Commands,
-    mut events: EventReader<RemoveTemporaryWindowsEvent>,
+    mut events: MessageReader<RemoveTemporaryWindowsEvent>,
     wnds: Query<Entity, With<TemporaryWindow>>,
 ) {
     for _ in events.read() {
         for id in wnds.iter() {
-            commands.entity(id).despawn_recursive();
+            commands.entity(id).despawn();
         }
     }
 }
@@ -332,7 +332,7 @@ impl FromWorld for UiState {
             mouse_right: None,
             mouse_right_pos: None,
             mouse_button: None,
-            scene: _world.spawn((Scene, SpatialBundle::default())).id(),
+            scene: _world.spawn((Scene, Transform::default())).id(),
         }
     }
 }

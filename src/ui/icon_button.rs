@@ -40,7 +40,7 @@ impl <'a> Widget for IconButton<'a> {
 
         let (rect, response) = ui.allocate_exact_size(full_size, Sense::click());
         assert_eq!(rect.size(), full_size);
-        response.widget_info(|| WidgetInfo::new(WidgetType::ImageButton));
+        response.widget_info(|| WidgetInfo::new(WidgetType::Button));
 
         if ui.is_rect_visible(rect) {
             let real_rect = rect.shrink(full_factor);
@@ -49,18 +49,20 @@ impl <'a> Widget for IconButton<'a> {
             if response.hovered() {
                 ui.painter().rect(
                     real_rect.expand(full_factor),
-                    visuals.rounding,
+                    visuals.corner_radius,
                     visuals.bg_fill,
                     visuals.bg_stroke,
+                    bevy_egui::egui::StrokeKind::Outside,
                 );
             }
             if selected {
                 let selection = ui.visuals().selection;
                 ui.painter().rect(
                     real_rect.expand(1.0),
-                    visuals.rounding,
+                    visuals.corner_radius,
                     selection.bg_fill,
                     selection.stroke,
+                    bevy_egui::egui::StrokeKind::Outside,
                 );
             }
 
