@@ -1,8 +1,6 @@
 use bevy::prelude::*;
-use bevy_prototype_lyon::{
-    entity::Shape,
-    geometry::Geometry,
-};
+use bevy_prototype_lyon::geometry::Geometry;
+pub use bevy_prototype_lyon::entity::Shape;
 use bevy_prototype_lyon::prelude::tess::path::{path::Builder, Path};
 
 pub use bevy_prototype_lyon::prelude::{shapes, FillOptions, RectangleOrigin, ShapePlugin, StrokeOptions};

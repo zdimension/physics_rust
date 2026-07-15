@@ -1,5 +1,5 @@
 use std::ops::Deref;
-use crate::systems;
+use crate::egui_systems;
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts};
 use bevy_egui::egui::color_picker::Alpha;
@@ -12,7 +12,7 @@ use crate::config::AppConfig;
 use crate::skin::SkinConfig;
 use crate::ui::{InitialPos, Subwindow, tabs};
 
-systems!(OptionsWindow::show, update_skin);
+egui_systems!(OptionsWindow::show, update_skin);
 
 #[derive(Default, Component)]
 pub struct OptionsWindow;
@@ -43,7 +43,7 @@ impl OptionsWindow {
     ) {
         let ctx = egui_ctx.ctx_mut().expect("primary egui context");
         let Ok((id, mut initial_pos)) = wnds.single_mut() else { return };
-        // C'EST PARCE QUE LE PIVOT EST AU CENTRE QUE ÇA S'AGRANDIT DU CENTRE ESPÈCE DE DÉBILE
+        // C'EST PARCE QUE LE PIVOT EST AU CENTRE QUE Ã‡A S'AGRANDIT DU CENTRE ESPÃˆCE DE DÃ‰BILE
         egui::Window::new("Options")
             .resizable(false)
             .subwindow(id, ctx, &mut initial_pos, &mut commands, |ui, _| {

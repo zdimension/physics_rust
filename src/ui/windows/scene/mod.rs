@@ -1,5 +1,5 @@
-use crate::systems;
+use crate::egui_systems;
 
-systems! {
+egui_systems! {
     mod background
 }

@@ -5,7 +5,7 @@ use crate::ui::{RemoveTemporaryWindowsEvent, UiState};
 use bevy::prelude::{MessageWriter, Res, ResMut};
 use bevy_egui::egui::{Align2, Frame, Margin};
 use bevy_egui::{egui, EguiContexts};
-use crate::systems;
+use crate::egui_systems;
 
 pub fn draw_toolbox(
     mut egui_ctx: EguiContexts,
@@ -57,4 +57,4 @@ pub fn draw_toolbox(
         });
 }
 
-systems!(draw_toolbox);
+egui_systems!(draw_toolbox);

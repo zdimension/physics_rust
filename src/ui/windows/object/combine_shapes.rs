@@ -1,7 +1,7 @@
 use bevy::prelude::Component;
-use crate::systems;
+use crate::egui_systems;
 
 #[derive(Default, Component)]
 pub struct CombineShapesWindow;
 
-systems!();
+egui_systems!();

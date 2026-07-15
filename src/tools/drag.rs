@@ -44,7 +44,7 @@ pub fn init_drag(mut commands: Commands) {
 pub fn process_drag(
     mut events: MessageReader<DragEvent>,
     mut drag_data: Query<&mut CustomForce, With<DragObject>>,
-    mut drag_ent: Query<(&GlobalTransform, &Position, &LinearVelocity, Forces), Without<MainCamera>>,
+    mut drag_ent: Query<(&GlobalTransform, Forces), Without<MainCamera>>,
     mut commands: Commands,
     mut gizmos: Gizmos,
     config: Res<DragConfig>,
@@ -53,9 +53,9 @@ pub fn process_drag(
     let cam_scale = cameras.single().unwrap().scale.x;
     for ev in events.read() {
         let Ok(mut drag_data) = drag_data.get_mut(ev.state.drag_entity) else { return };
-        let (xform, pos, vel, mut forces) = drag_ent.get_mut(ev.state.entity).unwrap();
+        let (xform, mut forces) = drag_ent.get_mut(ev.state.entity).unwrap();
         let actual_pos = xform.to_global(ev.state.orig_obj_pos);
-        let force = (ev.mouse_pos - actual_pos) * config.strength * cam_scale - vel.0 * 20.0;
+        let force = (ev.mouse_pos - actual_pos) * config.strength * cam_scale - forces.linear_velocity() * 20.0;
         info!("drag force: {:?}", force);
         forces.apply_force_at_point(force, ev.mouse_pos);
         gizmos.line(ev.mouse_pos.extend(FOREGROUND_Z), actual_pos.extend(FOREGROUND_Z), Color::WHITE);

@@ -13,7 +13,7 @@ use derivative::Derivative;
 use crate::objects::laser::LaserRays;
 use crate::palette::{PaletteConfig, PaletteList};
 use crate::tools::ToolEnum;
-use crate::{demo, systems, UsedMouseButton};
+use crate::{demo, egui_systems, UsedMouseButton};
 
 use self::windows::menu::MenuWindow;
 
@@ -27,7 +27,7 @@ mod text_button;
 mod tabs;
 mod custom_widget;
 
-systems! {
+egui_systems! {
     mod windows,
     ui_example,
     process_temporary_windows,
@@ -241,7 +241,7 @@ impl<'a> Subwindow for egui::Window<'a> {
         let center = ctx.input(|i| i.screen_rect().size()) / 2.0;
         let (wnd, begin) = match initial_pos {
             InitialPos::Pos(begin, _) => {
-                (self.pivot(Align2::LEFT_TOP).default_pos(*begin), *begin) // heu... du coup ça marche pas ?
+                (self.pivot(Align2::LEFT_TOP).default_pos(*begin), *begin) // heu... du coup Ã§a marche pas ?
             },
             InitialPos::ScreenCenter => {
                 /*let input = ctx.input(|i| i.screen_rect);*/

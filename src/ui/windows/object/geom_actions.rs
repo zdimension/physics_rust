@@ -4,9 +4,9 @@ use crate::ui::{InitialPos, Subwindow};
 use bevy::prelude::{info, Commands, Component, Entity, MessageWriter, ChildOf, Query, Res, With};
 use bevy_egui::{egui, EguiContexts};
 use bevy_egui::egui::load::SizedTexture;
-use crate::systems;
+use crate::egui_systems;
 
-systems!(GeometryActionsWindow::show);
+egui_systems!(GeometryActionsWindow::show);
 
 #[derive(Default, Component)]
 pub struct GeometryActionsWindow;

@@ -1,7 +1,7 @@
 use bevy::prelude::Component;
-use crate::systems;
+use crate::egui_systems;
 
 #[derive(Default, Component)]
 pub struct SelectionWindow;
 
-systems!();
+egui_systems!();

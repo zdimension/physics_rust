@@ -7,9 +7,9 @@ use bevy_egui::{egui, EguiContexts};
 use avian2d::{math::*, prelude::*};
 use avian2d::{math::*, prelude::*};
 use avian2d::{math::*, prelude::*};
-use crate::systems;
+use crate::egui_systems;
 
-systems!(InformationWindow::show);
+egui_systems!(InformationWindow::show);
 
 #[derive(Default, Component)]
 pub struct InformationWindow;
@@ -50,7 +50,7 @@ impl InformationWindow {
                             line(
                                 ui,
                                 "Moment of inertia",
-                                format!("{:.3} kgm²", cmp.angular_inertia),
+                                format!("{:.3} kgmÂ²", cmp.angular_inertia),
                             );
                         }
 

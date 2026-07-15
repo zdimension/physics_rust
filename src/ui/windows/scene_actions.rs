@@ -1,5 +1,5 @@
 use crate::palette::{PaletteConfig, PaletteList};
-use crate::{ systems};
+use crate::{ egui_systems};
 use bevy::prelude::*;
 use bevy_egui::egui::Align2;
 use bevy_egui::{egui, EguiContexts};
@@ -8,7 +8,7 @@ use crate::ui::icon_button::IconButton;
 use crate::ui::images::GuiIcons;
 use crate::ui::{InitialPos, Subwindow, UiState};
 
-systems!(draw_scene_actions, NewSceneWindow::show);
+egui_systems!(draw_scene_actions, NewSceneWindow::show);
 
 pub fn draw_scene_actions(
     mut egui_ctx: EguiContexts,

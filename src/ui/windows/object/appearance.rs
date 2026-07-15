@@ -2,9 +2,9 @@ use crate::objects::ColorComponent;
 use crate::ui::{InitialPos, Subwindow};
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts};
-use crate::systems;
+use crate::egui_systems;
 
-systems!(AppearanceWindow::show);
+egui_systems!(AppearanceWindow::show);
 
 #[derive(Default, Component)]
 pub struct AppearanceWindow;

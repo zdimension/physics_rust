@@ -14,9 +14,9 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::{Debug, Display, Formatter};
 use std::hash::{Hash, Hasher};
 use bevy::ecs::query::{QueryData, WorldQuery};
-use crate::systems;
+use crate::egui_systems;
 
-systems!(PlotWindow::show);
+egui_systems!(PlotWindow::show);
 
 #[derive(Component)]
 pub struct PlotWindow {
@@ -220,7 +220,7 @@ impl PlotWindow {
                                 }
 
                                 let integ = values.windows(2).take(idx).map(|w| (w[0].y + w[1].y) * (w[1].x - w[0].x) / 2.0).sum::<f64>();
-                                base += &format!("\n∫dt = {:.2}", integ);
+                                base += &format!("\nâˆ«dt = {:.2}", integ);
                             }
                             base
                         } else {

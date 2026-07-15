@@ -1,4 +1,4 @@
-use crate::{hsva_to_rgba, systems};
+use crate::{hsva_to_rgba, egui_systems};
 use crate::objects::ColorComponent;
 use crate::palette::PaletteConfig;
 use crate::ui::{InitialPos, Subwindow};
@@ -6,7 +6,7 @@ use bevy::prelude::*;
 use bevy_egui::egui::ecolor::Hsva;
 use bevy_egui::{egui, EguiContexts};
 
-systems!(BackgroundWindow::show);
+egui_systems!(BackgroundWindow::show);
 
 #[derive(Default, Component)]
 pub struct BackgroundWindow;

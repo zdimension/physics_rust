@@ -50,13 +50,19 @@ impl Display for MousePosWorld {
     }
 }
 
+#[derive(Component, Default)]
+struct CameraMousePos(Vec2);
+
+#[derive(Component, Default)]
+struct CameraMousePosWorld(Vec3);
+
 pub struct InitMouseTracking;
 
 impl EntityCommand for InitMouseTracking {
     type Out = ();
 
     fn apply(self, mut entity: EntityWorldMut) -> Self::Out {
-        entity.insert(MousePos::default());
+        entity.insert(CameraMousePos::default());
     }
 }
 
@@ -66,7 +72,7 @@ impl EntityCommand for InitWorldTracking {
     type Out = ();
 
     fn apply(self, mut entity: EntityWorldMut) -> Self::Out {
-        entity.insert((MousePos::default(), MousePosWorld::default()));
+        entity.insert((CameraMousePos::default(), CameraMousePosWorld::default()));
     }
 }
 
@@ -75,14 +81,15 @@ pub struct MainCamera;
 
 fn update_mouse_positions(
     windows: Query<&Window, With<PrimaryWindow>>,
-    mut screen_res: ResMut<MousePos>,
-    mut world_res: ResMut<MousePosWorld>,
-    mut cameras: Query<(
-        &Camera,
-        &GlobalTransform,
-        &mut MousePos,
-        Option<&mut MousePosWorld>,
-        Option<&MainCamera>,
+    mut mouse_positions: ParamSet<(
+        (ResMut<MousePos>, ResMut<MousePosWorld>),
+        Query<(
+            &Camera,
+            &GlobalTransform,
+            &mut CameraMousePos,
+            Option<&mut CameraMousePosWorld>,
+            Option<&MainCamera>,
+        )>,
     )>,
 ) {
     let Some(cursor_pos) = windows.iter().next().and_then(Window::cursor_position) else {
@@ -92,7 +99,7 @@ fn update_mouse_positions(
     let mut main_screen = None;
     let mut main_world = None;
 
-    for (camera, transform, mut screen, world, main) in cameras.iter_mut() {
+    for (camera, transform, mut screen, world, main) in mouse_positions.p1().iter_mut() {
         screen.0 = cursor_pos;
         let world_pos = camera
             .viewport_to_world_2d(transform, cursor_pos)
@@ -109,6 +116,7 @@ fn update_mouse_positions(
         }
     }
 
+    let (mut screen_res, mut world_res) = mouse_positions.p0();
     if let Some(pos) = main_screen {
         screen_res.0 = pos;
     }

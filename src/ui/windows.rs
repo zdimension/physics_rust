@@ -1,6 +1,6 @@
-use crate::systems;
+use crate::egui_systems;
 
-systems! {
+egui_systems! {
     mod menu,
     mod object,
     mod scene,

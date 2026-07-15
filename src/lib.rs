@@ -8,7 +8,7 @@ use bevy_diagnostic::FrameTimeDiagnosticsPlugin;
 use bevy_egui::egui::epaint::{Hsva, Shadow};
 use bevy_egui::egui::style::Widgets;
 use bevy_egui::egui::{Color32, emath, Rounding, Slider, Ui};
-use bevy_egui::{egui::{self}, EguiContextSettings, EguiContexts, EguiPlugin};
+use bevy_egui::{egui::{self}, EguiContextSettings, EguiContexts, EguiPlugin, EguiStartupSet};
 use crate::mouse_tracking::{prelude::*, MainCamera};
 use crate::lyon_compat::*;
 use avian2d::{math::*, prelude::*};
@@ -229,10 +229,13 @@ pub fn app_main() {
         .add_message::<ContextMenuEvent>()
         .add_message::<RemoveTemporaryWindowsEvent>()
         .add_systems(
+            PreStartup,
+            setup_graphics.before(EguiStartupSet::InitContexts),
+        )
+        .add_systems(
             Startup,
             (
                 configure_visuals,
-                setup_graphics,
                 (setup_physics, setup_rng),
                 drag::init_drag
             )
@@ -291,7 +294,10 @@ pub fn app_main() {
             .after(cursor::check_egui_wants_focus),
     )
     .add_systems(Update, update_draw_modes)
-    .add_systems(Update, lyon_compat::sync_draw_components.after(update_draw_modes))
+    .add_systems(
+        PostUpdate,
+        lyon_compat::sync_draw_components.before(bevy_prototype_lyon::plugin::BuildShapes),
+    )
     .add_systems(Update, laser::draw_lasers)
     .add_systems(Update, update_xpbd_pipeline)
     .add_systems(Update, apply_custom_forces);
@@ -399,7 +405,14 @@ fn setup_graphics(mut commands: Commands) {
     // Add a camera so we can see the debug-render.
     // note: camera's scale means meters per pixel
     commands
-        .spawn((Camera2d, MainCamera))
+        .spawn((
+            Camera2d,
+            MainCamera,
+            Projection::Orthographic(OrthographicProjection {
+                far: CAMERA_FAR,
+                ..OrthographicProjection::default_2d()
+            }),
+        ))
         .insert(
             Transform::default()
                 .with_translation(Vec3::new(0.0, 0.0, CAMERA_FAR - 0.1))
@@ -501,9 +514,9 @@ impl From<UsedMouseButton> for MouseButton {
     }
 }
 
-fn configure_visuals(mut egui_ctx: EguiContexts) {
+fn configure_visuals(mut egui_ctx: EguiContexts) -> Result {
     //egui_set.sampler_descriptor = ImageSampler::linear();
-    let ctx = egui_ctx.ctx_mut().expect("primary egui context");
+    let ctx = egui_ctx.ctx_mut()?;
     let mut visuals = egui::Visuals {
         window_corner_radius: Rounding::same(3),
         /*window_shadow: Shadow {
@@ -528,6 +541,7 @@ fn configure_visuals(mut egui_ctx: EguiContexts) {
     let mut style: egui::Style = (*ctx.style()).clone();
     style.spacing.slider_width = 260.0;
     ctx.set_style(style);
+    Ok(())
 }
 
 fn update_from_palette(palette: Res<PaletteConfig>, mut clear_color: ResMut<ClearColor>) {
@@ -566,6 +580,35 @@ macro_rules! systems {
     };
 }
 
+#[macro_export]
+macro_rules! egui_systems {
+    (@ [$($($p:path),+$(,)*)?] [$($f:ident),*$(,)*] [$($e:ident),*$(,)*] $(,)?) => {
+        $(pub mod $f;)*
+
+        pub fn add_systems(#[allow(unused_variables)] app: &mut bevy::prelude::App) {
+            $($f::add_systems(app);)*
+
+            $(app.add_systems(bevy_egui::EguiPrimaryContextPass, ($($p),*));)?
+
+            $(app.add_message::<$e>();)*
+        }
+    };
+    (@ [$($p:tt)*] [$($f:tt)*] [$($e:tt)*] event $system:ident $(, $($x:tt)*)?) => {
+        egui_systems!(@ [$($p)*] [$($f)*] [$system, $($e:tt)*] $($($x)*)?);
+    };
+    (@ [$($p:tt)*] [$($f:tt)*] [$($e:tt)*] mod $system:ident $(, $($x:tt)*)?) => {
+        egui_systems!(@ [$($p)*] [$system, $($f)*] [$($e:tt)*] $($($x)*)?);
+    };
+    (@ [$($p:tt)*] [$($f:tt)*] [$($e:tt)*] $first:ident $(:: $next:ident)* $(, $($x:tt)*)?) => {
+        egui_systems!(@ [$first $(:: $next)*, $($p)*] [$($f)*] [$($e:tt)*] $($($x)*)?);
+    };
+    (@ $($x:tt)*) => {
+        compile_error!(stringify!($($x)*));
+    };
+    ($($x:tt)*) => {
+        egui_systems!(@ [] [] [] $($x)*);
+    };
+}
 #[derive(Component, Default)]
 pub struct CustomForce(Vec2);
 

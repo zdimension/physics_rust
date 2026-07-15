@@ -1,5 +1,5 @@
 use bevy::prelude::{Commands, Entity, Query, Res, With};
-use crate::{systems};
+use crate::{egui_systems};
 
 use bevy_egui::egui::Align2;
 use bevy_egui::{egui, EguiContexts};
@@ -12,7 +12,7 @@ use crate::ui::separator_custom::SeparatorCustom;
 use crate::ui::text_button::TextButton;
 use crate::ui::windows::options::OptionsWindow;
 
-systems!(draw_menubar);
+egui_systems!(draw_menubar);
 
 pub fn draw_menubar(
     mut egui_ctx: EguiContexts,

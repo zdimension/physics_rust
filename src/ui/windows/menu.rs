@@ -2,7 +2,7 @@ use crate::objects::laser::LaserBundle;
 use crate::objects::{ColorComponent, MotorComponent};
 use crate::ui::images::GuiIcons;
 use crate::ui::{InitialPos, Subwindow, TemporaryWindow};
-use crate::{CAMERA_Z,  systems};
+use crate::{CAMERA_Z,  egui_systems};
 use bevy::prelude::ChildOf;
 use bevy::prelude::*;
 use bevy_egui::egui::{pos2, Separator};
@@ -33,7 +33,7 @@ use crate::ui::windows::scene::background::BackgroundWindow;
 use crate::ui::menu_item::MenuItem;
 use crate::ui::windows::object::hinge::HingeWindow;
 
-systems! {
+egui_systems! {
     MenuWindow::show,
     handle_zoom_to_scene,
     event ZoomToScene

@@ -45,7 +45,7 @@ impl Debug for LaserRay {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "{:2} ({:2}): {{ {:.3}, {:.1}°, L={:.1}m, {:.1}%, w: {:.1}m, n: {:?}, {:?}, S: {:.1}°, E: {:.1}° }}",
+            "{:2} ({:2}): {{ {:.3}, {:.1}Â°, L={:.1}m, {:.1}%, w: {:.1}m, n: {:?}, {:?}, S: {:.1}Â°, E: {:.1}Â° }}",
             self.num, self.source, self.start, self.angle.to_degrees(), self.length, self.strength * 100.0, self.width, self.refractive_index, self.kind,
             self.start_angle.to_degrees(), self.end_angle.to_degrees()
         )
@@ -330,11 +330,39 @@ const LASER_WIDTH: f32 = 0.2;
 
 pub fn draw_lasers(
     lasers: Query<(&Transform, &GlobalTransform, &LaserBundle, &ColorComponent, &Rotation)>,
+    changed_lasers: Query<
+        Entity,
+        Or<(
+            Added<LaserBundle>,
+            Changed<Transform>,
+            Changed<GlobalTransform>,
+            Changed<ColorComponent>,
+            Changed<Rotation>,
+        )>,
+    >,
+    changed_colliders: Query<
+        Entity,
+        (
+            With<Collider>,
+            Or<(
+                Added<Collider>,
+                Changed<Transform>,
+                Changed<GlobalTransform>,
+                Changed<RefractiveIndex>,
+                Changed<ColorComponent>,
+                Changed<Rotation>,
+            )>,
+        ),
+    >,
     refr: Query<(&RefractiveIndex, &ColorComponent), Without<LaserBundle>>,
     mut rays: Query<(Entity, &mut LaserRays)>,
     mut commands: Commands,
     spatial_query: SpatialQuery,
 ) {
+    if changed_lasers.is_empty() && changed_colliders.is_empty() {
+        return;
+    }
+
     let (rays, mut rays_obj) = rays.single_mut().unwrap();
     commands.entity(rays).despawn_children();
 

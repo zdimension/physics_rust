@@ -7,7 +7,7 @@ use bevy::prelude::{MessageWriter, Local, Res, ResMut, Time};
 use bevy_egui::egui::Align2;
 use bevy_egui::{egui, EguiContexts};
 use avian2d::{math::*, prelude::*};
-use crate::{systems, update_changed};
+use crate::{egui_systems, update_changed};
 use crate::ui::separator_custom::SeparatorCustom;
 
 pub fn draw_bottom_toolbar(
@@ -82,4 +82,4 @@ pub fn draw_bottom_toolbar(
         });
 }
 
-systems!(draw_bottom_toolbar);
+egui_systems!(draw_bottom_toolbar);

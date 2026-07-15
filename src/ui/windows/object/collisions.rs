@@ -5,9 +5,9 @@ use bevy::prelude::{Commands, Component, Entity, Query, Res, With};
 use bevy_egui::{egui, EguiContexts};
 use egui::load::SizedTexture;
 use avian2d::{math::*, prelude::*};
-use crate::systems;
+use crate::egui_systems;
 
-systems!(CollisionsWindow::show);
+egui_systems!(CollisionsWindow::show);
 
 #[derive(Default, Component)]
 pub struct CollisionsWindow;
