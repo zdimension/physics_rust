@@ -171,11 +171,11 @@ pub fn left_pressed(
     let pos = mouse_pos.xy();
 
     let ui_state = &mut *ui_state; // https://bevy-cheatbook.github.io/pitfalls/split-borrows.html
-    let left_tool_if_right = match ui_state.mouse_right {
+    let left_tool_if_right = match ui_state.mouse_right_pos {
         Some(_) => Pan(None),
         None => ui_state.toolbox_selected,
     };
-    let right_tool_if_left = match ui_state.mouse_left {
+    let right_tool_if_left = match ui_state.mouse_left_pos {
         Some(_) => Pan(None),
         None => Rotate(None),
     };

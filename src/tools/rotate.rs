@@ -1,5 +1,4 @@
-use crate::ToRot;
-use bevy::math::{Quat, Vec2, Vec3Swizzles};
+use bevy::math::{Quat, Vec2};
 use bevy::prelude::{Entity, Message, MessageReader, Query, Transform};
 use avian2d::prelude::{Position, Rotation};
 
@@ -12,7 +11,10 @@ pub struct RotateEvent {
     pub scale: f32,
 }
 
-pub fn process_rotate(mut events: MessageReader<RotateEvent>, mut query: Query<(&Position, &mut Rotation)>) {
+pub fn process_rotate(
+    mut events: MessageReader<RotateEvent>,
+    mut query: Query<(&Position, &mut Rotation, &mut Transform)>,
+) {
     for RotateEvent {
         entity,
         orig_obj_rot,
@@ -21,7 +23,9 @@ pub fn process_rotate(mut events: MessageReader<RotateEvent>, mut query: Query<(
         scale,
     } in events.read().copied()
     {
-        let Ok((position, mut transform)) = query.get_mut(entity) else { continue };
+        let Ok((position, mut rotation, mut transform)) = query.get_mut(entity) else {
+            continue;
+        };
         let start = click_pos - position.0;
         let current = mouse_pos - position.0;
         let mut angle = orig_obj_rot + start.perp_dot(current).atan2(start.dot(current));
@@ -30,7 +34,8 @@ pub fn process_rotate(mut events: MessageReader<RotateEvent>, mut query: Query<(
             let rounded = count.round();
             angle = rounded * ROTATE_HELPER_ROUND_TO;
         }
-        *transform = Rotation::from_radians(angle);
+        *rotation = Rotation::radians(angle);
+        transform.rotation = Quat::from_rotation_z(angle);
     }
 }
 
