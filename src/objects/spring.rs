@@ -12,7 +12,7 @@ use crate::ui::{EntitySelection, UiState};
 use crate::update_from::UpdateFrom;
 use crate::{make_stroke, InvTransformPoint, BORDER_THICKNESS};
 
-const DEFAULT_SPRING_CONSTANT: f32 = 100.0;
+const DEFAULT_SPRING_CONSTANT_PER_KG: f32 = 100.0;
 const DEFAULT_DAMPING: f32 = 0.2;
 const SPRING_UNIT_SCREEN_PX: f32 = 32.0;
 const MIN_SPRING_UNITS: usize = 1;
@@ -107,7 +107,7 @@ impl SpringObject {
             end_a,
             end_b,
             target_length: current_length.max(0.01),
-            spring_constant: DEFAULT_SPRING_CONSTANT,
+            spring_constant: 100.0, // will be erased anyway
             damping: DEFAULT_DAMPING,
             unit_size,
             unit_count: unit_count_for(current_length, unit_size),
@@ -327,6 +327,7 @@ fn finish_springs(
     spatial_query: SpatialQuery,
     bodies: Query<(&GlobalTransform, Option<&RigidBody>)>,
     body_positions: Query<(&Position, &Rotation)>,
+    body_masses: Query<&ColliderMassProperties>,
     mut springs: Query<&mut SpringObject, With<SpringPreview>>,
     mut commands: Commands,
 ) {
@@ -360,6 +361,9 @@ fn finish_springs(
         };
         let length = a.distance(b);
         spring.target_length = length.max(0.01);
+        spring.spring_constant =
+            default_spring_constant_for_ends(spring.end_a, spring.end_b, &body_masses)
+                .expect("should not happen");
         spring.unit_count = unit_count_for(length, spring.unit_size);
         commands
             .entity(event.state.preview)
@@ -638,6 +642,31 @@ fn critical_damping(k: f32, mass_a: f32, mass_b: f32) -> f32 {
         0.0
     } else {
         2.0 * (k * effective_mass).sqrt()
+    }
+}
+
+fn default_spring_constant_for_ends(
+    end_a: SpringEnd,
+    end_b: SpringEnd,
+    masses: &Query<&ColliderMassProperties>,
+) -> Option<f32> {
+    let mass_a = end_mass(end_a, masses);
+    let mass_b = end_mass(end_b, masses);
+    match (mass_a, mass_b) {
+        (Some(a), Some(b)) => {
+            // todo: this is just effective mass
+            Some(DEFAULT_SPRING_CONSTANT_PER_KG * a * b / (a + b))
+        },
+        (Some(x), None) | (None, Some(x)) => Some(DEFAULT_SPRING_CONSTANT_PER_KG * x),
+        _ => None,
+    }
+}
+
+fn end_mass(end: SpringEnd, masses: &Query<&ColliderMassProperties>) -> Option<f32> {
+    if let SpringEnd::Body { entity, .. } = end {
+        masses.get(entity).ok().map(|mass| mass.mass)
+    } else {
+        None
     }
 }
 

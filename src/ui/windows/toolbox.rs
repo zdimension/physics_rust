@@ -59,7 +59,7 @@ pub fn draw_toolbox(
         }).expect("Toolbox must be visible");
         
     egui::Window::new("Tool settings")
-        .anchor(Align2::LEFT_BOTTOM, [toolbox.response.rect.width(), -1.0])
+        .anchor(Align2::LEFT_BOTTOM, [toolbox.response.rect.width() + 2.0, -1.0])
         .title_bar(false)
         .resizable(false)
         .default_size(egui::Vec2::ZERO)
