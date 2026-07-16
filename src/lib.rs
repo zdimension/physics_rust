@@ -261,7 +261,6 @@ pub fn app_main() {
             (update_from_palette, tools::premultiply_egui_image_alpha),
         );
     ui::add_systems(&mut app);
-    measures::add_systems(&mut app);
     app.add_systems(
         PreUpdate,
         wheel::smooth_zoom

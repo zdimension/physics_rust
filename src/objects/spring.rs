@@ -113,6 +113,16 @@ impl SpringObject {
             unit_count: unit_count_for(current_length, unit_size),
         }
     }
+
+    pub fn potential_energy_for_length(&self, length: f32) -> f32 {
+        let stretch = length - self.target_length;
+        0.5 * self.spring_constant.max(0.0) * stretch * stretch
+    }
+
+    pub fn potential_energy(&self, bodies: &Query<(&Position, &Rotation)>) -> Option<f32> {
+        let (point_a, point_b) = self.world_points(bodies)?;
+        Some(self.potential_energy_for_length(point_a.distance(point_b)))
+    }
 }
 
 impl SpringEnd {

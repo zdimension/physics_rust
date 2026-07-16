@@ -1,4 +1,5 @@
-use crate::measures::{GravityEnergy, KineticEnergy, Momentum};
+use crate::measures::{GravityData, GravityEnergy, KineticData, KineticEnergy, Momentum};
+use crate::objects::spring::SpringObject;
 use crate::ui::images::GuiIcons;
 use crate::ui::{InitialPos, Subwindow};
 use bevy::prelude::ChildOf;
@@ -20,6 +21,7 @@ egui_systems!(PlotWindow::show);
 
 #[derive(Component)]
 pub struct PlotWindow {
+    quantities: Vec<(&'static [PlotQuantity], Vec<&'static PlotQuantity>)>,
     series: HashMap<PlotSeriesId, PlotSeries>,
     category_x: &'static [PlotQuantity],
     measures_x: HashSet<&'static PlotQuantity>,
@@ -95,14 +97,14 @@ impl PlotSeries {
 );*/
 #[derive(QueryData)]
 pub(crate) struct PlotQuery {
-    transform: &'static Transform,
-    linear_velocity: &'static LinearVelocity,
-    angular_velocity: &'static AngularVelocity,
-    kinetic_energy: &'static KineticEnergy,
-    //gravity_energy: &'static GravityEnergy,
-    momentum: &'static Momentum,
+    position: Option<&'static Position>,
+    lin_velocity: Option<&'static LinearVelocity>,
+    ang_velocity: Option<&'static AngularVelocity>,
+    kin_data: Option<KineticData>,
+    grav_data: Option<GravityData>,
+    spring: Option<&'static SpringObject>,
 }
-type QuantityFn = fn(f32, &PlotQueryItem) -> f32;
+type QuantityFn = fn(f32, &PlotQueryItem, &Query<(&Position, &Rotation)>) -> Option<f32>;
 
 struct PlotQuantity {
     name: &'static str,
@@ -121,38 +123,74 @@ const fn quantity(name: &'static str, measure: QuantityFn) -> PlotQuantity {
     PlotQuantity { name, measure }
 }
 
+fn sum_if_any(items: &[Option<f32>]) -> Option<f32> {
+    let mut sum = 0.0;
+    let mut any = false;
+    for item in items {
+        if let Some(value) = item {
+            sum += value;
+            any = true;
+        }
+    }
+    if any {
+        Some(sum)
+    } else {
+        None
+    }
+}
+
 static PLOT_QUANTITIES: &[&[PlotQuantity]] = &[
-    &[quantity("Time", |time, _| time)],
+    &[quantity("Time", |time, _, _| Some(time))],
     &[
-        quantity("Position (x)", |_, query| query.transform.translation.x),
-        quantity("Position (y)", |_, query| query.transform.translation.y),
+        quantity("Position (x)", |_, query, _| Some(query.position?.x)),
+        quantity("Position (y)", |_, query, _| Some(query.position?.y)),
     ],
     &[
-        quantity("Speed", |_, query| query.linear_velocity.0.length()),
-        quantity("Velocity (x)", |_, query| query.linear_velocity.0.x),
-        quantity("Velocity (y)", |_, query| query.linear_velocity.0.y),
+        quantity("Speed", |_, query, _| Some(query.lin_velocity?.0.length())),
+        quantity("Velocity (x)", |_, query, _| Some(query.lin_velocity?.0.x)),
+        quantity("Velocity (y)", |_, query, _| Some(query.lin_velocity?.0.y)),
     ],
-    &[quantity("Angular velocity", |_, query| query.angular_velocity.0)],
+    &[
+        quantity("Angular velocity", |_, query, _| query.ang_velocity.map(|ang| ang.0)),
+    ],
     // todo: acceleration
     // todo: force
     &[
-        quantity("Momentum (x)", |_, query| query.momentum.linear.x),
-        quantity("Momentum (y)", |_, query| query.momentum.linear.y),
+        quantity("Momentum (x)", |_, query, _| Some(query.kin_data.as_ref()?.momentum().linear.x)),
+        quantity("Momentum (y)", |_, query, _| Some(query.kin_data.as_ref()?.momentum().linear.y)),
     ],
-    &[quantity("Angular momentum", |_, query| query.momentum.angular)],
+    &[quantity("Angular momentum", |_, query, _| Some(query.kin_data.as_ref()?.momentum().angular))],
     &[
-        quantity("Linear kinetic energy", |_, query| query.kinetic_energy.linear),
-        quantity("Angular kinetic energy", |_, query| query.kinetic_energy.angular),
-        quantity("Kinetic energy (sum)", |_, query| query.kinetic_energy.total()),
-        /*quantity("Potential gravitational energy", |_, query| query.gravity_energy.energy),
-        quantity("Potential energy (sum)", |_, query| query.gravity_energy.energy),
-        quantity("Energy (sum)", |_, query| query.kinetic_energy.total() + query.gravity_energy.energy),*/
+        quantity("Linear kinetic energy", |_, query, _| Some(query.kin_data.as_ref()?.kinetic_energy().linear)),
+        quantity("Angular kinetic energy", |_, query, _| Some(query.kin_data.as_ref()?.kinetic_energy().angular)),
+        quantity("Kinetic energy (sum)", |_, query, _| Some(query.kin_data.as_ref()?.kinetic_energy().total())),
+        quantity("Potential gravitational energy", |_, query, _| Some(query.grav_data.as_ref()?.gravity_energy().energy)),
+        quantity("Potential spring energy", |_, query, bodies| query.spring?.potential_energy(bodies)),
+        quantity("Potential energy (sum)", |_, query, bodies| {
+            let grav = query.grav_data.as_ref().map(|g| g.gravity_energy().energy);
+            let spring = query.spring.and_then(|spring| spring.potential_energy(bodies));
+            sum_if_any(&[grav, spring])
+        }),
+        quantity("Energy (sum)", |_, query, bodies| {
+            // sum all energies
+            // (if no energy *are present* (different from "sum energy is zero"!), return None)
+            let kin = query.kin_data.as_ref().map(|k| k.kinetic_energy().total());
+            let grav = query.grav_data.as_ref().map(|g| g.gravity_energy().energy);
+            let spring = query.spring.and_then(|spring| spring.potential_energy(bodies));
+            sum_if_any(&[kin, grav, spring])
+        })
     ],
 ];
+
+/*static PLOT_QUANTITIES_2: () = &[
+    &[("Time", |time, _| time)],
+    |query| query.transform
+]*/
 
 impl Default for PlotWindow {
     fn default() -> Self {
         Self {
+            quantities: vec![],
             series: HashMap::from([(
                 PlotSeriesId::new(&PLOT_QUANTITIES[0][0], &PLOT_QUANTITIES[2][0]),
                 PlotSeries::new(),
@@ -184,6 +222,7 @@ impl PlotWindow {
     pub(crate) fn show(
         mut wnds: Query<(Entity, &ChildOf, &mut InitialPos, &mut PlotWindow)>,
         ents: Query<PlotQuery>,
+        body_positions: Query<(&Position, &Rotation)>,
         mut egui_ctx: EguiContexts,
         mut commands: Commands,
         time: Res<Time>,
@@ -192,12 +231,25 @@ impl PlotWindow {
     ) {
         let ctx = egui_ctx.ctx_mut().expect("primary egui context");
         for (id, parent, mut initial_pos, mut plot) in wnds.iter_mut() {
+            let ent = ents.get(parent.parent()).unwrap();
+            if plot.quantities.is_empty() {
+                plot.quantities = PLOT_QUANTITIES.iter().filter_map(|&group| {
+                    let measures = group.iter().filter(|measure| {
+                        (measure.measure)(plot.time, &ent, &body_positions).is_some()
+                    }).collect::<Vec<_>>();
+                    if !measures.is_empty() {
+                        Some((group, measures))
+                    } else {
+                        None
+                    }
+                }).collect();
+            }
+
             if !physics.is_paused() {
-                let data = ents.get(parent.parent()).unwrap();
                 let cur_time = plot.time;
                 for (name, series) in plot.series.iter_mut() {
-                    let x = (name.x.measure)(cur_time, &data);
-                    let y = (name.y.measure)(cur_time, &data);
+                    let Some(x) = (name.x.measure)(cur_time, &ent, &body_positions) else { continue };
+                    let Some(y) = (name.y.measure)(cur_time, &ent, &body_positions) else { continue };
                     series.values.push(PlotPoint::new(x, y));
                 }
                 plot.time += time.delta_secs();
@@ -235,19 +287,20 @@ impl PlotWindow {
                             }
                         }
 
+                        let quants = plot.quantities.clone();
                         macro_rules! axis {
                             ($name:literal, $sym:ident, $other:ident) => {
                                 paste! {
                                     ui.menu_button(format!("{}-axis: {}", $name, plot.[<measures_ $sym>].iter().map(|m| m.name).sorted().join(", ")), |ui| {
-                                        for (i, &group) in PLOT_QUANTITIES.iter().enumerate() {
+                                        for (i, (group, measures)) in quants.iter().enumerate() {
                                             if i > 0 {
                                                 ui.separator();
                                             }
-                                            for [<$sym _measure>] in group {
-                                                let mut existing = plot.[<measures_ $sym>].contains(&[<$sym _measure>]);
+                                            for [<$sym _measure>] in measures {
+                                                let mut existing = plot.[<measures_ $sym>].contains([<$sym _measure>]);
                                                 if ui.checkbox(&mut existing, [<$sym _measure>].name).changed() {
                                                     if existing {
-                                                        if !std::ptr::eq(group, plot.[<category_ $sym>]) {
+                                                        if !std::ptr::eq(*group, plot.[<category_ $sym>]) {
                                                             plot.[<category_ $sym>] = group;
                                                             plot.[<measures_ $sym>].clear();
                                                             plot.series.clear();
@@ -259,7 +312,7 @@ impl PlotWindow {
                                                         plot.[<measures_ $sym>].insert([<$sym _measure>]);
                                                     } else {
                                                         plot.series.retain(|id, _| id.$sym != [<$sym _measure>]);
-                                                        plot.[<measures_ $sym>].remove(&[<$sym _measure>]);
+                                                        plot.[<measures_ $sym>].remove([<$sym _measure>]);
                                                     }
                                                 }
                                             }

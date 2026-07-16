@@ -1,4 +1,5 @@
-use crate::measures::{GravityEnergy, KineticEnergy};
+use crate::measures::{self, GravityData, GravityEnergy, KineticData, KineticEnergy};
+use crate::objects::spring::SpringObject;
 use crate::ui::{InitialPos, Subwindow};
 use bevy::prelude::ChildOf;
 use bevy::prelude::{Commands, Component, Entity, GlobalTransform, Query, Res, Transform, With};
@@ -19,19 +20,21 @@ impl InformationWindow {
         mut wnds: Query<(Entity, &ChildOf, &mut InitialPos), With<InformationWindow>>,
         ents: Query<(
             Option<&Position>,
-            Option<&GravityEnergy>,
+            Option<&ColliderMassProperties>,
             Option<&LinearVelocity>,
             Option<&AngularVelocity>,
-            Option<&ColliderMassProperties>,
-            Option<&KineticEnergy>,
+            Option<KineticData>,
+            Option<GravityData>,
+            Option<&SpringObject>,
         )>,
+        body_positions: Query<(&Position, &Rotation)>,
         gravity: Res<Gravity>,
         mut egui_ctx: EguiContexts,
         mut commands: Commands,
     ) {
         let ctx = egui_ctx.ctx_mut().expect("primary egui context");
         for (id, parent, mut initial_pos) in wnds.iter_mut() {
-            let (xform, grav, linvel, angvel, coll_mass, kine) = ents.get(parent.parent()).unwrap();
+            let (pos, coll_mass, linvel, angvel, kin, grav, spring) = ents.get(parent.parent()).unwrap();
             egui::Window::new("info").subwindow(
                 id,
                 ctx,
@@ -54,13 +57,13 @@ impl InformationWindow {
                             );
                         }
 
-                        if let Some(xform) = xform {
+                        if let Some(pos) = pos {
                             line(
                                 ui,
                                 "Position",
                                 format!(
                                     "[x={:.3}, y={:.3}] m",
-                                    xform.0.x, xform.0.y
+                                    pos.x, pos.y
                                 ),
                             );
                         }
@@ -75,21 +78,39 @@ impl InformationWindow {
                         if let Some(vel) = angvel {
                             line(ui, "Angular velocity", format!("{:.3} rad/s", vel.0));
                         }
+
+                        if let Some(kin) = &kin {
+                            let mom = kin.momentum();
+                            line(ui, "Momentum", format!("[x={:.3}, y={:.3}] N⋅s", mom.linear.x, mom.linear.y));
+                            line(ui, "Angular momentum", format!("{:.3} J⋅s", mom.angular));
+                        }
                     });
                     ui.separator();
                     egui::Grid::new("info grid 2").striped(true).show(ui, |ui| {
                         let mut total = 0.0;
-
-                        if let Some(KineticEnergy { linear, angular }) = kine {
-                            line(ui, "Kinetic linear energy", format!("{:.3} J", linear));
-                            line(ui, "Kinetic angular energy", format!("{:.3} J", angular));
-                            total += linear + angular;
+                        
+                        if let Some(kin) = &kin {
+                            let kine = kin.kinetic_energy();
+                            line(ui, "Kinetic linear energy", format!("{:.3} J", kine.linear));
+                            line(ui, "Kinetic angular energy", format!("{:.3} J", kine.angular));
+                            total += kine.linear + kine.angular;
                         }
+                        /*if let (Some(lin), Some(col), Some(ang)) = (linvel, coll_mass, angvel) {
+                            let kine = measures::kinetic_energy(col, *lin, *ang);
+                            line(ui, "Kinetic linear energy", format!("{:.3} J", kine.linear));
+                            line(ui, "Kinetic angular energy", format!("{:.3} J", kine.angular));
+                            total += kine.linear + kine.angular;
+                        }*/
 
-                        if let Some(GravityEnergy { energy }) = grav {
-                            let pot = energy;
+                        if let Some(grav) = grav {
+                            let grav = grav.gravity_energy();
+                            let pot = grav.energy;
                             line(ui, "Potential energy (gravity)", format!("{:.3} J", pot)); // todo: nonvertical gravity
                             total += pot;
+                        }
+                        if let Some(energy) = spring.and_then(|spring| spring.potential_energy(&body_positions)) {
+                            line(ui, "Potential enery (spring)", format!("{:.3} J", energy));
+                            total += energy;
                         }
 
                         line(ui, "Energy (total)", format!("{:.3} J", total));

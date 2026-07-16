@@ -1,12 +1,10 @@
 use crate::systems;
-use bevy::prelude::*;
+use bevy::{ecs::query::QueryData, prelude::*};
 use avian2d::{math::*, prelude::*};
 
-systems! {
-    compute_motion_measures,
-    GravityEnergy::compute,
+/*systems! {
     Forces::compute,
-}
+}*/
 
 #[derive(Component)]
 pub struct KineticEnergy {
@@ -21,63 +19,46 @@ impl KineticEnergy {
     }
 }
 
-fn compute_motion_measures(
-    bodies: Query<
-        (Entity, &ColliderMassProperties, &LinearVelocity, &AngularVelocity),
-        Or<(
-            Changed<ColliderMassProperties>,
-            Changed<LinearVelocity>,
-            Changed<AngularVelocity>,
-        )>,
-    >,
-    mut commands: Commands,
-) {
-    for (id, mass, lin, ang) in bodies.iter() {
-        let Ok(mut cmds) = commands.get_entity(id) else {
-            continue;
-        };
-        cmds.insert((
-            KineticEnergy {
-                linear: mass.mass * lin.0.length_squared() / 2.0,
-                angular: mass.angular_inertia * ang.0 * ang.0 / 2.0,
-            },
-            Momentum {
-                linear: mass.mass * lin.0,
-                angular: mass.angular_inertia * ang.0,
-            },
-        ));
+//pub type KineticData<'a> = (&'a ColliderMassProperties, &'a LinearVelocity, &'a AngularVelocity);
+
+#[derive(QueryData)]
+pub struct KineticData {
+    pub mass: &'static ColliderMassProperties,
+    pub linear: &'static LinearVelocity,
+    pub angular: &'static AngularVelocity,
+}
+
+impl<'w, 's> KineticDataItem<'w, 's> {
+    pub fn kinetic_energy(&self) -> KineticEnergy {
+        KineticEnergy {
+            linear: 0.5 * self.mass.mass * self.linear.0.length_squared(),
+            angular: 0.5 * self.mass.angular_inertia * self.angular.0.powi(2),
+        }
+    }
+
+    pub fn momentum(&self) -> Momentum {
+        Momentum {
+            linear: self.mass.mass * self.linear.0,
+            angular: self.mass.angular_inertia * self.angular.0,
+        }
     }
 }
 
-#[derive(Component)]
 pub struct GravityEnergy {
     pub energy: f32,
 }
 
-impl GravityEnergy {
-    pub(crate) fn compute(
-        bodies: Query<(Entity, &Mass, &Position)>,
-        changed_bodies: Query<(Entity, &Mass, &Position), Or<(Changed<Mass>, Changed<Position>)>>,
-        gravity: Res<Gravity>,
-        mut commands: Commands,
-    ) {
-        let mut update = |id: Entity, mass: f32, pos: Vec2| {
-            let Ok(mut cmds) = commands.get_entity(id) else {
-                return;
-            };
-            cmds.insert(GravityEnergy {
-                energy: mass * -gravity.0.y * pos.y,
-            });
-        };
+#[derive(QueryData)]
+pub struct GravityData {
+    pub mass: &'static ColliderMassProperties,
+    pub pos: &'static Position,
+    pub gravity: &'static Gravity,
+}
 
-        if gravity.is_changed() {
-            for (id, Mass(mass), pos) in bodies.iter() {
-                update(id, *mass, pos.0);
-            }
-        } else {
-            for (id, Mass(mass), pos) in changed_bodies.iter() {
-                update(id, *mass, pos.0);
-            }
+impl<'w, 's> GravityDataItem<'w, 's> {
+    pub fn gravity_energy(&self) -> GravityEnergy {
+        GravityEnergy {
+            energy: -self.mass.mass * self.gravity.0.dot(self.pos.0),
         }
     }
 }
@@ -116,7 +97,7 @@ pub struct AppliedForce {
     pub value: ForceValue,
 }
 
-#[derive(Component)]
+/*#[derive(Component)]
 pub struct Forces {
     forces: Vec<AppliedForce>,
 }
@@ -157,4 +138,8 @@ impl Forces {
             }
         }
     }
-}
+}*/
+
+/*pub fn forces(id: Entity, query: &Query<&Forces>) -> Option<&[AppliedForce]> {
+    query.get(id).ok().map(|f| f.forces.as_slice())
+}*/
