@@ -6,7 +6,7 @@ use crate::lyon_compat::{shapes, Fill, GeometryBuilder, ShapeBundle, Stroke};
 use crate::mouse::select;
 use crate::objects::{ColorComponent, SettingComponent, SpriteOnly};
 use crate::palette::{PaletteConfig, ToRgba};
-use crate::tools::add_object::query_only_real;
+use crate::tools::add_object::{query_only_real, DepthSorter};
 use crate::ui::images::AppIcons;
 use crate::ui::{EntitySelection, UiState};
 use crate::update_from::UpdateFrom;
@@ -16,6 +16,7 @@ const DEFAULT_SPRING_CONSTANT_PER_KG: f32 = 100.0;
 const DEFAULT_DAMPING: f32 = 0.2;
 const SPRING_UNIT_SCREEN_PX: f32 = 32.0;
 const MIN_SPRING_UNITS: usize = 1;
+const SPRING_VIRTUAL_LAYER: u32 = 1 << 31;
 
 #[derive(Component, Copy, Clone, Debug)]
 pub struct SpringObject {
@@ -173,24 +174,23 @@ pub fn spawn_spring(
     end_a: SpringEnd,
     end_b: SpringEnd,
     unit_size: f32,
-    z: f32,
+    z: &mut DepthSorter,
     preview: bool,
 ) -> Entity {
     let current_length = end_a
         .preview_world_pos()
         .distance(end_b.preview_world_pos());
     let spring = SpringObject::placement(end_a, end_b, unit_size, current_length);
-    let thickness = spring_thickness(unit_size);
     let endpoint_scale = Vec3::splat(endpoint_diameter(unit_size));
+    let spring_z = z.next();
+    let endpoint_a_z = z.next();
+    let endpoint_b_z = z.next();
 
     let mut entity = commands.spawn((
         spring,
         color.update_from_this(),
-        Transform::from_translation(Vec3::new(0.0, 0.0, z)),
+        Transform::from_translation(Vec3::new(0.0, 0.0, spring_z)),
         Visibility::Inherited,
-        Collider::rectangle(current_length.max(thickness), thickness),
-        Sensor,
-        virtual_layers(),
     ));
     if preview {
         entity.insert(SpringPreview);
@@ -209,7 +209,8 @@ pub fn spawn_spring(
                         radius: 0.5,
                         ..Default::default()
                     }),
-                    Transform::from_scale(endpoint_scale),
+                    Transform::from_translation(Vec3::Z * endpoint_local_z(end, spring_z, endpoint_a_z, endpoint_b_z))
+                        .with_scale(endpoint_scale),
                     Visibility::Inherited,
                 ),
                 crate::make_fill(Color::WHITE),
@@ -217,7 +218,7 @@ pub fn spawn_spring(
                 SpriteOnly,
                 Collider::circle(0.5),
                 Sensor,
-                virtual_layers(),
+                non_interacting_virtual_layers(),
             ));
         }
 
@@ -251,7 +252,6 @@ fn spawn_unit(
 pub fn find_spring_under_point(
     point: Vec2,
     springs: &Query<(Entity, &SpringObject, &Transform)>,
-    spring_ends: &Query<(Entity, &SpringEndHandle)>,
     bodies: &Query<(&Position, &Rotation)>,
 ) -> Option<(Entity, f32)> {
     let mut best_hit = None;
@@ -267,19 +267,6 @@ pub fn find_spring_under_point(
             best_hit = higher_hit(best_hit, (spring_entity, z));
         }
 
-        let end_radius = endpoint_diameter(spring.unit_size) * 0.5;
-        for (end_entity, handle) in spring_ends {
-            if handle.spring != spring_entity {
-                continue;
-            }
-            let end_point = match handle.end {
-                SpringEndIndex::A => point_a,
-                SpringEndIndex::B => point_b,
-            };
-            if point.distance(end_point) <= end_radius {
-                best_hit = higher_hit(best_hit, (end_entity, z + 0.05));
-            }
-        }
     }
 
     best_hit
@@ -379,7 +366,7 @@ fn update_spring_visuals(
     body_transforms: Query<(&Position, &Rotation)>,
     color_sources: Query<(Option<&ChildOf>, Option<Ref<ColorComponent>>)>,
     mut springs: Query<
-        (Entity, &SpringObject, &mut Transform, &mut Collider),
+        (Entity, &SpringObject, &mut Transform),
         (Without<SpringUnit>, Without<SpringEndpointVisual>),
     >,
     unit_count_query: Query<(Entity, &SpringUnit, &ChildOf)>,
@@ -399,7 +386,7 @@ fn update_spring_visuals(
         (Without<SpringObject>, Without<SpringUnit>),
     >,
 ) {
-    for (spring_entity, spring, mut transform, mut collider) in &mut springs {
+    for (spring_entity, spring, mut transform) in &mut springs {
         let Some((point_a, point_b)) = spring.world_points(&body_transforms) else {
             commands.entity(spring_entity).despawn();
             continue;
@@ -416,7 +403,6 @@ fn update_spring_visuals(
 
         transform.translation = ((point_a + point_b) * 0.5).extend(transform.translation.z);
         transform.rotation = Quat::from_rotation_z(angle);
-        *collider = Collider::rectangle(safe_length, thickness);
 
         let existing = unit_count_query
             .iter()
@@ -461,7 +447,8 @@ fn update_spring_visuals(
                 SpringEndIndex::A => -safe_length * 0.5,
                 SpringEndIndex::B => safe_length * 0.5,
             };
-            endpoint_transform.translation = Vec3::new(local_x, 0.0, 0.05);
+            endpoint_transform.translation =
+                Vec3::new(local_x, 0.0, endpoint_transform.translation.z);
             endpoint_transform.scale = Vec3::splat(endpoint_diameter(spring.unit_size));
             fill.color = endpoint_color(
                 match endpoint.end {
@@ -627,6 +614,18 @@ fn endpoint_diameter(unit_size: f32) -> f32 {
     unit_size * 0.7
 }
 
+fn endpoint_local_z(
+    end: SpringEndIndex,
+    spring_z: f32,
+    endpoint_a_z: f32,
+    endpoint_b_z: f32,
+) -> f32 {
+    match end {
+        SpringEndIndex::A => endpoint_a_z - spring_z,
+        SpringEndIndex::B => endpoint_b_z - spring_z,
+    }
+}
+
 fn critical_damping(k: f32, mass_a: f32, mass_b: f32) -> f32 {
     if k <= 0.0 {
         return 0.0;
@@ -670,7 +669,6 @@ fn end_mass(end: SpringEnd, masses: &Query<&ColliderMassProperties>) -> Option<f
     }
 }
 
-fn virtual_layers() -> CollisionLayers {
-    const VIRTUAL_LAYER: u32 = 1 << 31;
-    CollisionLayers::from_bits(VIRTUAL_LAYER, VIRTUAL_LAYER)
+fn non_interacting_virtual_layers() -> CollisionLayers {
+    CollisionLayers::from_bits(SPRING_VIRTUAL_LAYER, 0)
 }

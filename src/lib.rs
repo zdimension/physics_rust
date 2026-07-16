@@ -203,6 +203,7 @@ pub fn app_main() {
         .init_resource::<SkinConfig>()
         .init_resource::<AppConfig>()
         .init_resource::<DragConfig>()
+        .init_resource::<add_object::DepthSorter>()
         .init_resource::<cursor::ToolCursorCache>()
         .init_resource::<wheel::SmoothZoom>()
         .insert_resource(SubstepCount(50))

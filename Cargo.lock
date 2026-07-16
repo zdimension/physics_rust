@@ -431,6 +431,7 @@ version = "0.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "950238d3049d81006a6fd6b898a34cfc01bb5462a7668795a54d640aed19fd0a"
 dependencies = [
+ "bevy_dylib",
  "bevy_internal",
  "tracing",
 ]

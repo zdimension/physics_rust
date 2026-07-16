@@ -15,6 +15,7 @@ use crate::objects::spring::{self, SpringEnd, SpringPlacementState};
 use crate::objects::ColorComponent;
 use crate::palette::PaletteConfig;
 use crate::rng::RngComponent;
+use crate::tools::add_object::DepthSorter;
 use avian2d::{math::*, prelude::*};
 
 #[derive(Message)]
@@ -50,6 +51,7 @@ pub fn mouse_long_or_moved(
     images: Res<AppIcons>,
     palette: Res<PaletteConfig>,
     mut rng: Query<&mut RngComponent>,
+    mut z: ResMut<DepthSorter>,
 ) {
     use crate::tools::ToolEnum::*;
     use crate::{DrawObject, UsedMouseButton};
@@ -141,7 +143,7 @@ pub fn mouse_long_or_moved(
                             start,
                             SpringEnd::sky(curpos),
                             unit_size,
-                            crate::FOREGROUND_Z,
+                            &mut *z,
                             true,
                         );
                         *ui_button = Some(Spring(Some(SpringPlacementState { preview, start })));

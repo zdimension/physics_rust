@@ -54,7 +54,7 @@ pub fn process_add_object(
     mut commands: Commands,
     mut cameras: Query<&mut Transform, With<MainCamera>>,
     palette_config: Res<PaletteConfig>,
-    mut z: Local<DepthSorter>,
+    mut z: ResMut<DepthSorter>,
     mut rng: Query<&mut RngComponent>,
     mut select_mouse: MessageWriter<SelectUnderMouseEvent>,
     sensor: Query<&Sensor>,
@@ -389,18 +389,22 @@ pub fn process_add_object(
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Resource)]
 pub struct DepthSorter {
     current_depth: f32,
 }
 
 impl DepthSorter {
-    fn next(&mut self) -> f32 {
+    pub fn next(&mut self) -> f32 {
         self.current_depth += 1.0;
         self.current_depth
     }
 
-    fn pos(&mut self, pos: Vec2) -> Vec3 {
+    pub fn pos(&mut self, pos: Vec2) -> Vec3 {
         pos.extend(self.next())
+    }
+
+    pub fn include(&mut self, z: f32) {
+        self.current_depth = self.current_depth.max(z);
     }
 }

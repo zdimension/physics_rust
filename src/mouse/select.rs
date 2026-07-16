@@ -1,4 +1,4 @@
-use crate::objects::spring::{self, SpringEndHandle, SpringObject};
+use crate::objects::spring::{self, SpringObject};
 use crate::ui::{ContextMenuEvent, EntitySelection, TemporaryWindow, UiState};
 
 //use crate::Despawn;
@@ -67,7 +67,6 @@ pub fn process_select_under_mouse(
     mut select: MessageWriter<SelectEvent>,
     query: Query<&GlobalTransform>,
     spring_objects: Query<(Entity, &SpringObject, &Transform)>,
-    spring_ends: Query<(Entity, &SpringEndHandle)>,
     body_positions: Query<(&Position, &Rotation)>,
     mut commands: Commands,
     wnds: Query<Entity, With<TemporaryWindow>>,
@@ -91,8 +90,7 @@ pub fn process_select_under_mouse(
             (entity, z)
         });
 
-        let spring_selected =
-            spring::find_spring_under_point(pos, &spring_objects, &spring_ends, &body_positions);
+        let spring_selected = spring::find_spring_under_point(pos, &spring_objects, &body_positions);
         let selected = match (spatial_selected, spring_selected) {
             (Some(spatial), Some(spring)) if spring.1 >= spatial.1 => Some(spring.0),
             (Some(spatial), _) => Some(spatial.0),

@@ -5,7 +5,7 @@ edition = "2024"
 
 [dependencies]
 bevy-inspector-egui = "0.37.0"
-bevy = { version = "0.19", features = ["trace"] }
+bevy = { version = "0.19", features = ["trace", "dynamic_linking"] }
 bevy_diagnostic = "0.19"
 bevy_egui = "0.40"
 egui_plot = "0.35"
