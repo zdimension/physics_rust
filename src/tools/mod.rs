@@ -64,6 +64,14 @@ macro_rules! tools_enum {
                         ),*
                     }
                 }
+
+                pub fn name(&self) -> &'static str {
+                    match self {
+                        $(
+                            Self::$name(_) => stringify!($name)
+                        ),*
+                    }
+                }
             }
 
             impl ToolIcons {
@@ -88,18 +96,23 @@ use crate::objects::spring::SpringPlacementState;
 use bevy::prelude::*;
 use bevy_egui::{egui::TextureId, EguiTextureHandle, EguiUserTextures};
 
+
+
 tools_enum! {
     move => Move(Option<MoveState>),
     drag => Drag(Option<DragState>),
     rotate => Rotate(Option<RotateState>),
+
     box => Box(Option<Entity>),
     circle => Circle(Option<Entity>),
+    
     spring => Spring(Option<SpringPlacementState>),
     fixjoint => Fix(()),
     hinge => Hinge(()),
     tracer => Tracer(()),
     laserpen => Laser(()),
     thruster => Thruster(()),
+
     zoom => Zoom(Option<Entity>),
     pan => Pan(Option<PanState>),
 }

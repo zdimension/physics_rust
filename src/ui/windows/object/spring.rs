@@ -35,8 +35,9 @@ impl SpringWindow {
                 .subwindow(id, ctx, &mut initial_pos, &mut commands, |ui, _commands| {
                     let orig_spring_constant = spring.spring_constant;
                     ui.add(
-                        egui::Slider::new(&mut spring.spring_constant, 0.0..=(orig_spring_constant * 10.0).max(10800.0))
+                        egui::Slider::new(&mut spring.spring_constant, 0.0..=(orig_spring_constant * 100.0).max(10800.0))
                             .logarithmic(true)
+                            .smallest_positive((orig_spring_constant / 100.0) as f64)
                             .suffix("N/m")
                             .text("Spring constant :")
                             .custom(),
