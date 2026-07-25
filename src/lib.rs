@@ -30,7 +30,8 @@ use palette::{PaletteConfig, PaletteList, PaletteLoader};
 use tools::add_object::AddObjectEvent;
 use tools::pan::PanEvent;
 use tools::rotate::RotateEvent;
-use tools::{add_object, pan, r#move, rotate, drag};
+use tools::zoom::ZoomEvent;
+use tools::{add_object, pan, r#move, rotate, drag, zoom};
 use ui::cursor::ToolCursor;
 use ui::selection_overlay::OverlayState;
 use ui::{cursor, selection_overlay, ContextMenuEvent, EntitySelection, UiState};
@@ -237,6 +238,7 @@ pub fn app_main() {
         .add_message::<MouseLongOrMoved>()
         .add_message::<MouseLongOrMovedWriteback>()
         .add_message::<PanEvent>()
+        .add_message::<ZoomEvent>()
         .add_message::<MoveEvent>()
         .add_message::<UnfreezeEntityEvent>()
         .add_message::<RotateEvent>()
@@ -293,6 +295,7 @@ pub fn app_main() {
         PreUpdate,
         (
             pan::process_pan,
+            zoom::process_zoom,
             r#move::process_move,
             process_unfreeze_entity,
             rotate::process_rotate,

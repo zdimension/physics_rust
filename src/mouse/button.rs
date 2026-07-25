@@ -2,7 +2,7 @@ use bevy::log::info;
 use bevy::prelude::*;
 use std::time::Duration;
 use bevy_egui::EguiContexts;
-use crate::mouse_tracking::{MousePos, MousePosWorld};
+use crate::mouse_tracking::{MainCamera, MousePos, MousePosWorld};
 use avian2d::{math::*, prelude::*};
 
 use pan::PanState;
@@ -14,6 +14,7 @@ use crate::tools::pan;
 use crate::tools::pan::PanEvent;
 use crate::tools::r#move::MoveEvent;
 use crate::tools::rotate::RotateEvent;
+use crate::tools::zoom::ZoomEvent;
 use crate::objects::spring::{FinishSpringEvent, UpdateSpringPreviewEvent};
 use crate::ui::selection_overlay::{Overlay, OverlayState};
 use crate::ui::{EntitySelection, UiState};
@@ -37,6 +38,8 @@ pub fn left_release(
     mut overlay: ResMut<OverlayState>,
     selection_config: Res<SelectionConfig>,
     drag: Query<(Entity), With<DragObject>>,
+    cameras: Query<&Transform, With<MainCamera>>,
+    mut ev_zoom: MessageWriter<ZoomEvent>,
 ) {
     use crate::tools::ToolEnum::*;
     use bevy::math::Vec3Swizzles;
@@ -44,6 +47,7 @@ pub fn left_release(
     let pos = mouse_pos.xy();
 
     let ui_state = &mut *ui_state;
+    let mut rebase_active_zoom = false;
     for (button, state_pos, state_button, sel_ev) in [
         (
             UsedMouseButton::Left,
@@ -153,13 +157,30 @@ pub fn left_release(
                 Tracer(()) => {
                     todo!()
                 }
-                Pan(Some(_)) | Zoom(Some(_)) | Drag(Some(_)) => {
+                Pan(Some(_)) => {
+                    rebase_active_zoom = true;
+                }
+                Zoom(Some(_)) | Drag(Some(_)) => {
                     //
                 }
                 _ => {
                     info!("selecting under mouse");
                     select_mouse.write(sel_ev);
                 }
+            }
+        }
+    }
+
+    if rebase_active_zoom && mouse_button_input.pressed(MouseButton::Left) {
+        if let Some(Zoom(Some(state))) = &mut ui_state.mouse_left {
+            if let Ok(camera) = cameras.single() {
+                state.orig_camera_pos = camera.translation.xy();
+                state.orig_camera_scale = camera.scale.x;
+                state.click_pos_screen = screen_pos;
+                ev_zoom.write(ZoomEvent {
+                    state: *state,
+                    mouse_pos_screen: screen_pos,
+                });
             }
         }
     }
@@ -175,6 +196,7 @@ pub fn left_pressed(
     mut ev_pan: MessageWriter<PanEvent>,
     mut ev_move: MessageWriter<MoveEvent>,
     mut ev_rotate: MessageWriter<RotateEvent>,
+    mut ev_zoom: MessageWriter<ZoomEvent>,
     mut ev_drag: MessageWriter<DragEvent>,
     mut ev_spring_preview: MessageWriter<UpdateSpringPreviewEvent>,
     mut overlay: ResMut<OverlayState>,
@@ -229,6 +251,12 @@ pub fn left_pressed(
                         ev_pan.write(PanEvent {
                             orig_camera_pos,
                             delta: click_pos_screen - screen_pos,
+                        });
+                    }
+                    Some(Zoom(Some(state))) => {
+                        ev_zoom.write(ZoomEvent {
+                            state,
+                            mouse_pos_screen: screen_pos,
                         });
                     }
                     Some(Move(Some(state))) => {
@@ -308,7 +336,12 @@ pub fn left_pressed(
                         let long_or_moved = long_press || moved;
                         if long_or_moved {
                             info!("sending long/moved (button was {:?})", state_button);
-                            ev_long_or_moved.write(MouseLongOrMoved(tool, click_pos, button));
+                            ev_long_or_moved.write(MouseLongOrMoved(
+                                tool,
+                                click_pos,
+                                click_pos_screen,
+                                button,
+                            ));
                         }
                     }
                 }

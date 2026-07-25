@@ -3,6 +3,7 @@ pub(crate) mod drag;
 pub(crate) mod r#move;
 pub(crate) mod pan;
 pub(crate) mod rotate;
+pub(crate) mod zoom;
 
 use std::collections::HashSet;
 
@@ -92,6 +93,7 @@ use crate::tools::drag::DragState;
 use crate::tools::pan::PanState;
 use crate::tools::r#move::MoveState;
 use crate::tools::rotate::RotateState;
+use crate::tools::zoom::ZoomState;
 use crate::objects::spring::SpringPlacementState;
 use bevy::prelude::*;
 use bevy_egui::{egui::TextureId, EguiTextureHandle, EguiUserTextures};
@@ -113,7 +115,7 @@ tools_enum! {
     laserpen => Laser(()),
     thruster => Thruster(()),
 
-    zoom => Zoom(Option<Entity>),
+    zoom => Zoom(Option<ZoomState>),
     pan => Pan(Option<PanState>),
 }
 

@@ -4,6 +4,7 @@ use crate::tools::drag::{DragObject, DragState, DragTarget};
 use crate::tools::pan::PanState;
 use crate::tools::r#move::MoveState;
 use crate::tools::rotate::RotateState;
+use crate::tools::zoom::ZoomState;
 use crate::tools::ToolEnum;
 use crate::ui::UiState;
 use crate::ui::images::AppIcons;
@@ -59,8 +60,9 @@ pub fn mouse_long_or_moved(
     use bevy::log::info;
     use bevy::math::Vec3Swizzles;
     use avian2d::{math::*, prelude::*};
-    for MouseLongOrMoved(hover_tool, pos, button) in events.read() {
+    for MouseLongOrMoved(hover_tool, pos, click_pos_screen, button) in events.read() {
         let clickpos = *pos;
+        let click_pos_screen = *click_pos_screen;
         let curpos = mouse_pos.xy();
         info!("long or moved!");
 
@@ -90,7 +92,12 @@ pub fn mouse_long_or_moved(
                 })));
             }
             Zoom(None) => {
-                todo!()
+                let camera = cameras.single_mut().unwrap();
+                *ui_button = Some(Zoom(Some(ZoomState {
+                    orig_camera_pos: camera.translation.xy(),
+                    orig_camera_scale: camera.scale.x,
+                    click_pos_screen,
+                })));
             }
             _ => {
                 let under_mouse =
@@ -183,7 +190,9 @@ pub fn mouse_long_or_moved(
                         }
                     }
                     (Rotate(None) | Move(None), None, _) => {
-                        ev_writeback.write(MouseLongOrMoved(Pan(None), clickpos, *button).into());
+                        ev_writeback.write(
+                            MouseLongOrMoved(Pan(None), clickpos, click_pos_screen, *button).into(),
+                        );
                     }
                     (_, Some(under), Some(sel)) if under == sel => {
                         let (_, pos, _, body) = query.get(under).unwrap();
@@ -211,7 +220,7 @@ pub fn mouse_long_or_moved(
 }
 
 #[derive(Copy, Clone, Message)]
-pub struct MouseLongOrMoved(pub ToolEnum, pub Vec2, pub UsedMouseButton);
+pub struct MouseLongOrMoved(pub ToolEnum, pub Vec2, pub Vec2, pub UsedMouseButton);
 
 fn spawn_draw_object(
     commands: &mut Commands,
