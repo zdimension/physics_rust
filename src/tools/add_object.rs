@@ -6,6 +6,7 @@ use crate::mouse_tracking::MainCamera;
 use crate::objects::hinge::{FixObject, HingeObject};
 use crate::objects::laser::LaserBundle;
 use crate::objects::phy_obj::PhysicalObject;
+use crate::objects::tracer::TracerObject;
 use crate::objects::{ColorComponent, MotorComponent, SettingComponent, SizeComponent, SpriteOnly};
 use crate::palette::PaletteConfig;
 use crate::rng::RngComponent;
@@ -40,6 +41,7 @@ pub enum AddObjectEvent {
     Circle { center: Vec2, radius: f32 },
     Box { pos: Vec2, size: Vec2 },
     Laser(Vec2),
+    Tracer(Vec2),
     Polygon { pos: Vec2, points: Vec<Vec2> },
 }
 
@@ -48,6 +50,7 @@ pub enum AttachmentKind {
     Fix,
     Hinge,
     Laser,
+    Tracer,
 }
 
 #[derive(Copy, Clone, Debug, Default, Component)]
@@ -207,6 +210,19 @@ pub fn process_add_object(
                     scene_state.scene,
                 );
             }
+            Tracer(pos) => {
+                let Some(placement) = single_body_placement(pos, &query, &spatial_query) else {
+                    continue;
+                };
+                spawn_tracer_attachment(
+                    &mut commands,
+                    placement,
+                    &images,
+                    palette.get_color_hsva_opaque(&mut *rng.single_mut().unwrap()),
+                    cameras.single_mut().unwrap().scale.x,
+                    &mut z,
+                );
+            }
         }
     }
 }
@@ -258,6 +274,20 @@ pub fn process_place_attachment(
             continue;
         }
 
+        if *kind == AttachmentKind::Tracer {
+            let Some(placement) = single_body_placement(event.pos, &bodies, &spatial_query) else {
+                commands.entity(event.entity).despawn();
+                continue;
+            };
+            let current_scale = transform.scale.x;
+            *transform = attachment_transform(placement, current_scale, z.next());
+            commands
+                .entity(event.entity)
+                .insert(ChildOf(placement.body1.entity))
+                .insert(AttachmentLinks::default());
+            continue;
+        }
+
         let Some(placement) = attachment_placement(
             event.pos,
             *kind,
@@ -300,6 +330,7 @@ pub fn process_place_attachment(
                 spawn_hinge_joint(&mut commands, event.entity, placement, scene_state.scene)
             }
             AttachmentKind::Laser => AttachmentLinks::default(),
+            AttachmentKind::Tracer => AttachmentLinks::default(),
         };
         commands.entity(event.entity).insert(links);
     }
@@ -331,16 +362,23 @@ fn laser_placement(
     bodies: &Query<(Entity, &GlobalTransform), (With<RigidBody>, Without<MainCamera>)>,
     spatial_query: &SpatialQuery,
 ) -> LaserPlacement {
+    single_body_placement(pos, bodies, spatial_query)
+        .map(LaserPlacement::Body)
+        .unwrap_or(LaserPlacement::Sky { pos })
+}
+
+fn single_body_placement(
+    pos: Vec2,
+    bodies: &Query<(Entity, &GlobalTransform), (With<RigidBody>, Without<MainCamera>)>,
+    spatial_query: &SpatialQuery,
+) -> Option<AttachmentPlacement> {
     body_hits_at(pos, bodies, spatial_query, None)
         .next()
-        .map(|body1| {
-            LaserPlacement::Body(AttachmentPlacement {
-                body1,
-                body2: None,
-                pos,
-            })
+        .map(|body1| AttachmentPlacement {
+            body1,
+            body2: None,
+            pos,
         })
-        .unwrap_or(LaserPlacement::Sky { pos })
 }
 
 fn hinge_placement(
@@ -611,6 +649,50 @@ fn spawn_laser_attachment(
                 ..Default::default()
             },
             Transform::from_scale(Vec3::new(1.0 / 256.0, 1.0 / 256.0, 1.0)),
+            UpdateFrom::<ColorComponent>::This,
+        ))
+        .id()
+}
+
+fn spawn_tracer_attachment(
+    commands: &mut Commands,
+    placement: AttachmentPlacement,
+    images: &AppIcons,
+    color: bevy_egui::egui::ecolor::Hsva,
+    camera_scale: f32,
+    z: &mut DepthSorter,
+) -> Entity {
+    let scale = camera_scale * DEFAULT_OBJ_SIZE;
+    commands
+        .spawn((
+            ShapeBundle::new(
+                GeometryBuilder::build_as(&shapes::Circle {
+                    radius: 0.5 * 1.1,
+                    ..Default::default()
+                }),
+                attachment_transform(placement, scale, z.next()),
+                Visibility::Inherited,
+            ),
+            crate::make_stroke(Color::srgba(0.0, 0.0, 0.0, 0.0), BORDER_THICKNESS),
+            TracerObject::default(),
+            ColorComponent(color).update_from_this(),
+            Collider::circle(0.5),
+            VIRTUAL_LAYER_OBJ,
+            SizeComponent(scale),
+            Sensor,
+            SpriteOnly,
+            AttachmentKind::Tracer,
+            AttachmentLinks::default(),
+            UpdateFrom::<SizeComponent>::This,
+            ChildOf(placement.body1.entity),
+        ))
+        .with_child((
+            Sprite {
+                image: images.tracer.clone(),
+                custom_size: Some(Vec2::ONE),
+                ..Default::default()
+            },
+            Transform::default(),
             UpdateFrom::<ColorComponent>::This,
         ))
         .id()

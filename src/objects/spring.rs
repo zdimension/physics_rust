@@ -12,7 +12,7 @@ use crate::InvTransformPoint;
 
 const DEFAULT_SPRING_CONSTANT_PER_KG: f32 = 100.0;
 const DEFAULT_DAMPING: f32 = 0.2;
-const SPRING_UNIT_SCREEN_PX: f32 = 32.0;
+const SPRING_UNIT_SCREEN_PX: f32 = 46.0;
 const MIN_SPRING_UNITS: usize = 1;
 const SPRING_VIRTUAL_LAYER: u32 = 1 << 31;
 
@@ -596,7 +596,7 @@ fn spring_thickness(unit_size: f32) -> f32 {
 }
 
 fn endpoint_diameter(unit_size: f32) -> f32 {
-    unit_size * 0.7
+    unit_size * 0.6
 }
 
 fn endpoint_local_z(

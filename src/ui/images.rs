@@ -127,6 +127,7 @@ image_set!(
         hinge_inner,
         laserpen,
         spring,
-        spring_attachment
+        spring_attachment,
+        tracer
     ]
 );

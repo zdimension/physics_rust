@@ -17,5 +17,6 @@ egui_systems! {
     mod selection,
     mod spring,
     mod text,
+    mod tracer,
     mod velocities,
 }

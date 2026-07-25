@@ -1,5 +1,6 @@
 use crate::objects::laser::LaserBundle;
 use crate::objects::spring::{SpringEndHandle, SpringObject};
+use crate::objects::tracer::TracerObject;
 use crate::objects::{ColorComponent, MotorComponent};
 use crate::ui::images::GuiIcons;
 use crate::ui::{InitialPos, Subwindow, TemporaryWindow};
@@ -28,6 +29,7 @@ use crate::ui::windows::object::plot::PlotWindow;
 use crate::ui::windows::object::script::ScriptMenuWindow;
 use crate::ui::windows::object::selection::SelectionWindow;
 use crate::ui::windows::object::spring::SpringWindow;
+use crate::ui::windows::object::tracer::TracerWindow;
 
 use crate::ui::windows::object::velocities::VelocitiesWindow;
 
@@ -66,6 +68,7 @@ impl MenuWindow {
             Option<&SpringObject>,
             Option<&SpringEndHandle>,
             Option<&AttachmentLinks>,
+            Option<&TracerObject>,
         )>,
         mut cameras: Query<&mut Transform, With<MainCamera>>,
         mut zoom2scene: MessageWriter<ZoomToScene>
@@ -176,6 +179,9 @@ impl MenuWindow {
                             }
                             if info.3.is_some() {
                                 menu!("Laser pens", lasermenu, LaserWindow);
+                            }
+                            if info.9.is_some() {
+                                menu!("Tracer", /, TracerWindow);
                             }
                             menu!("Information", info, InformationWindow);
                             if info.2.is_some() {

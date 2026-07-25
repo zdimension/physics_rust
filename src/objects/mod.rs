@@ -55,7 +55,13 @@ pub fn update_size_scales(
     }
 }
 
-systems!(update_sprites_color, update_size_scales, phy_obj::spawn_circle_angle_markers, mod spring);
+systems!(
+    update_sprites_color,
+    update_size_scales,
+    phy_obj::spawn_circle_angle_markers,
+    mod spring,
+    mod tracer
+);
 
 #[derive(Component)]
 pub struct ColorComponent(pub Hsva);

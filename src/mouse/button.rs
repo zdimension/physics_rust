@@ -191,7 +191,7 @@ pub fn left_release(
                     add_obj.write(AddObjectEvent::Laser(pos));
                 }
                 Tracer(()) => {
-                    todo!()
+                    add_obj.write(AddObjectEvent::Tracer(pos));
                 }
                 Pan(Some(_)) => {
                     rebase_active_zoom = true;
