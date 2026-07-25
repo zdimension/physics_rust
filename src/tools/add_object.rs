@@ -29,13 +29,13 @@ pub fn query_only_real() -> SpatialQueryFilter {
     SpatialQueryFilter::from_mask(0xffff_ffff ^ VIRTUAL_LAYER)
 }
 
-#[derive(Debug, Message)]
+#[derive(Debug, Clone, Message)]
 pub enum AddHingeEvent {
     Mouse(Vec2),
     AddCenter(Entity),
 }
 
-#[derive(Debug, Message)]
+#[derive(Debug, Clone, Message)]
 pub enum AddObjectEvent {
     Hinge(AddHingeEvent),
     Fix(Vec2),

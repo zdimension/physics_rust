@@ -1,4 +1,5 @@
 use crate::objects::spring::{self, SpringObject};
+use crate::tools::add_object::AddObjectEvent;
 use crate::ui::{ContextMenuEvent, EntitySelection, TemporaryWindow, UiState};
 
 //use crate::Despawn;
@@ -12,6 +13,19 @@ use bevy::prelude::*;
 pub struct SelectEvent {
     pub(crate) entity: Option<Entity>,
     pub(crate) open_menu: bool,
+}
+
+#[derive(Resource)]
+pub struct SelectionConfig {
+    pub select_by_encircling: bool,
+}
+
+impl Default for SelectionConfig {
+    fn default() -> Self {
+        Self {
+            select_by_encircling: true,
+        }
+    }
 }
 
 pub fn process_select(
@@ -33,6 +47,67 @@ pub fn process_select(
         if *open_menu {
             menu_event.write(ContextMenuEvent {
                 screen_pos: screen_pos.xy(),
+            });
+        }
+    }
+}
+
+#[derive(Clone, Message)]
+pub struct SelectEnclosedEvent {
+    pub(crate) start: Vec2,
+    pub(crate) end: Vec2,
+    pub(crate) open_menu: bool,
+    pub(crate) fallback_add_object: Option<AddObjectEvent>,
+}
+
+pub fn process_select_enclosed(
+    mut events: MessageReader<SelectEnclosedEvent>,
+    mut select: MessageWriter<SelectEvent>,
+    mut add_object: MessageWriter<AddObjectEvent>,
+    query: Query<(Entity, &ColliderAabb, &GlobalTransform), With<RigidBody>>,
+    mut commands: Commands,
+    wnds: Query<Entity, With<TemporaryWindow>>,
+) {
+    for SelectEnclosedEvent {
+        start,
+        end,
+        open_menu,
+        fallback_add_object,
+    } in events.read()
+    {
+        for id in wnds.iter() {
+            commands.entity(id).despawn();
+        }
+
+        let start = *start;
+        let end = *end;
+        let min = start.min(end);
+        let max = start.max(end);
+        let mut enclosed = query
+            .iter()
+            .filter(|(_, aabb, _)| {
+                aabb.min.x >= min.x
+                    && aabb.max.x <= max.x
+                    && aabb.min.y >= min.y
+                    && aabb.max.y <= max.y
+            })
+            .map(|(entity, _, transform)| (entity, transform.translation_vec3a().z))
+            .collect::<Vec<_>>();
+
+        enclosed.sort_by(|a, b| a.1.total_cmp(&b.1));
+        let selected = enclosed.last().map(|(entity, _)| *entity);
+
+        if selected.is_some() {
+            select.write(SelectEvent {
+                entity: selected,
+                open_menu: *open_menu,
+            });
+        } else if let Some(fallback_add_object) = fallback_add_object.clone() {
+            add_object.write(fallback_add_object);
+        } else {
+            select.write(SelectEvent {
+                entity: None,
+                open_menu: *open_menu,
             });
         }
     }

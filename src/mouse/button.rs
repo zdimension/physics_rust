@@ -8,7 +8,7 @@ use avian2d::{math::*, prelude::*};
 use pan::PanState;
 
 use crate::mouse::r#move::MouseLongOrMoved;
-use crate::mouse::select::SelectUnderMouseEvent;
+use crate::mouse::select::{SelectEnclosedEvent, SelectionConfig, SelectUnderMouseEvent};
 use crate::tools::add_object::{AddHingeEvent, AddObjectEvent};
 use crate::tools::pan;
 use crate::tools::pan::PanEvent;
@@ -32,8 +32,10 @@ pub fn left_release(
     mut add_obj: MessageWriter<AddObjectEvent>,
     mut unfreeze: MessageWriter<UnfreezeEntityEvent>,
     mut select_mouse: MessageWriter<SelectUnderMouseEvent>,
+    mut select_enclosed: MessageWriter<SelectEnclosedEvent>,
     mut ev_spring_finish: MessageWriter<FinishSpringEvent>,
     mut overlay: ResMut<OverlayState>,
+    selection_config: Res<SelectionConfig>,
     drag: Query<(Entity), With<DragObject>>,
 ) {
     use crate::tools::ToolEnum::*;
@@ -101,10 +103,22 @@ pub fn left_release(
                     }
                 }
                 Box(Some(_ent)) if screen_pos.distance(click_pos_screen) > 6.0 => {
-                    add_obj.write(AddObjectEvent::Box {
-                        pos: click_pos,
-                        size: pos - click_pos,
-                    });
+                    if selection_config.select_by_encircling {
+                        select_enclosed.write(SelectEnclosedEvent {
+                            start: click_pos,
+                            end: pos,
+                            open_menu: false,
+                            fallback_add_object: Some(AddObjectEvent::Box {
+                                pos: click_pos,
+                                size: pos - click_pos,
+                            }),
+                        });
+                    } else {
+                        add_obj.write(AddObjectEvent::Box {
+                            pos: click_pos,
+                            size: pos - click_pos,
+                        });
+                    }
                     *state_button = Some(Box(None));
                 }
                 Circle(Some(_ent)) if screen_pos.distance(click_pos_screen) > 6.0 => {

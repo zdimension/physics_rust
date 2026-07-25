@@ -3,6 +3,7 @@ use crate::tools::{ToolEnum, ToolIcons};
 use crate::ui::icon_button::IconButton;
 use crate::ui::separator_custom::SeparatorCustom;
 use crate::ui::{RemoveTemporaryWindowsEvent, UiState};
+use crate::mouse::select::SelectionConfig;
 use bevy::prelude::{MessageWriter, Res, ResMut};
 use bevy_egui::egui::{Align2, Frame, Margin};
 use bevy_egui::{egui, EguiContexts};
@@ -13,7 +14,8 @@ pub fn draw_toolbox(
     mut ui_state: ResMut<UiState>,
     tool_icons: Res<ToolIcons>,
     mut clear_tmp: MessageWriter<RemoveTemporaryWindowsEvent>,
-    mut drag_config: ResMut<DragConfig>
+    mut drag_config: ResMut<DragConfig>,
+    mut selection_config: ResMut<SelectionConfig>,
 ) {
     let ctx = egui_ctx.ctx_mut().expect("primary egui context");
     let toolbox = egui::Window::new("Tools")
@@ -88,8 +90,7 @@ pub fn draw_toolbox(
                             });
                         }
                         Box(_) => {
-                            let mut checked = true;
-                            ui.checkbox(&mut checked, "Select by encircling");
+                            ui.checkbox(&mut selection_config.select_by_encircling, "Select by encircling");
                         }
                         _ => {
                             break 'settings;

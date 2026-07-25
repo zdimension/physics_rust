@@ -40,7 +40,7 @@ use wasm_bindgen::prelude::*;
 use crate::config::AppConfig;
 
 use crate::mouse::r#move::{MouseLongOrMoved, MouseLongOrMovedWriteback};
-use crate::mouse::select::{SelectEvent, SelectUnderMouseEvent};
+use crate::mouse::select::{SelectEnclosedEvent, SelectEvent, SelectUnderMouseEvent, SelectionConfig};
 use crate::objects::{CircleAngleMarker, SpriteOnly};
 use crate::tools::drag::{DragConfig, DragEvent};
 use crate::tools::r#move::MoveEvent;
@@ -203,6 +203,7 @@ pub fn app_main() {
         .init_resource::<SkinConfig>()
         .init_resource::<AppConfig>()
         .init_resource::<DragConfig>()
+        .init_resource::<SelectionConfig>()
         .init_resource::<add_object::DepthSorter>()
         .init_resource::<cursor::ToolCursorCache>()
         .init_resource::<wheel::SmoothZoom>()
@@ -241,6 +242,7 @@ pub fn app_main() {
         .add_message::<RotateEvent>()
         .add_message::<DragEvent>()
         .add_message::<SelectUnderMouseEvent>()
+        .add_message::<SelectEnclosedEvent>()
         .add_message::<SelectEvent>()
         .add_message::<ContextMenuEvent>()
         .add_message::<RemoveTemporaryWindowsEvent>()
@@ -306,6 +308,13 @@ pub fn app_main() {
     .add_systems(
         PreUpdate,
         mouse::select::process_select_under_mouse
+            .after(button::left_release)
+            .after(add_object::process_add_object)
+            .before(mouse::select::process_select),
+    )
+    .add_systems(
+        PreUpdate,
+        mouse::select::process_select_enclosed
             .after(button::left_release)
             .after(add_object::process_add_object)
             .before(mouse::select::process_select),
