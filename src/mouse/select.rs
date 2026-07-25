@@ -1,6 +1,6 @@
 use crate::objects::spring::{self, SpringObject};
 use crate::tools::add_object::AddObjectEvent;
-use crate::ui::{ContextMenuEvent, EntitySelection, TemporaryWindow, UiState};
+use crate::ui::{ContextMenuEvent, EntitySelection, SelectionState, TemporaryWindow};
 
 //use crate::Despawn;
 use crate::mouse_tracking::MousePos;
@@ -30,7 +30,7 @@ impl Default for SelectionConfig {
 
 pub fn process_select(
     mut events: MessageReader<SelectEvent>,
-    mut state: ResMut<UiState>,
+    mut state: ResMut<SelectionState>,
     mut commands: Commands,
     mut menu_event: MessageWriter<ContextMenuEvent>,
     screen_pos: Res<MousePos>,

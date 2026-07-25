@@ -2,7 +2,7 @@ use crate::tools::drag::DragConfig;
 use crate::tools::{ToolEnum, ToolIcons};
 use crate::ui::icon_button::IconButton;
 use crate::ui::separator_custom::SeparatorCustom;
-use crate::ui::{RemoveTemporaryWindowsEvent, UiState};
+use crate::ui::{RemoveTemporaryWindowsEvent, ToolboxState};
 use crate::mouse::select::SelectionConfig;
 use bevy::prelude::{MessageWriter, Res, ResMut};
 use bevy_egui::egui::{Align2, Frame, Margin};
@@ -11,7 +11,7 @@ use crate::{egui_systems, update_changed};
 
 pub fn draw_toolbox(
     mut egui_ctx: EguiContexts,
-    mut ui_state: ResMut<UiState>,
+    mut toolbox_state: ResMut<ToolboxState>,
     tool_icons: Res<ToolIcons>,
     mut clear_tmp: MessageWriter<RemoveTemporaryWindowsEvent>,
     mut drag_config: ResMut<DragConfig>,
@@ -30,8 +30,8 @@ pub fn draw_toolbox(
         .show(ctx, |ui| {
             ui.vertical(|ui| {
                 ui.style_mut().spacing.item_spacing = egui::Vec2::new(1.0, 1.0);
-                let ui_state = &mut *ui_state;
-                for (i, category) in ui_state.toolbox.iter().enumerate() {
+                let toolbox_state = &mut *toolbox_state;
+                for (i, category) in toolbox_state.toolbox.iter().enumerate() {
                     if i > 0 {
                         ui.add(SeparatorCustom::default().horizontal());
                     }
@@ -46,11 +46,11 @@ pub fn draw_toolbox(
                                             24.0,
                                         )
                                             .dim_if_unselected(true)
-                                        .selected(ui_state.toolbox_selected.is_same(def)),
+                                        .selected(toolbox_state.toolbox_selected.is_same(def)),
                                     )
                                     .clicked()
                                 {
-                                    ui_state.toolbox_selected = *def;
+                                    toolbox_state.toolbox_selected = *def;
                                     clear_tmp.write(RemoveTemporaryWindowsEvent);
                                 }
                             }
@@ -74,7 +74,7 @@ pub fn draw_toolbox(
                 ui.style_mut().spacing.item_spacing = egui::Vec2::new(1.0, 1.0);
                 use ToolEnum::*;
                 'settings: {
-                    match ui_state.toolbox_selected {
+                    match toolbox_state.toolbox_selected {
                         Drag(_) => {
                             ui.checkbox(&mut drag_config.drag_center_of_mass, "Drag center of mass");
                             update_changed!(ui, drag_config.strength, 1000.0..=1e8, |slider| {
@@ -99,7 +99,7 @@ pub fn draw_toolbox(
                     ui.add(SeparatorCustom::default().horizontal());
                 }
 
-                ui.label(ui_state.toolbox_selected.name());
+                ui.label(toolbox_state.toolbox_selected.name());
             });
         });
 }

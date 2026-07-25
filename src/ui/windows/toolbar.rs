@@ -1,7 +1,7 @@
 use crate::tools::ToolIcons;
 use crate::ui::icon_button::IconButton;
 use crate::ui::images::GuiIcons;
-use crate::ui::{GravitySetting, RemoveTemporaryWindowsEvent, UiState};
+use crate::ui::{GravitySetting, RemoveTemporaryWindowsEvent, ToolboxState};
 use bevy::math::Vec2;
 use bevy::prelude::{MessageWriter, Local, Res, ResMut, Time};
 use bevy_egui::egui::Align2;
@@ -12,7 +12,7 @@ use crate::ui::separator_custom::SeparatorCustom;
 
 pub fn draw_bottom_toolbar(
     mut egui_ctx: EguiContexts,
-    mut ui_state: ResMut<UiState>,
+    mut toolbox_state: ResMut<ToolboxState>,
     //mut rapier: ResMut<RapierConfiguration>,
     mut gravity_conf: Local<GravitySetting>,
     tool_icons: Res<ToolIcons>,
@@ -28,16 +28,16 @@ pub fn draw_bottom_toolbar(
         .show(egui_ctx.ctx_mut().expect("primary egui context"), |ui| {
             ui.style_mut().spacing.item_spacing = egui::Vec2::new(3.0, 3.0);
             ui.horizontal(|ui| {
-                let ui_state = &mut *ui_state;
-                for def in ui_state.toolbox_bottom.iter() {
+                let toolbox_state = &mut *toolbox_state;
+                for def in toolbox_state.toolbox_bottom.iter() {
                     if ui
                         .add(
                             IconButton::new(def.egui_icon(&tool_icons), 32.0)
-                                .selected(ui_state.toolbox_selected.is_same(def)),
+                                .selected(toolbox_state.toolbox_selected.is_same(def)),
                         )
                         .clicked()
                     {
-                        ui_state.toolbox_selected = *def;
+                        toolbox_state.toolbox_selected = *def;
                         clear_tmp.write(RemoveTemporaryWindowsEvent);
                     }
                 }

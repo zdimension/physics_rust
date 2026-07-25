@@ -1,4 +1,5 @@
 use bevy::log::info;
+use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use std::time::Duration;
 use bevy_egui::EguiContexts;
@@ -17,18 +18,26 @@ use crate::tools::rotate::RotateEvent;
 use crate::tools::zoom::ZoomEvent;
 use crate::objects::spring::{FinishSpringEvent, UpdateSpringPreviewEvent};
 use crate::ui::selection_overlay::{Overlay, OverlayState};
-use crate::ui::{EntitySelection, UiState};
+use crate::ui::{EntitySelection, PointerToolState, SelectionState, ToolboxState};
 //use crate::Despawn;
 use crate::tools::drag::{DragEvent, DragObject};
 use crate::{CustomForceDespawn, ToRot};
 use crate::UnfreezeEntityEvent;
 use crate::UsedMouseButton;
 
+#[derive(SystemParam)]
+pub struct ToolInteractionState<'w> {
+    pointer: ResMut<'w, PointerToolState>,
+    toolbox: Res<'w, ToolboxState>,
+    selection: Res<'w, SelectionState>,
+}
+
 pub fn left_release(
     mouse_button_input: Res<ButtonInput<MouseButton>>,
     mut commands: Commands,
     screen_pos: Res<MousePos>,
-    mut ui_state: ResMut<UiState>,
+    mut pointer_state: ResMut<PointerToolState>,
+    selection_state: Res<SelectionState>,
     mouse_pos: Res<MousePosWorld>,
     mut add_obj: MessageWriter<AddObjectEvent>,
     mut unfreeze: MessageWriter<UnfreezeEntityEvent>,
@@ -46,13 +55,13 @@ pub fn left_release(
     let screen_pos = **screen_pos;
     let pos = mouse_pos.xy();
 
-    let ui_state = &mut *ui_state;
+    let pointer_state = &mut *pointer_state;
     let mut rebase_active_zoom = false;
     for (button, state_pos, state_button, sel_ev) in [
         (
             UsedMouseButton::Left,
-            &mut ui_state.mouse_left_pos,
-            &mut ui_state.mouse_left,
+            &mut pointer_state.mouse_left_pos,
+            &mut pointer_state.mouse_left,
             SelectUnderMouseEvent {
                 pos,
                 open_menu: false,
@@ -60,8 +69,8 @@ pub fn left_release(
         ),
         (
             UsedMouseButton::Right,
-            &mut ui_state.mouse_right_pos,
-            &mut ui_state.mouse_right,
+            &mut pointer_state.mouse_right_pos,
+            &mut pointer_state.mouse_right,
             SelectUnderMouseEvent {
                 pos,
                 open_menu: true,
@@ -79,8 +88,8 @@ pub fn left_release(
             *state_pos = None;
             let Some(tool) = selected else { break 'thing };
             // remove selection overlays
-            if ui_state.mouse_button == Some(button) {
-                ui_state.mouse_button = None;
+            if pointer_state.mouse_button == Some(button) {
+                pointer_state.mouse_button = None;
             }
             *overlay = OverlayState { draw_ent: None };
             match tool {
@@ -102,7 +111,7 @@ pub fn left_release(
             }
             match tool {
                 Move(Some(_)) | Rotate(Some(_)) => {
-                    if let Some(EntitySelection { entity }) = ui_state.selected_entity {
+                    if let Some(EntitySelection { entity }) = selection_state.selected_entity {
                         unfreeze.write(UnfreezeEntityEvent { entity });
                     }
                 }
@@ -172,7 +181,7 @@ pub fn left_release(
     }
 
     if rebase_active_zoom && mouse_button_input.pressed(MouseButton::Left) {
-        if let Some(Zoom(Some(state))) = &mut ui_state.mouse_left {
+        if let Some(Zoom(Some(state))) = &mut pointer_state.mouse_left {
             if let Ok(camera) = cameras.single() {
                 state.orig_camera_pos = camera.translation.xy();
                 state.orig_camera_scale = camera.scale.x;
@@ -188,7 +197,7 @@ pub fn left_release(
 
 pub fn left_pressed(
     mouse_button_input: Res<ButtonInput<MouseButton>>,
-    mut ui_state: ResMut<UiState>,
+    mut tool_state: ToolInteractionState,
     mouse_pos: Res<MousePosWorld>,
     screen_pos: Res<MousePos>,
     mut egui_ctx: EguiContexts,
@@ -216,12 +225,14 @@ pub fn left_pressed(
 
     let pos = mouse_pos.xy();
 
-    let ui_state = &mut *ui_state; // https://bevy-cheatbook.github.io/pitfalls/split-borrows.html
-    let left_tool_if_right = match ui_state.mouse_right_pos {
+    let selected_entity = tool_state.selection.selected_entity;
+    let selected_tool = tool_state.toolbox.toolbox_selected;
+    let pointer_state = &mut *tool_state.pointer; // https://bevy-cheatbook.github.io/pitfalls/split-borrows.html
+    let left_tool_if_right = match pointer_state.mouse_right_pos {
         Some(_) => Pan(None),
-        None => ui_state.toolbox_selected,
+        None => selected_tool,
     };
-    let right_tool_if_left = match ui_state.mouse_left_pos {
+    let right_tool_if_left = match pointer_state.mouse_left_pos {
         Some(_) => Pan(None),
         None => Rotate(None),
     };
@@ -229,14 +240,14 @@ pub fn left_pressed(
         (
             UsedMouseButton::Left,
             left_tool_if_right,
-            &mut ui_state.mouse_left_pos,
-            &mut ui_state.mouse_left,
+            &mut pointer_state.mouse_left_pos,
+            &mut pointer_state.mouse_left,
         ),
         (
             UsedMouseButton::Right,
             right_tool_if_left,
-            &mut ui_state.mouse_right_pos,
-            &mut ui_state.mouse_right,
+            &mut pointer_state.mouse_right_pos,
+            &mut pointer_state.mouse_right,
         ),
     ] {
         'thing: {
@@ -260,7 +271,7 @@ pub fn left_pressed(
                         });
                     }
                     Some(Move(Some(state))) => {
-                        if let Some(EntitySelection { entity }) = ui_state.selected_entity {
+                        if let Some(EntitySelection { entity }) = selected_entity {
                             ev_move.write(MoveEvent {
                                 entity,
                                 pos: pos + state.obj_delta,
@@ -272,7 +283,7 @@ pub fn left_pressed(
                         }
                     }
                     Some(Rotate(Some(state))) => {
-                        if let Some(EntitySelection { entity }) = ui_state.selected_entity {
+                        if let Some(EntitySelection { entity }) = selected_entity {
                             ev_rotate.write(RotateEvent {
                                 entity,
                                 orig_obj_rot: state.orig_obj_rot,
@@ -352,8 +363,8 @@ pub fn left_pressed(
                 info!("button pressed ({:?})", button);
                 *state_button = Some(tool);
                 *state_pos = Some((time.elapsed(), pos, screen_pos));
-                if ui_state.mouse_button.is_none() {
-                    ui_state.mouse_button = Some(button);
+                if pointer_state.mouse_button.is_none() {
+                    pointer_state.mouse_button = Some(button);
                 }
             }
         }

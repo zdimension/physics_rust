@@ -8,7 +8,7 @@ use crate::objects::{ColorComponent, SettingComponent, SpriteOnly};
 use crate::palette::{PaletteConfig, ToRgba};
 use crate::tools::add_object::{query_only_real, DepthSorter};
 use crate::ui::images::AppIcons;
-use crate::ui::{EntitySelection, UiState};
+use crate::ui::{EntitySelection, SelectionState};
 use crate::update_from::UpdateFrom;
 use crate::{make_stroke, InvTransformPoint, BORDER_THICKNESS};
 
@@ -362,7 +362,7 @@ fn update_spring_visuals(
     mut commands: Commands,
     images: Res<AppIcons>,
     palette: Res<PaletteConfig>,
-    ui_state: Res<UiState>,
+    selection_state: Res<SelectionState>,
     body_transforms: Query<(&Position, &Rotation)>,
     color_sources: Query<(Option<&ChildOf>, Option<Ref<ColorComponent>>)>,
     mut springs: Query<
@@ -459,11 +459,11 @@ fn update_spring_visuals(
                 &color_sources,
                 &palette,
             );
-            stroke.color = if ui_state.selected_entity
+            stroke.color = if selection_state.selected_entity
                 == Some(EntitySelection {
                     entity: endpoint_entity,
                 })
-                || ui_state.selected_entity
+                || selection_state.selected_entity
                     == Some(EntitySelection {
                         entity: spring_entity,
                     }) {

@@ -6,7 +6,7 @@ use crate::tools::r#move::MoveState;
 use crate::tools::rotate::RotateState;
 use crate::tools::zoom::ZoomState;
 use crate::tools::ToolEnum;
-use crate::ui::UiState;
+use crate::ui::{PointerToolState, SceneState, SelectionState};
 use crate::ui::images::AppIcons;
 use crate::{CustomForce, InvTransformPoint, UsedMouseButton};
 use bevy::math::Vec2;
@@ -43,7 +43,9 @@ pub fn mouse_long_or_moved(
     mut events: MessageReader<MouseLongOrMoved>,
     mut ev_writeback: MessageWriter<MouseLongOrMovedWriteback>,
     mut cameras: Query<&mut Transform, With<MainCamera>>,
-    mut ui_state: ResMut<UiState>,
+    mut pointer_state: ResMut<PointerToolState>,
+    selection_state: Res<SelectionState>,
+    scene_state: Res<SceneState>,
     query: Query<(&GlobalTransform, &Position, &Rotation, Option<&RigidBody>), Without<MainCamera>>,
     mut commands: Commands,
     mut select_mouse: MessageWriter<SelectEvent>,
@@ -66,22 +68,22 @@ pub fn mouse_long_or_moved(
         let curpos = mouse_pos.xy();
         info!("long or moved!");
 
-        let selected_entity = ui_state.selected_entity;
+        let selected_entity = selection_state.selected_entity;
 
         /*let (ui_button, other_button) = match button {
-            UsedMouseButton::Left => (&ui_state.mouse_left, &ui_state.mouse_right),
-            UsedMouseButton::Right => (&ui_state.mouse_right, &ui_state.mouse_left)
+            UsedMouseButton::Left => (&pointer_state.mouse_left, &pointer_state.mouse_right),
+            UsedMouseButton::Right => (&pointer_state.mouse_right, &pointer_state.mouse_left)
         };
 
-        if Some(button) == ui_state.mouse_button.as_ref() && other_button.is_some() {
+        if Some(button) == pointer_state.mouse_button.as_ref() && other_button.is_some() {
             continue;
         }*/
         // todo: is this really needed?
 
-        let scene = ui_state.scene;
+        let scene = scene_state.scene;
         let ui_button = match button {
-            UsedMouseButton::Left => &mut ui_state.mouse_left,
-            UsedMouseButton::Right => &mut ui_state.mouse_right,
+            UsedMouseButton::Left => &mut pointer_state.mouse_left,
+            UsedMouseButton::Right => &mut pointer_state.mouse_right,
         };
 
         match hover_tool {

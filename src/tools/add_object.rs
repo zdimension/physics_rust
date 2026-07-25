@@ -7,7 +7,7 @@ use crate::objects::{ColorComponent, MotorComponent, SettingComponent, SizeCompo
 use crate::palette::PaletteConfig;
 use crate::ui::images::AppIcons;
 use crate::ui::windows::object::collisions::CollisionLayer;
-use crate::ui::UiState;
+use crate::ui::SceneState;
 use crate::update_from::UpdateFrom;
 use crate::{InvTransformPoint, BORDER_THICKNESS};
 use avian2d::{math::*, prelude::*};
@@ -58,7 +58,7 @@ pub fn process_add_object(
     mut rng: Query<&mut RngComponent>,
     mut select_mouse: MessageWriter<SelectUnderMouseEvent>,
     sensor: Query<&Sensor>,
-    ui_state: Res<UiState>,
+    scene_state: Res<SceneState>,
     spatial_query: SpatialQuery,
 ) {
     let palette = &palette_config.current_palette;
@@ -69,7 +69,7 @@ pub fn process_add_object(
             Box { pos, size } => {
                 commands
                     .spawn(PhysicalObject::rect(size, z.pos(pos)))
-                    .insert(ChildOf(ui_state.scene))
+                    .insert(ChildOf(scene_state.scene))
                     .insert(
                         ColorComponent(palette.get_color_hsva(&mut *rng.single_mut().unwrap()))
                             .update_from_this(),
@@ -79,7 +79,7 @@ pub fn process_add_object(
             Circle { center, radius } => {
                 commands
                     .spawn(PhysicalObject::ball(radius, z.pos(center)))
-                    .insert(ChildOf(ui_state.scene))
+                    .insert(ChildOf(scene_state.scene))
                     .insert(
                         ColorComponent(palette.get_color_hsva(&mut *rng.single_mut().unwrap()))
                             .update_from_this(),
@@ -89,7 +89,7 @@ pub fn process_add_object(
             Polygon { pos, ref points } => {
                 commands
                     .spawn(PhysicalObject::poly(points.clone(), z.pos(pos)))
-                    .insert(ChildOf(ui_state.scene))
+                    .insert(ChildOf(scene_state.scene))
                     .insert(
                         ColorComponent(palette.get_color_hsva(&mut *rng.single_mut().unwrap()))
                             .update_from_this(),
@@ -146,7 +146,7 @@ pub fn process_add_object(
                                 ),
                                 RigidBody::Dynamic,
                             ))
-                            .insert(ChildOf(ui_state.scene));
+                            .insert(ChildOf(scene_state.scene));
                     }*/
                 }
             }
@@ -318,7 +318,7 @@ pub fn process_add_object(
                                     .with_local_anchor1(anchor1)
                                     .with_local_anchor2(anchor2),
                             ))
-                            .insert(ChildOf(ui_state.scene));
+                            .insert(ChildOf(scene_state.scene));
                     } else {
                         let rigid = commands.spawn((RigidBody::Kinematic, Position(pos))).id();
                         commands
@@ -328,7 +328,7 @@ pub fn process_add_object(
                                 UpdateFrom::<MotorComponent>::entity(hinge_real_ent),
                                 RevoluteJoint::new(entity1, rigid).with_local_anchor1(anchor1),
                             ))
-                            .insert(ChildOf(ui_state.scene));
+                            .insert(ChildOf(scene_state.scene));
                     }
                 }
             }
@@ -352,7 +352,7 @@ pub fn process_add_object(
                         SizeComponent(scale),
                         Sensor,
                     ))
-                    .insert(ChildOf(ui_state.scene))
+                    .insert(ChildOf(scene_state.scene))
                     .id();
 
                 let laser_pos = if let Some(entity) = entity {

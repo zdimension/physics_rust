@@ -53,7 +53,10 @@ pub struct Scene;
 
 pub fn ui_example(
     mut egui_ctx: EguiContexts,
-    ui_state: ResMut<UiState>,
+    scene_state: Res<SceneState>,
+    selection_state: Res<SelectionState>,
+    toolbox_state: Res<ToolboxState>,
+    pointer_state: Res<PointerToolState>,
     mut is_initialized: Local<bool>,
     cameras: Query<&mut Transform, With<MainCamera>>,
     mc: Query<Entity, With<MainCamera>>,
@@ -73,7 +76,7 @@ pub fn ui_example(
         .get("Optics")
         .unwrap();*/
 
-        cmds.entity(ui_state.scene).with_children(|parent| {
+        cmds.entity(scene_state.scene).with_children(|parent| {
             demo::newton_cradle::init(parent);
         });
         *is_initialized = true;
@@ -99,7 +102,10 @@ pub fn ui_example(
             ));
         });
         ui.collapsing("UI state", |ui| {
-            ui.monospace(format!("{:#?}", ui_state));
+            ui.monospace(format!(
+                "{:#?}\n{:#?}\n{:#?}\n{:#?}",
+                selection_state, toolbox_state, pointer_state, scene_state
+            ));
         });
         /*ui.collapsing("Rapier", |ui| {
             ui.monospace(format!("{:#?}", rapier));
@@ -164,12 +170,12 @@ pub struct ContextMenuEvent {
 
 pub fn handle_context_menu(
     mut ev: MessageReader<ContextMenuEvent>,
-    ui: ResMut<UiState>,
+    selection: Res<SelectionState>,
     mut commands: Commands,
     existing: Query<Entity, With<MenuWindow>>
 ) {
     for ev in ev.read() {
-        let entity = ui.selected_entity.map(|sel| sel.entity);
+        let entity = selection.selected_entity.map(|sel| sel.entity);
         info!("context menu at {:?} for {:?}", ev.screen_pos, entity);
         if let Ok(existing) = existing.single() {
             commands.entity(existing).despawn();
@@ -284,25 +290,30 @@ pub struct EntitySelection {
 
 #[derive(Resource, Derivative)]
 #[derivative(Debug)]
-pub struct UiState {
+pub struct SelectionState {
     pub(crate) selected_entity: Option<EntitySelection>,
+}
+
+impl Default for SelectionState {
+    fn default() -> Self {
+        Self {
+            selected_entity: None,
+        }
+    }
+}
+
+#[derive(Resource, Derivative)]
+#[derivative(Debug)]
+pub struct ToolboxState {
     #[derivative(Debug = "ignore")]
     toolbox: Vec<Vec<ToolEnum>>,
     #[derivative(Debug = "ignore")]
     toolbox_bottom: Vec<ToolEnum>,
     pub toolbox_selected: ToolEnum,
-    pub mouse_left: Option<ToolEnum>,
-    pub mouse_left_pos: Option<(Duration, Vec2, Vec2)>,
-    pub mouse_right: Option<ToolEnum>,
-    pub mouse_right_pos: Option<(Duration, Vec2, Vec2)>,
-    pub mouse_button: Option<UsedMouseButton>,
-    pub scene: Entity,
 }
 
-impl UiState {}
-
-impl FromWorld for UiState {
-    fn from_world(_world: &mut World) -> Self {
+impl Default for ToolboxState {
+    fn default() -> Self {
         macro_rules! tool {
             ($ty:ident) => {
                 ToolEnum::$ty(Default::default())
@@ -312,7 +323,6 @@ impl FromWorld for UiState {
         let pan = tool!(Pan);
 
         Self {
-            selected_entity: None,
             toolbox: vec![
                 vec![tool!(Move), tool!(Drag), tool!(Rotate)],
                 vec![tool!(Box), tool!(Circle)],
@@ -327,12 +337,42 @@ impl FromWorld for UiState {
             ],
             toolbox_bottom: vec![tool!(Zoom), pan],
             toolbox_selected: pan,
+        }
+    }
+}
+
+#[derive(Resource, Derivative)]
+#[derivative(Debug)]
+pub struct PointerToolState {
+    pub mouse_left: Option<ToolEnum>,
+    pub mouse_left_pos: Option<(Duration, Vec2, Vec2)>,
+    pub mouse_right: Option<ToolEnum>,
+    pub mouse_right_pos: Option<(Duration, Vec2, Vec2)>,
+    pub mouse_button: Option<UsedMouseButton>,
+}
+
+impl Default for PointerToolState {
+    fn default() -> Self {
+        Self {
             mouse_left: None,
             mouse_left_pos: None,
             mouse_right: None,
             mouse_right_pos: None,
             mouse_button: None,
-            scene: _world.spawn((Scene, Transform::default())).id(),
+        }
+    }
+}
+
+#[derive(Resource, Derivative)]
+#[derivative(Debug)]
+pub struct SceneState {
+    pub scene: Entity,
+}
+
+impl FromWorld for SceneState {
+    fn from_world(world: &mut World) -> Self {
+        Self {
+            scene: world.spawn((Scene, Transform::default())).id(),
         }
     }
 }

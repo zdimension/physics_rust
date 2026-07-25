@@ -34,7 +34,10 @@ use tools::zoom::ZoomEvent;
 use tools::{add_object, pan, r#move, rotate, drag, zoom};
 use ui::cursor::ToolCursor;
 use ui::selection_overlay::OverlayState;
-use ui::{cursor, selection_overlay, ContextMenuEvent, EntitySelection, UiState};
+use ui::{
+    cursor, selection_overlay, ContextMenuEvent, EntitySelection, PointerToolState, SceneState,
+    SelectionState, ToolboxState,
+};
 use update_from::UpdateFrom;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
@@ -196,7 +199,10 @@ pub fn app_main() {
         .init_asset::<PaletteList>()
         .init_asset_loader::<PaletteLoader>()
         .init_resource::<PaletteConfig>()
-        .init_resource::<UiState>()
+        .init_resource::<SelectionState>()
+        .init_resource::<ToolboxState>()
+        .init_resource::<PointerToolState>()
+        .init_resource::<SceneState>()
         .init_resource::<AppIcons>()
         .init_resource::<ToolIcons>()
         .init_resource::<tools::EguiImageAlphaState>()
@@ -416,14 +422,14 @@ fn update_draw_modes(
         Option<&CircleAngleMarker>,
     )>,
     parents: Query<(Option<&ChildOf>, Option<Ref<ColorComponent>>)>,
-    ui_state: Res<UiState>,
+    selection_state: Res<SelectionState>,
 ) {
     for (entity, fill, stroke, update_source, sprite_only, angle_marker) in draws.iter_mut() {
         let (entity, color) = update_source
             .find_component(entity, &parents)
             .expect("no color component found");
 
-        let border_color = if ui_state.selected_entity == Some(EntitySelection { entity }) {
+        let border_color = if selection_state.selected_entity == Some(EntitySelection { entity }) {
             Color::WHITE
         } else {
             hsva_to_rgba(Hsva {

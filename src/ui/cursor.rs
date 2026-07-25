@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::ui::UiState;
+use crate::ui::{PointerToolState, ToolboxState};
 use crate::{tools::ToolIcons, UsedMouseButton};
 
 use bevy::asset::{AssetId, RenderAssetUsages};
@@ -41,7 +41,8 @@ pub fn check_egui_wants_focus(mut egui_ctx: EguiContexts, mut wants_focus: ResMu
 }
 
 pub fn show_current_tool_icon(
-    ui_state: Res<UiState>,
+    pointer_state: Res<PointerToolState>,
+    toolbox_state: Res<ToolboxState>,
     mut commands: Commands,
     mut icon: Query<(&mut ImageNode, &mut Node, &mut Visibility), With<ToolCursor>>,
     window: Query<(Entity, Option<&CursorIcon>), With<PrimaryWindow>>,
@@ -56,12 +57,12 @@ pub fn show_current_tool_icon(
     let desired_cursor = if egui_input.0 {
         CursorIcon::System(SystemCursorIcon::Default)
     } else {
-        let current_tool = match ui_state.mouse_button {
-            Some(UsedMouseButton::Left) => ui_state.mouse_left,
-            Some(UsedMouseButton::Right) => ui_state.mouse_right,
+        let current_tool = match pointer_state.mouse_button {
+            Some(UsedMouseButton::Left) => pointer_state.mouse_left,
+            Some(UsedMouseButton::Right) => pointer_state.mouse_right,
             None => None,
         }
-        .unwrap_or(ui_state.toolbox_selected);
+        .unwrap_or(toolbox_state.toolbox_selected);
 
         match hardware_cursor_for_tool(
             current_tool.icon(tool_icons),
