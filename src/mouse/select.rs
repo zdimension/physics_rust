@@ -64,7 +64,7 @@ pub fn process_select_enclosed(
     mut events: MessageReader<SelectEnclosedEvent>,
     mut select: MessageWriter<SelectEvent>,
     mut add_object: MessageWriter<AddObjectEvent>,
-    query: Query<(Entity, &ColliderAabb, &GlobalTransform), With<RigidBody>>,
+    query: Query<(Entity, &ColliderAabb, &GlobalTransform)>,
     mut commands: Commands,
     wnds: Query<Entity, With<TemporaryWindow>>,
 ) {
