@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use bevy_prototype_lyon::geometry::Geometry;
 pub use bevy_prototype_lyon::entity::Shape;
-use bevy_prototype_lyon::prelude::tess::path::{path::Builder, Path};
+use bevy_prototype_lyon::prelude::tess::path::{math::point, path::Builder, Path};
 
 pub use bevy_prototype_lyon::prelude::{shapes, FillOptions, RectangleOrigin, ShapePlugin, StrokeOptions};
 
@@ -85,6 +85,21 @@ impl GeometryBuilder {
 
     pub fn add(mut self, geometry: &impl Geometry<Builder>) -> Self {
         geometry.add_geometry(&mut self.builder);
+        self
+    }
+
+    pub fn begin(mut self, at: Vec2) -> Self {
+        self.builder.begin(point(at.x, at.y));
+        self
+    }
+
+    pub fn line_to(mut self, to: Vec2) -> Self {
+        self.builder.line_to(point(to.x, to.y));
+        self
+    }
+
+    pub fn close(mut self) -> Self {
+        self.builder.close();
         self
     }
 

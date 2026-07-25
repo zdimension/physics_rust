@@ -138,6 +138,7 @@ pub fn update_skin(skin: Res<SkinConfig>, mut egui_ctx: EguiContexts) {
     style.visuals.window_stroke.color = border_color;
     style.visuals.widgets.noninteractive.bg_stroke = style.visuals.window_stroke;
     style.visuals.widgets.hovered.bg_fill = Color32::from_rgb(82, 122, 82);
+    //style.visuals.widgets.inactive.fg_stroke = Stroke::new(1.0, Color32::from_rgb(6, 13, 1));
     style.visuals.widgets.hovered.bg_stroke = Stroke::NONE;
     style.visuals.widgets.active = style.visuals.widgets.hovered;
     style.visuals.selection.bg_fill = selected;

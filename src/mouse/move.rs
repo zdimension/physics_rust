@@ -9,7 +9,7 @@ use crate::ui::UiState;
 use crate::ui::images::AppIcons;
 use crate::{CustomForce, InvTransformPoint, UsedMouseButton};
 use bevy::math::Vec2;
-use bevy::prelude::{Commands, Message, MessageReader, MessageWriter, GlobalTransform, ChildOf, Query, Res, ResMut, Transform, With, Without};
+use bevy::prelude::{ChildOf, Commands, Entity, GlobalTransform, Message, MessageReader, MessageWriter, Query, Res, ResMut, Transform, With, Without};
 use crate::mouse_tracking::{MainCamera, MousePosWorld};
 use crate::objects::spring::{self, SpringEnd, SpringPlacementState};
 use crate::objects::ColorComponent;
@@ -52,9 +52,10 @@ pub fn mouse_long_or_moved(
     palette: Res<PaletteConfig>,
     mut rng: Query<&mut RngComponent>,
     mut z: ResMut<DepthSorter>,
+    draw_objects: Query<Entity, With<crate::DrawObject>>,
 ) {
     use crate::tools::ToolEnum::*;
-    use crate::{DrawObject, UsedMouseButton};
+    use crate::UsedMouseButton;
     use bevy::log::info;
     use bevy::math::Vec3Swizzles;
     use avian2d::{math::*, prelude::*};
@@ -174,7 +175,7 @@ pub fn mouse_long_or_moved(
                         info!("start rotate {:?}", under);
                         *ui_button = Some(Rotate(Some(RotateState {
                             orig_obj_rot: rot.as_radians(),
-                            overlay_ent: commands.spawn(DrawObject).id(),
+                            overlay_ent: spawn_draw_object(&mut commands, &draw_objects),
                             scale: cameras.single_mut().unwrap().scale.x,
                         })));
                         if body.is_some() {
@@ -194,10 +195,10 @@ pub fn mouse_long_or_moved(
                         }
                     }
                     (Box(None), _, _) => {
-                        *ui_button = Some(Box(Some(commands.spawn(DrawObject).id())));
+                        *ui_button = Some(Box(Some(spawn_draw_object(&mut commands, &draw_objects))));
                     }
                     (Circle(None), _, _) => {
-                        *ui_button = Some(Circle(Some(commands.spawn(DrawObject).id())));
+                        *ui_button = Some(Circle(Some(spawn_draw_object(&mut commands, &draw_objects))));
                     }
                     (tool, _, _) => {
                         dbg!(tool);
@@ -211,3 +212,15 @@ pub fn mouse_long_or_moved(
 
 #[derive(Copy, Clone, Message)]
 pub struct MouseLongOrMoved(pub ToolEnum, pub Vec2, pub UsedMouseButton);
+
+fn spawn_draw_object(
+    commands: &mut Commands,
+    draw_objects: &Query<Entity, With<crate::DrawObject>>,
+) -> Entity {
+    for draw_ent in draw_objects.iter() {
+        if let Ok(mut draw_ent) = commands.get_entity(draw_ent) {
+            draw_ent.despawn();
+        }
+    }
+    commands.spawn(crate::DrawObject).id()
+}
