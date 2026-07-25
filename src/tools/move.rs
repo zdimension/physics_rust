@@ -1,9 +1,12 @@
 use avian2d::dynamics::rigid_body::{AngularVelocity, LinearVelocity};
 use avian2d::prelude::Position;
 use bevy::math::Vec2;
-use bevy::prelude::{Entity, Message, MessageReader, MessageWriter, Query, Transform, With};
+use bevy::prelude::{
+    ChildOf, Entity, GlobalTransform, Message, MessageReader, Query, Transform, With, Without,
+};
 
-use crate::tools::add_object::{AttachmentKind, PlaceAttachmentEvent};
+use crate::InvTransformPoint;
+use crate::tools::add_object::AttachmentKind;
 
 #[derive(Copy, Clone, Message)]
 pub struct MoveEvent {
@@ -13,20 +16,28 @@ pub struct MoveEvent {
 
 pub fn process_move(
     mut events: MessageReader<MoveEvent>,
-    attachable: Query<(), With<AttachmentKind>>,
-    mut place_attachment: MessageWriter<PlaceAttachmentEvent>,
-    mut query: Query<(
-        &mut Position,
-        &mut Transform,
-        &mut LinearVelocity,
-        &mut AngularVelocity,
-    )>,
+    mut attachments: Query<(&mut Transform, Option<&ChildOf>), With<AttachmentKind>>,
+    parents: Query<&GlobalTransform>,
+    mut query: Query<
+        (
+            &mut Position,
+            &mut Transform,
+            &mut LinearVelocity,
+            &mut AngularVelocity,
+        ),
+        Without<AttachmentKind>,
+    >,
 ) {
     for MoveEvent { entity, pos } in events.read().copied() {
-        if attachable.contains(entity) {
-            place_attachment.write(PlaceAttachmentEvent { entity, pos });
+        if let Ok((mut transform, parent)) = attachments.get_mut(entity) {
+            let local_pos = parent
+                .and_then(|parent| parents.get(parent.parent()).ok())
+                .map_or(pos, |parent_transform| parent_transform.to_local(pos));
+            transform.translation.x = local_pos.x;
+            transform.translation.y = local_pos.y;
             continue;
         }
+
         let Ok((mut position, mut transform, mut vel, mut ang_vel)) = query.get_mut(entity) else {
             continue;
         };

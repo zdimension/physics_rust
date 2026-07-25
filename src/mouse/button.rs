@@ -11,7 +11,9 @@ use pan::PanState;
 use crate::mouse::r#move::MouseLongOrMoved;
 use crate::mouse::select::{SelectEnclosedEvent, SelectUnderMouseEvent, SelectionConfig};
 use crate::objects::spring::{FinishSpringEvent, UpdateSpringPreviewEvent};
-use crate::tools::add_object::{AddHingeEvent, AddObjectEvent};
+use crate::tools::add_object::{
+    AddHingeEvent, AddObjectEvent, AttachmentKind, PlaceAttachmentEvent,
+};
 use crate::tools::r#move::MoveEvent;
 use crate::tools::pan;
 use crate::tools::pan::PanEvent;
@@ -32,12 +34,17 @@ pub struct ToolInteractionState<'w> {
     selection: Res<'w, SelectionState>,
 }
 
+#[derive(SystemParam)]
+pub struct AttachmentMoveCommit<'w, 's> {
+    attachments: Query<'w, 's, (), With<AttachmentKind>>,
+    place_attachment: MessageWriter<'w, PlaceAttachmentEvent>,
+}
+
 pub fn left_release(
     mouse_button_input: Res<ButtonInput<MouseButton>>,
     mut commands: Commands,
     screen_pos: Res<MousePos>,
-    mut pointer_state: ResMut<PointerToolState>,
-    selection_state: Res<SelectionState>,
+    mut tool_state: ToolInteractionState,
     mouse_pos: Res<MousePosWorld>,
     mut add_obj: MessageWriter<AddObjectEvent>,
     mut unfreeze: MessageWriter<UnfreezeEntityEvent>,
@@ -49,13 +56,15 @@ pub fn left_release(
     rigid_bodies: Query<(), With<RigidBody>>,
     cameras: Query<&Transform, With<MainCamera>>,
     mut ev_zoom: MessageWriter<ZoomEvent>,
+    mut attachment_move_commit: AttachmentMoveCommit,
 ) {
     use crate::tools::ToolEnum::*;
     use bevy::math::Vec3Swizzles;
     let screen_pos = **screen_pos;
     let pos = mouse_pos.xy();
+    let selected_entity = tool_state.selection.selected_entity;
 
-    let pointer_state = &mut *pointer_state;
+    let pointer_state = &mut *tool_state.pointer;
     let mut rebase_active_zoom = false;
     for (button, state_pos, state_button, sel_ev) in [
         (
@@ -112,8 +121,22 @@ pub fn left_release(
                 _ => {}
             }
             match tool {
-                Move(Some(_)) | Rotate(Some(_)) => {
-                    if let Some(EntitySelection { entity }) = selection_state.selected_entity
+                Move(Some(state)) => {
+                    if let Some(EntitySelection { entity }) = selected_entity {
+                        if attachment_move_commit.attachments.contains(entity) {
+                            attachment_move_commit
+                                .place_attachment
+                                .write(PlaceAttachmentEvent {
+                                    entity,
+                                    pos: pos + state.obj_delta,
+                                });
+                        } else if rigid_bodies.contains(entity) {
+                            unfreeze.write(UnfreezeEntityEvent { entity });
+                        }
+                    }
+                }
+                Rotate(Some(_)) => {
+                    if let Some(EntitySelection { entity }) = selected_entity
                         && rigid_bodies.contains(entity)
                     {
                         unfreeze.write(UnfreezeEntityEvent { entity });

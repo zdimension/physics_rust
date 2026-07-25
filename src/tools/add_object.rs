@@ -83,6 +83,12 @@ struct AttachmentPlacement {
     pos: Vec2,
 }
 
+#[derive(Copy, Clone)]
+enum LaserPlacement {
+    Body(AttachmentPlacement),
+    Sky { pos: Vec2 },
+}
+
 pub fn process_add_object(
     mut events: MessageReader<AddObjectEvent>,
     query: Query<(Entity, &GlobalTransform), (With<RigidBody>, Without<MainCamera>)>,
@@ -190,17 +196,7 @@ pub fn process_add_object(
                 );
             }
             Laser(pos) => {
-                let Some(placement) = attachment_placement(
-                    pos,
-                    AttachmentKind::Laser,
-                    None,
-                    &query,
-                    &spatial_query,
-                    &fixes,
-                ) else {
-                    continue;
-                };
-
+                let placement = laser_placement(pos, &query, &spatial_query);
                 spawn_laser_attachment(
                     &mut commands,
                     placement,
@@ -208,6 +204,7 @@ pub fn process_add_object(
                     palette.get_color_hsva_opaque(&mut *rng.single_mut().unwrap()),
                     cameras.single_mut().unwrap().scale.x,
                     &mut z,
+                    scene_state.scene,
                 );
             }
         }
@@ -237,6 +234,29 @@ pub fn process_place_attachment(
             continue;
         };
         clear_attachment_links(&mut commands, links.copied());
+
+        if *kind == AttachmentKind::Laser {
+            let placement = laser_placement(event.pos, &bodies, &spatial_query);
+            let current_scale = transform.scale.x;
+            match placement {
+                LaserPlacement::Body(placement) => {
+                    *transform = attachment_transform(placement, current_scale, z.next());
+                    commands
+                        .entity(event.entity)
+                        .insert(ChildOf(placement.body1.entity));
+                }
+                LaserPlacement::Sky { pos } => {
+                    *transform = sky_attachment_transform(pos, current_scale, z.next());
+                    commands
+                        .entity(event.entity)
+                        .insert(ChildOf(scene_state.scene));
+                }
+            }
+            commands
+                .entity(event.entity)
+                .insert(AttachmentLinks::default());
+            continue;
+        }
 
         let Some(placement) = attachment_placement(
             event.pos,
@@ -304,6 +324,23 @@ fn attachment_placement(
     }
 
     Some(AttachmentPlacement { body1, body2, pos })
+}
+
+fn laser_placement(
+    pos: Vec2,
+    bodies: &Query<(Entity, &GlobalTransform), (With<RigidBody>, Without<MainCamera>)>,
+    spatial_query: &SpatialQuery,
+) -> LaserPlacement {
+    body_hits_at(pos, bodies, spatial_query, None)
+        .next()
+        .map(|body1| {
+            LaserPlacement::Body(AttachmentPlacement {
+                body1,
+                body2: None,
+                pos,
+            })
+        })
+        .unwrap_or(LaserPlacement::Sky { pos })
 }
 
 fn hinge_placement(
@@ -376,6 +413,10 @@ fn duplicate_fix_exists(
 fn attachment_transform(placement: AttachmentPlacement, scale: f32, z: f32) -> Transform {
     Transform::from_translation(placement.body1.local_pos.extend(z - placement.body1.z))
         .with_scale(Vec3::new(scale, scale, 1.0))
+}
+
+fn sky_attachment_transform(pos: Vec2, scale: f32, z: f32) -> Transform {
+    Transform::from_translation(pos.extend(z)).with_scale(Vec3::new(scale, scale, 1.0))
 }
 
 pub(crate) fn despawn_attachment_links(commands: &mut Commands, links: Option<&AttachmentLinks>) {
@@ -525,13 +566,21 @@ fn spawn_hinge_attachment(
 
 fn spawn_laser_attachment(
     commands: &mut Commands,
-    placement: AttachmentPlacement,
+    placement: LaserPlacement,
     images: &AppIcons,
     color: bevy_egui::egui::ecolor::Hsva,
     camera_scale: f32,
     z: &mut DepthSorter,
+    scene: Entity,
 ) -> Entity {
     let scale = camera_scale * DEFAULT_OBJ_SIZE;
+    let (transform, parent) = match placement {
+        LaserPlacement::Body(placement) => (
+            attachment_transform(placement, scale, z.next()),
+            placement.body1.entity,
+        ),
+        LaserPlacement::Sky { pos } => (sky_attachment_transform(pos, scale, z.next()), scene),
+    };
     commands
         .spawn((
             ShapeBundle::new(
@@ -539,7 +588,7 @@ fn spawn_laser_attachment(
                     extents: Vec2::new(1.0, 0.5) * 1.1,
                     ..Default::default()
                 }),
-                attachment_transform(placement, 1.0, z.next()),
+                transform,
                 Visibility::Inherited,
             ),
             crate::make_stroke(Color::srgba(0.0, 0.0, 0.0, 0.0), BORDER_THICKNESS),
@@ -554,7 +603,7 @@ fn spawn_laser_attachment(
             AttachmentKind::Laser,
             AttachmentLinks::default(),
             UpdateFrom::<SizeComponent>::This,
-            ChildOf(placement.body1.entity),
+            ChildOf(parent),
         ))
         .with_child((
             Sprite {
