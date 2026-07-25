@@ -1,70 +1,72 @@
-use std::ops::{DerefMut, RangeInclusive};
 use bevy::ecs::system::SystemParam;
 use bevy::input::InputSystems;
 use bevy::math::Vec3Swizzles;
 use bevy::prelude::*;
 use bevy::window::{PresentMode, WindowPlugin};
 use std::collections::{HashMap, HashSet};
+use std::ops::{DerefMut, RangeInclusive};
 
+use crate::lyon_compat::*;
+use crate::mouse_tracking::{MainCamera, prelude::*};
+use avian2d::{math::*, prelude::*};
+use bevy::image::ImageSampler;
 use bevy_diagnostic::FrameTimeDiagnosticsPlugin;
 use bevy_egui::egui::epaint::{Hsva, Shadow};
 use bevy_egui::egui::style::Widgets;
-use bevy_egui::egui::{Color32, emath, Rounding, Slider, Ui};
+use bevy_egui::egui::{Color32, Rounding, Slider, Ui, emath};
 use bevy_egui::{
-    egui::{self},
     EguiContextSettings, EguiContexts, EguiPlugin, EguiPostUpdateSet, EguiPreUpdateSet,
     EguiStartupSet,
+    egui::{self},
 };
-use crate::mouse_tracking::{prelude::*, MainCamera};
-use crate::lyon_compat::*;
-use avian2d::{math::*, prelude::*};
-use bevy::image::ImageSampler;
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 //use bevy_prototype_lyon::prelude::{DrawMode, FillMode, ShapePlugin};
+use crate::config::AppConfig;
 use crate::skin::SkinConfig;
 use mouse::{button, wheel};
 use objects::hinge::HingeObject;
 use objects::laser::LaserRays;
-use objects::{laser, ColorComponent, SettingComponent};
+use objects::{ColorComponent, SettingComponent, laser};
 use palette::{PaletteConfig, PaletteList, PaletteLoader};
-use tools::add_object::AddObjectEvent;
+use tools::add_object::{AddObjectEvent, PlaceAttachmentEvent};
 use tools::pan::PanEvent;
 use tools::rotate::RotateEvent;
 use tools::zoom::ZoomEvent;
-use tools::{add_object, pan, r#move, rotate, drag, zoom};
+use tools::{add_object, drag, r#move, pan, rotate, zoom};
 use ui::cursor::ToolCursor;
 use ui::selection_overlay::OverlayState;
 use ui::{
-    cursor, selection_overlay, ContextMenuEvent, EntitySelection, PointerToolState, SceneState,
-    SelectionState, ToolboxState,
+    ContextMenuEvent, EntitySelection, PointerToolState, SceneState, SelectionState, ToolboxState,
+    cursor, selection_overlay,
 };
 use update_from::UpdateFrom;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
-use crate::config::AppConfig;
 
 use crate::mouse::r#move::{MouseLongOrMoved, MouseLongOrMovedWriteback};
-use crate::mouse::select::{SelectEnclosedEvent, SelectEvent, SelectUnderMouseEvent, SelectionConfig};
+use crate::mouse::select::{
+    SelectEnclosedEvent, SelectEvent, SelectUnderMouseEvent, SelectionConfig,
+};
 use crate::objects::{CircleAngleMarker, SpriteOnly};
+use crate::tools::ToolIcons;
 use crate::tools::drag::{DragConfig, DragEvent};
 use crate::tools::r#move::MoveEvent;
-use crate::tools::ToolIcons;
-use crate::ui::images::{AppIcons, GuiIcons};
 use crate::ui::RemoveTemporaryWindowsEvent;
+use crate::ui::images::{AppIcons, GuiIcons};
 
+mod config;
 mod demo;
+mod lyon_compat;
 mod measures;
 mod mouse;
+mod mouse_tracking;
 mod objects;
 mod palette;
-mod mouse_tracking;
 mod rng;
-mod lyon_compat;
+mod skin;
 mod tools;
 mod ui;
 mod update_from;
-mod skin;
-mod config;
 //mod grid;
 
 const BORDER_THICKNESS: f32 = 0.03;
@@ -84,7 +86,10 @@ impl InvTransformPoint for GlobalTransform {
     }
 
     fn to_local(&self, point: Vec2) -> Vec2 {
-        self.affine().inverse().transform_point3(point.extend(0.)).xy()
+        self.affine()
+            .inverse()
+            .transform_point3(point.extend(0.))
+            .xy()
     }
 }
 
@@ -241,6 +246,7 @@ pub fn app_main() {
         .add_plugins(ShapePlugin)
         .add_plugins(FrameTimeDiagnosticsPlugin::default())
         .add_message::<AddObjectEvent>()
+        .add_message::<PlaceAttachmentEvent>()
         .add_message::<MouseLongOrMoved>()
         .add_message::<MouseLongOrMovedWriteback>()
         .add_message::<PanEvent>()
@@ -263,7 +269,7 @@ pub fn app_main() {
             (
                 configure_visuals,
                 (setup_physics, setup_rng),
-                drag::init_drag
+                drag::init_drag,
             )
                 .chain(),
         )
@@ -291,8 +297,7 @@ pub fn app_main() {
             mouse::r#move::mouse_long_or_moved
                 .after(button::left_pressed)
                 .before(mouse::select::process_select),
-            mouse::r#move::mouse_long_or_moved_writeback
-                .after(mouse::r#move::mouse_long_or_moved),
+            mouse::r#move::mouse_long_or_moved_writeback.after(mouse::r#move::mouse_long_or_moved),
         )
             .after(MousePositionSet)
             .after(EguiPreUpdateSet::ProcessInput),
@@ -303,10 +308,12 @@ pub fn app_main() {
             pan::process_pan,
             zoom::process_zoom,
             r#move::process_move,
+            add_object::process_place_attachment.after(r#move::process_move),
             process_unfreeze_entity,
             rotate::process_rotate,
             drag::update_drag_target,
-        ).after(mouse::select::process_select),
+        )
+            .after(mouse::select::process_select),
     )
     .add_systems(
         PreUpdate,
@@ -456,10 +463,7 @@ pub struct UnfreezeEntityEvent {
     entity: Entity,
 }
 
-fn process_unfreeze_entity(
-    mut events: MessageReader<UnfreezeEntityEvent>,
-    mut commands: Commands,
-) {
+fn process_unfreeze_entity(mut events: MessageReader<UnfreezeEntityEvent>, mut commands: Commands) {
     for UnfreezeEntityEvent { entity } in events.read().copied() {
         commands.entity(entity).insert(RigidBody::Dynamic);
     }
@@ -492,16 +496,19 @@ fn setup_graphics(mut commands: Commands) {
             info!("Added main camera with {:?}", id.id());
         });
 
-    commands.spawn((ToolCursor, (
-        ImageNode::default(),
-        Node {
-            position_type: PositionType::Absolute,
-            width: Val::Px(32.0),
-            height: Val::Px(32.0),
-            margin: UiRect::px(12.0, 0.0, 16.0, 0.0),
-            ..Default::default()
-        }
-        )));
+    commands.spawn((
+        ToolCursor,
+        (
+            ImageNode::default(),
+            Node {
+                position_type: PositionType::Absolute,
+                width: Val::Px(32.0),
+                height: Val::Px(32.0),
+                margin: UiRect::px(12.0, 0.0, 16.0, 0.0),
+                ..Default::default()
+            },
+        ),
+    ));
 
     commands.spawn((
         LaserRays::default(),
@@ -557,9 +564,7 @@ fn make_stroke(color: Color, thickness: f32) -> Stroke {
 
 const STROKE_TOLERANCE: f32 = 0.0001;
 
-fn setup_physics(mut images: ResMut<Assets<Image>>) {
-
-}
+fn setup_physics(mut images: ResMut<Assets<Image>>) {}
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen(start)]
@@ -701,7 +706,8 @@ fn add_slider<T: emath::Numeric>(
     ui: &mut Ui,
     current: T,
     range: RangeInclusive<T>,
-    settings: impl FnOnce(Slider) -> Slider) -> UpdateStatus<T> {
+    settings: impl FnOnce(Slider) -> Slider,
+) -> UpdateStatus<T> {
     let mut val = current;
     if ui.add(settings(Slider::new(&mut val, range))).changed() {
         UpdateStatus::Changed(val)

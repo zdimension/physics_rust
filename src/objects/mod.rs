@@ -1,16 +1,16 @@
 use crate::palette::ToRgba;
+use crate::systems;
 use crate::update_from::UpdateFrom;
-use bevy::prelude::ChildOf;
+use avian2d::{math::*, prelude::*};
+use avian2d::{math::*, prelude::*};
+use avian2d::{math::*, prelude::*};
+use bevy::app::Update;
 use bevy::math::Vec3;
+use bevy::prelude::ChildOf;
 use bevy::prelude::{App, Component, Entity, Query, Ref, Sprite, Transform};
 use bevy_egui::egui::ecolor::Hsva;
-use avian2d::{math::*, prelude::*};
-use avian2d::{math::*, prelude::*};
-use avian2d::{math::*, prelude::*};
 use num_traits::FloatConst;
 use std::marker::PhantomData;
-use bevy::app::Update;
-use crate::systems;
 
 pub(crate) mod hinge;
 pub(crate) mod laser;

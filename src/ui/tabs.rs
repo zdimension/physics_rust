@@ -1,5 +1,8 @@
+use bevy_egui::egui::{
+    NumExt, Response, Sense, TextStyle, TextWrapMode, Ui, Widget, WidgetInfo, WidgetText,
+    WidgetType, pos2,
+};
 use std::ops::DerefMut;
-use bevy_egui::egui::{NumExt, pos2, Response, Sense, TextStyle, Ui, Widget, WidgetInfo, WidgetText, WidgetType, TextWrapMode};
 use strum::IntoEnumIterator;
 
 pub trait Tab: PartialEq + Copy + IntoEnumIterator + Send + Sync + 'static {
@@ -8,25 +11,28 @@ pub trait Tab: PartialEq + Copy + IntoEnumIterator + Send + Sync + 'static {
 
 struct TabButton {
     text: WidgetText,
-    selected: bool
+    selected: bool,
 }
 
 impl Widget for TabButton {
     fn ui(self, ui: &mut Ui) -> Response {
-        let Self {
-            text,
-            selected,
-        } = self;
+        let Self { text, selected } = self;
         let button_padding = ui.spacing().button_padding;
         let text_wrap_width = ui.available_width() - button_padding.x * 2.0;
 
-        let text = text.into_galley(ui, Some(TextWrapMode::Extend), text_wrap_width, TextStyle::Button);
+        let text = text.into_galley(
+            ui,
+            Some(TextWrapMode::Extend),
+            text_wrap_width,
+            TextStyle::Button,
+        );
         let mut desired_size = text.size();
         desired_size.y = desired_size.y.at_least(ui.spacing().interact_size.y);
         desired_size += button_padding * 2.0;
 
         let (rect, response) = ui.allocate_at_least(desired_size, Sense::click());
-        response.widget_info(|| WidgetInfo::labeled(WidgetType::Button, ui.is_enabled(), text.text()));
+        response
+            .widget_info(|| WidgetInfo::labeled(WidgetType::Button, ui.is_enabled(), text.text()));
 
         if ui.is_rect_visible(rect) {
             let selection = ui.visuals().widgets.hovered;
@@ -54,11 +60,21 @@ impl Widget for TabButton {
     }
 }
 
-pub fn tabs<T: Tab>(ui: &mut Ui, mut current_tab: impl DerefMut<Target = T>, tab: impl FnOnce(&mut Ui, T)) {
+pub fn tabs<T: Tab>(
+    ui: &mut Ui,
+    mut current_tab: impl DerefMut<Target = T>,
+    tab: impl FnOnce(&mut Ui, T),
+) {
     ui.vertical(|ui| {
         ui.horizontal(|ui| {
             for tab in T::iter() {
-                if ui.add(TabButton { text: tab.name().into(), selected: tab == *current_tab }).clicked() {
+                if ui
+                    .add(TabButton {
+                        text: tab.name().into(),
+                        selected: tab == *current_tab,
+                    })
+                    .clicked()
+                {
                     *current_tab = tab;
                 }
             }

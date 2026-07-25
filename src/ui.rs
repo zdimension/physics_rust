@@ -1,31 +1,31 @@
 use std::time::Duration;
 
+use crate::mouse_tracking::{MainCamera, MousePos, MousePosWorld};
+use avian2d::{math::*, prelude::*};
 use bevy::log::info;
 use bevy::math::{Vec2, Vec2Swizzles, Vec3Swizzles};
 use bevy::prelude::*;
 use bevy_diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin};
-use bevy_egui::egui::{pos2, Context, Id, Pos2, Ui, Align2};
-use bevy_egui::{egui, EguiContexts};
-use crate::mouse_tracking::{MainCamera, MousePos, MousePosWorld};
-use avian2d::{math::*, prelude::*};
+use bevy_egui::egui::{Align2, Context, Id, Pos2, Ui, pos2};
+use bevy_egui::{EguiContexts, egui};
 use derivative::Derivative;
 
 use crate::objects::laser::LaserRays;
 use crate::palette::{PaletteConfig, PaletteList};
 use crate::tools::ToolEnum;
-use crate::{demo, egui_systems, UsedMouseButton};
+use crate::{UsedMouseButton, demo, egui_systems};
 
 use self::windows::menu::MenuWindow;
 
 pub mod cursor;
+mod custom_widget;
 mod icon_button;
 pub mod images;
 mod menu_item;
 pub(crate) mod selection_overlay;
 mod separator_custom;
-mod text_button;
 mod tabs;
-mod custom_widget;
+mod text_button;
 
 egui_systems! {
     mod windows,
@@ -141,9 +141,8 @@ impl AsPos2 for Pos2 {
 #[derive(Component)]
 pub enum InitialPos {
     Pos(Pos2, Pos2),
-    ScreenCenter
+    ScreenCenter,
 }
-
 
 impl InitialPos {
     fn initial(pos: impl AsPos2) -> impl Bundle {
@@ -172,7 +171,7 @@ pub fn handle_context_menu(
     mut ev: MessageReader<ContextMenuEvent>,
     selection: Res<SelectionState>,
     mut commands: Commands,
-    existing: Query<Entity, With<MenuWindow>>
+    existing: Query<Entity, With<MenuWindow>>,
 ) {
     for ev in ev.read() {
         let entity = selection.selected_entity.map(|sel| sel.entity);
@@ -196,7 +195,9 @@ fn process_temporary_windows(
 ) {
     for (wnd, pos, _) in wnds.iter() {
         // todo: really detect whether window was moved
-        let InitialPos::Pos(begin, current) = *pos else { continue };
+        let InitialPos::Pos(begin, current) = *pos else {
+            continue;
+        };
         if begin.distance(current) > 1.0 {
             info!(
                 "marking window {:?} as persistent (initial {:?} != current {:?})",
@@ -248,7 +249,7 @@ impl<'a> Subwindow for egui::Window<'a> {
         let (wnd, begin) = match initial_pos {
             InitialPos::Pos(begin, _) => {
                 (self.pivot(Align2::LEFT_TOP).default_pos(*begin), *begin) // heu... du coup Ã§a marche pas ?
-            },
+            }
             InitialPos::ScreenCenter => {
                 /*let input = ctx.input(|i| i.screen_rect);*/
 
@@ -260,7 +261,9 @@ impl<'a> Subwindow for egui::Window<'a> {
         wnd.id_bevy(id)
             .open(&mut open)
             .show(ctx, |ui| contents(ui, commands))
-            .map(|resp| { *initial_pos = InitialPos::Pos(begin, resp.response.rect.left_top()); });
+            .map(|resp| {
+                *initial_pos = InitialPos::Pos(begin, resp.response.rect.left_top());
+            });
         if !open {
             info!("closing window");
             commands.entity(id).despawn();

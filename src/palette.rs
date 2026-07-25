@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
-use bevy::asset::{AssetLoader, AsyncReadExt, LoadContext};
-use bevy::asset::io::Reader;
 use bevy::asset::LoadedAsset;
+use bevy::asset::io::Reader;
+use bevy::asset::{AssetLoader, AsyncReadExt, LoadContext};
 use bevy::prelude::*;
 use bevy::reflect::TypePath;
 use bevy::tasks::BoxedFuture;
@@ -53,7 +53,11 @@ where
     use serde::de::Error;
     let (h, s, v, a) = <(f32, f32, f32, f32)>::deserialize(deserializer)?;
     let h = h / 360.0;
-    if !(0.0..=1.0).contains(&h) || !(0.0..=1.0).contains(&s) || !(0.0..=1.0).contains(&v) || !(0.0..=1.0).contains(&a) {
+    if !(0.0..=1.0).contains(&h)
+        || !(0.0..=1.0).contains(&s)
+        || !(0.0..=1.0).contains(&v)
+        || !(0.0..=1.0).contains(&a)
+    {
         return Err(Error::custom("HSVA is invalid"));
     }
     Ok(Hsva::new(h, s, v, a))
@@ -65,7 +69,11 @@ where
 {
     use serde::de::Error;
     let (r, g, b, a) = <(f32, f32, f32, f32)>::deserialize(deserializer)?;
-    if !(0.0..=1.0).contains(&r) || !(0.0..=1.0).contains(&g) || !(0.0..=1.0).contains(&b) || !(0.0..=1.0).contains(&a) {
+    if !(0.0..=1.0).contains(&r)
+        || !(0.0..=1.0).contains(&g)
+        || !(0.0..=1.0).contains(&b)
+        || !(0.0..=1.0).contains(&a)
+    {
         return Err(Error::custom("RGBA is invalid"));
     }
     Ok(Color::srgba(r, g, b, a))
@@ -135,8 +143,7 @@ impl Default for Palette {
 #[type_path = "physics_rust::palette"]
 pub struct PaletteList(pub HashMap<String, Palette>);
 
-#[derive(Default)]
-#[derive(TypePath)]
+#[derive(Default, TypePath)]
 pub struct PaletteLoader;
 
 impl AssetLoader for PaletteLoader {

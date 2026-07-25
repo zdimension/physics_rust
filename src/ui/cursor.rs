@@ -1,12 +1,12 @@
 use std::collections::HashMap;
 
 use crate::ui::{PointerToolState, ToolboxState};
-use crate::{tools::ToolIcons, UsedMouseButton};
+use crate::{UsedMouseButton, tools::ToolIcons};
 
 use bevy::asset::{AssetId, RenderAssetUsages};
 use bevy::prelude::{
-    AssetServer, Assets, Commands, Component, Deref, DerefMut, DetectChangesMut, Entity,
-    FromWorld, Handle, Image, ImageNode, Query, Res, ResMut, Resource, Visibility, With, World,
+    AssetServer, Assets, Commands, Component, Deref, DerefMut, DetectChangesMut, Entity, FromWorld,
+    Handle, Image, ImageNode, Query, Res, ResMut, Resource, Visibility, With, World,
 };
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use bevy::ui::Node;
@@ -37,7 +37,9 @@ impl FromWorld for ToolCursorCache {
 
 pub fn check_egui_wants_focus(mut egui_ctx: EguiContexts, mut wants_focus: ResMut<EguiWantsFocus>) {
     let ctx = egui_ctx.ctx_mut().expect("primary egui context");
-    wants_focus.set_if_neq(EguiWantsFocus(ctx.is_using_pointer() || ctx.is_pointer_over_area()));
+    wants_focus.set_if_neq(EguiWantsFocus(
+        ctx.is_using_pointer() || ctx.is_pointer_over_area(),
+    ));
 }
 
 pub fn show_current_tool_icon(

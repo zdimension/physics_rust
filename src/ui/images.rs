@@ -119,5 +119,13 @@ icon_set!(
 image_set!(
     AppIcons,
     "app/",
-    [hinge_background, hinge_balls, hinge_inner, laserpen, spring]
+    [
+        fixjoint_inner,
+        fixjoint_outer,
+        hinge_background,
+        hinge_balls,
+        hinge_inner,
+        laserpen,
+        spring
+    ]
 );

@@ -2,15 +2,15 @@ use bevy::math::{Vec2, Vec3, Vec3Swizzles};
 use bevy::prelude::*;
 use bevy_egui::egui::ecolor::Hsva;
 
-use crate::lyon_compat::ShapeBundle;
 use crate::lyon_compat::GeometryBuilder;
 use crate::lyon_compat::RectangleOrigin;
+use crate::lyon_compat::ShapeBundle;
 use crate::lyon_compat::shapes;
 use avian2d::{math::*, prelude::*};
 
 use crate::objects::{CircleAngleMarker, ColorComponent};
 use crate::update_from::UpdateFrom;
-use crate::{FillStroke, BORDER_THICKNESS};
+use crate::{BORDER_THICKNESS, FillStroke};
 
 #[derive(Component)]
 pub struct CircleVisual(pub f32);
@@ -54,7 +54,7 @@ impl PhysicalObject {
             sleeping: SleepingDisabled, // todo: better
             pos,
             circle_visual: CircleVisual(0.0),
-}
+        }
     }
 
     pub fn ball(radius: f32, pos: Vec3) -> Self {

@@ -11,7 +11,9 @@ pub struct RngComponent {
 
 impl Default for RngComponent {
     fn default() -> Self {
-        Self { state: 0x4d59_5df4_d0f3_3173 }
+        Self {
+            state: 0x4d59_5df4_d0f3_3173,
+        }
     }
 }
 

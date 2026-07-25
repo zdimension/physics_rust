@@ -1,8 +1,8 @@
 use crate::CAMERA_Z;
+use crate::config::AppConfig;
+use crate::mouse_tracking::MainCamera;
 use bevy::math::{Vec2, Vec3Swizzles};
 use bevy::prelude::*;
-use crate::mouse_tracking::MainCamera;
-use crate::config::AppConfig;
 
 #[derive(Copy, Clone, Message)]
 pub struct PanEvent {
@@ -40,7 +40,10 @@ pub fn process_pan(
         let delta_scaled = delta * camera.scale.xy() * Vec2::new(1.0, -1.0);
         if let Some(v) = *last_delta {
             let old_total = *speed_stat;
-            let (mut new_total, mut new_time) = (old_total.0 + (delta_scaled - v), old_total.1 + time.delta_secs());
+            let (mut new_total, mut new_time) = (
+                old_total.0 + (delta_scaled - v),
+                old_total.1 + time.delta_secs(),
+            );
             if new_time > 0.01 {
                 *pan_speed = Some(new_total / new_time);
                 new_total = Vec2::ZERO;
@@ -49,8 +52,7 @@ pub fn process_pan(
             *speed_stat = (new_total, new_time);
         }
         *last_delta = Some(delta_scaled);
-        camera.translation =
-            (orig_camera_pos + delta_scaled).extend(CAMERA_Z);
+        camera.translation = (orig_camera_pos + delta_scaled).extend(CAMERA_Z);
     }
 }
 

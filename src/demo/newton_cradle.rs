@@ -50,8 +50,7 @@ pub fn init(commands: &mut ChildSpawnerCommands) {
 
         commands.spawn((
             JointCollisionDisabled,
-            RevoluteJoint::new(anchor, ball)
-                .with_local_anchor2(Vec2::Y * PENDULUM_LENGTH),
+            RevoluteJoint::new(anchor, ball).with_local_anchor2(Vec2::Y * PENDULUM_LENGTH),
         ));
     }
 }

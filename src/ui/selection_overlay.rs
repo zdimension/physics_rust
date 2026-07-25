@@ -1,14 +1,14 @@
-use bevy::math::{Vec2, Vec3Swizzles};
-use bevy::prelude::*;
-use crate::mouse_tracking::{MainCamera, MousePosWorld};
-use crate::lyon_compat::{Fill, Shape, ShapeBundle, Stroke};
 use crate::lyon_compat::GeometryBuilder;
 use crate::lyon_compat::RectangleOrigin;
 use crate::lyon_compat::shapes;
+use crate::lyon_compat::{Fill, Shape, ShapeBundle, Stroke};
+use crate::mouse_tracking::{MainCamera, MousePosWorld};
+use bevy::math::{Vec2, Vec3Swizzles};
+use bevy::prelude::*;
 use std::f32::consts::{PI, TAU};
 
-use crate::tools::rotate::ROTATE_HELPER_RADIUS;
 use crate::FOREGROUND_Z;
+use crate::tools::rotate::ROTATE_HELPER_RADIUS;
 
 #[derive(Copy, Clone, PartialEq)]
 pub enum Overlay {
@@ -215,10 +215,12 @@ fn draw_rotate_overlay(
     const RESOLUTION: u32 = 96;
     let helper_radius = scale * ROTATE_HELPER_RADIUS;
 
-    gizmos.circle_2d(
-        Isometry2d::new(center, Rot2::IDENTITY), 
-        helper_radius, 
-        Color::srgba(1.0, 1.0, 1.0, 0.68))
+    gizmos
+        .circle_2d(
+            Isometry2d::new(center, Rot2::IDENTITY),
+            helper_radius,
+            Color::srgba(1.0, 1.0, 1.0, 0.68),
+        )
         .resolution(64);
     draw_absolute_rotation_arc(gizmos, center, helper_radius, scale, current_rot);
 
@@ -234,7 +236,9 @@ fn draw_rotate_overlay(
         return GeometryBuilder::new().build();
     }
 
-    let segments = ((delta_angle.abs() / TAU) * RESOLUTION as f32).ceil().max(1.0) as u32;
+    let segments = ((delta_angle.abs() / TAU) * RESOLUTION as f32)
+        .ceil()
+        .max(1.0) as u32;
     let arc_points = (0..=segments).map(|i| {
         let progress = i as f32 / segments as f32;
         let angle = start_angle + delta_angle * progress;
@@ -242,9 +246,10 @@ fn draw_rotate_overlay(
     });
 
     arc_points
-        .fold(GeometryBuilder::new().begin(Vec2::ZERO), |builder, point| {
-            builder.line_to(point)
-        })
+        .fold(
+            GeometryBuilder::new().begin(Vec2::ZERO),
+            |builder, point| builder.line_to(point),
+        )
         .close()
         .build()
 }

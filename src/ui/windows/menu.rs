@@ -14,6 +14,7 @@ use bevy::math::Vec3Swizzles;
 use bevy::camera::primitives::Aabb;
 use bevy::window::PrimaryWindow;
 use crate::mouse_tracking::MainCamera;
+use crate::tools::add_object::{despawn_attachment_links, AttachmentLinks};
 
 use crate::ui::windows::object::appearance::AppearanceWindow;
 use crate::ui::windows::object::collisions::CollisionsWindow;
@@ -64,6 +65,7 @@ impl MenuWindow {
             Option<&MotorComponent>,
             Option<&SpringObject>,
             Option<&SpringEndHandle>,
+            Option<&AttachmentLinks>,
         )>,
         mut cameras: Query<&mut Transform, With<MainCamera>>,
         mut zoom2scene: MessageWriter<ZoomToScene>
@@ -143,6 +145,7 @@ impl MenuWindow {
                             let info = entity_info.get(id).expect("Missing entity info");
 
                             if item!("Erase", erase) {
+                                despawn_attachment_links(commands, info.8);
                                 commands.entity(id).despawn();
                             }
                             if item!("Mirror", mirror) {}

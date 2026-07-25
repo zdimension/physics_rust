@@ -1,23 +1,26 @@
 use crate::mouse::select;
 use crate::mouse::select::SelectEvent;
-use crate::tools::drag::{DragObject, DragState, DragTarget};
-use crate::tools::pan::PanState;
-use crate::tools::r#move::MoveState;
-use crate::tools::rotate::RotateState;
-use crate::tools::zoom::ZoomState;
-use crate::tools::ToolEnum;
-use crate::ui::{PointerToolState, SceneState, SelectionState};
-use crate::ui::images::AppIcons;
-use crate::{CustomForce, InvTransformPoint, UsedMouseButton};
-use bevy::math::Vec2;
-use bevy::prelude::{ChildOf, Commands, Entity, GlobalTransform, Message, MessageReader, MessageWriter, Query, Res, ResMut, Transform, With, Without};
 use crate::mouse_tracking::{MainCamera, MousePosWorld};
-use crate::objects::spring::{self, SpringEnd, SpringPlacementState};
 use crate::objects::ColorComponent;
+use crate::objects::spring::{self, SpringEnd, SpringPlacementState};
 use crate::palette::PaletteConfig;
 use crate::rng::RngComponent;
+use crate::tools::ToolEnum;
 use crate::tools::add_object::DepthSorter;
+use crate::tools::drag::{DragObject, DragState, DragTarget};
+use crate::tools::r#move::MoveState;
+use crate::tools::pan::PanState;
+use crate::tools::rotate::RotateState;
+use crate::tools::zoom::ZoomState;
+use crate::ui::images::AppIcons;
+use crate::ui::{PointerToolState, SceneState, SelectionState};
+use crate::{CustomForce, InvTransformPoint, UsedMouseButton};
 use avian2d::{math::*, prelude::*};
+use bevy::math::Vec2;
+use bevy::prelude::{
+    ChildOf, Commands, Entity, GlobalTransform, Message, MessageReader, MessageWriter, Query, Res,
+    ResMut, Transform, With, Without,
+};
 
 #[derive(Message)]
 pub struct MouseLongOrMovedWriteback {
@@ -46,7 +49,15 @@ pub fn mouse_long_or_moved(
     mut pointer_state: ResMut<PointerToolState>,
     selection_state: Res<SelectionState>,
     scene_state: Res<SceneState>,
-    query: Query<(&GlobalTransform, &Position, &Rotation, Option<&RigidBody>), Without<MainCamera>>,
+    query: Query<
+        (
+            &GlobalTransform,
+            Option<&Position>,
+            Option<&Rotation>,
+            Option<&RigidBody>,
+        ),
+        Without<MainCamera>,
+    >,
     mut commands: Commands,
     mut select_mouse: MessageWriter<SelectEvent>,
     mouse_pos: Res<MousePosWorld>,
@@ -57,11 +68,11 @@ pub fn mouse_long_or_moved(
     mut z: ResMut<DepthSorter>,
     draw_objects: Query<Entity, With<crate::DrawObject>>,
 ) {
-    use crate::tools::ToolEnum::*;
     use crate::UsedMouseButton;
+    use crate::tools::ToolEnum::*;
+    use avian2d::{math::*, prelude::*};
     use bevy::log::info;
     use bevy::math::Vec3Swizzles;
-    use avian2d::{math::*, prelude::*};
     for MouseLongOrMoved(hover_tool, pos, click_pos_screen, button) in events.read() {
         let clickpos = *pos;
         let click_pos_screen = *click_pos_screen;
@@ -180,7 +191,9 @@ pub fn mouse_long_or_moved(
                         })));
                     }
                     (Rotate(None), Some(under), _) => {
-                        let (_, _, rot, body) = query.get(under).unwrap();
+                        let (_, _, Some(rot), body) = query.get(under).unwrap() else {
+                            continue;
+                        };
                         info!("start rotate {:?}", under);
                         *ui_button = Some(Rotate(Some(RotateState {
                             orig_obj_rot: rot.as_radians(),
@@ -197,19 +210,23 @@ pub fn mouse_long_or_moved(
                         );
                     }
                     (_, Some(under), Some(sel)) if under == sel => {
-                        let (_, pos, _, body) = query.get(under).unwrap();
+                        let (transform, _, _, body) = query.get(under).unwrap();
                         *ui_button = Some(Move(Some(MoveState {
-                            obj_delta: pos.0 - curpos,
+                            obj_delta: transform.translation_vec3a().xy() - curpos,
                         })));
                         if body.is_some() {
                             commands.entity(under).insert(RigidBody::Static);
                         }
                     }
                     (Box(None), _, _) => {
-                        *ui_button = Some(Box(Some(spawn_draw_object(&mut commands, &draw_objects))));
+                        *ui_button =
+                            Some(Box(Some(spawn_draw_object(&mut commands, &draw_objects))));
                     }
                     (Circle(None), _, _) => {
-                        *ui_button = Some(Circle(Some(spawn_draw_object(&mut commands, &draw_objects))));
+                        *ui_button = Some(Circle(Some(spawn_draw_object(
+                            &mut commands,
+                            &draw_objects,
+                        ))));
                     }
                     (tool, _, _) => {
                         dbg!(tool);

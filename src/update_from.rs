@@ -24,7 +24,9 @@ impl<T: SettingComponent> UpdateFrom<T> {
             UpdateFrom::Entity(e, _) => *e,
         };
         loop {
-            let Ok((p, col)) = parents.get(root) else { return None; };
+            let Ok((p, col)) = parents.get(root) else {
+                return None;
+            };
             if let Some(col) = col {
                 return Some((root, col.get()));
             }

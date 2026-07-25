@@ -1,9 +1,11 @@
 use bevy::prelude::*;
-use bevy_prototype_lyon::geometry::Geometry;
 pub use bevy_prototype_lyon::entity::Shape;
-use bevy_prototype_lyon::prelude::tess::path::{math::point, path::Builder, Path};
+use bevy_prototype_lyon::geometry::Geometry;
+use bevy_prototype_lyon::prelude::tess::path::{Path, math::point, path::Builder};
 
-pub use bevy_prototype_lyon::prelude::{shapes, FillOptions, RectangleOrigin, ShapePlugin, StrokeOptions};
+pub use bevy_prototype_lyon::prelude::{
+    FillOptions, RectangleOrigin, ShapePlugin, StrokeOptions, shapes,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Component)]
 pub struct Fill {
@@ -115,7 +117,10 @@ impl GeometryBuilder {
 }
 
 pub fn sync_draw_components(
-    mut shapes: Query<(&mut Shape, Option<&Fill>, Option<&Stroke>), Or<(Changed<Fill>, Changed<Stroke>)>>,
+    mut shapes: Query<
+        (&mut Shape, Option<&Fill>, Option<&Stroke>),
+        Or<(Changed<Fill>, Changed<Stroke>)>,
+    >,
 ) {
     for (mut shape, fill, stroke) in shapes.iter_mut() {
         if let Some(fill) = fill {

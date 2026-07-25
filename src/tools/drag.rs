@@ -1,14 +1,14 @@
+use crate::mouse_tracking::MainCamera;
+use crate::{FOREGROUND_Z, InvTransformPoint};
+use avian2d::prelude::*;
 use bevy::math::Vec2;
 use bevy::prelude::*;
-use crate::mouse_tracking::MainCamera;
-use avian2d::prelude::*;
-use crate::{FOREGROUND_Z, InvTransformPoint};
 
 #[derive(Copy, Clone, Debug)]
 pub struct DragState {
     pub entity: Entity,
     pub grab_local_point: Vec2,
-    pub drag_entity: Entity
+    pub drag_entity: Entity,
 }
 
 #[derive(Copy, Clone, Message)]
@@ -71,7 +71,10 @@ pub fn update_drag_target(
 
 pub fn apply_drag_force(
     drag_targets: Query<&DragTarget, With<DragObject>>,
-    mut drag_ent: Query<(&Position, &Rotation, &ColliderMassProperties, Forces), Without<MainCamera>>,
+    mut drag_ent: Query<
+        (&Position, &Rotation, &ColliderMassProperties, Forces),
+        Without<MainCamera>,
+    >,
     mut gizmos: Gizmos,
     config: Res<DragConfig>,
     cameras: Query<&Transform, With<MainCamera>>,
@@ -98,7 +101,11 @@ pub fn apply_drag_force(
         } else {
             forces.apply_force_at_point(force, attachment_point);
         }
-        gizmos.line(target.mouse_pos.extend(FOREGROUND_Z), attachment_point.extend(FOREGROUND_Z), Color::WHITE);
+        gizmos.line(
+            target.mouse_pos.extend(FOREGROUND_Z),
+            attachment_point.extend(FOREGROUND_Z),
+            Color::WHITE,
+        );
     }
 }
 

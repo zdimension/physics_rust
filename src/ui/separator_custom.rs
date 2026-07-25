@@ -1,4 +1,4 @@
-use bevy_egui::egui::{vec2, Response, Sense, Ui, Widget};
+use bevy_egui::egui::{Response, Sense, Ui, Widget, vec2};
 
 pub struct SeparatorCustom {
     spacing: f32,

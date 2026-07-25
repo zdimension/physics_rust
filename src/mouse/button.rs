@@ -1,29 +1,29 @@
-use bevy::log::info;
-use bevy::ecs::system::SystemParam;
-use bevy::prelude::*;
-use std::time::Duration;
-use bevy_egui::EguiContexts;
 use crate::mouse_tracking::{MainCamera, MousePos, MousePosWorld};
 use avian2d::{math::*, prelude::*};
+use bevy::ecs::system::SystemParam;
+use bevy::log::info;
+use bevy::prelude::*;
+use bevy_egui::EguiContexts;
+use std::time::Duration;
 
 use pan::PanState;
 
 use crate::mouse::r#move::MouseLongOrMoved;
-use crate::mouse::select::{SelectEnclosedEvent, SelectionConfig, SelectUnderMouseEvent};
+use crate::mouse::select::{SelectEnclosedEvent, SelectUnderMouseEvent, SelectionConfig};
+use crate::objects::spring::{FinishSpringEvent, UpdateSpringPreviewEvent};
 use crate::tools::add_object::{AddHingeEvent, AddObjectEvent};
+use crate::tools::r#move::MoveEvent;
 use crate::tools::pan;
 use crate::tools::pan::PanEvent;
-use crate::tools::r#move::MoveEvent;
 use crate::tools::rotate::RotateEvent;
 use crate::tools::zoom::ZoomEvent;
-use crate::objects::spring::{FinishSpringEvent, UpdateSpringPreviewEvent};
 use crate::ui::selection_overlay::{Overlay, OverlayState};
 use crate::ui::{EntitySelection, PointerToolState, SelectionState, ToolboxState};
 //use crate::Despawn;
-use crate::tools::drag::{DragEvent, DragObject};
-use crate::{CustomForceDespawn, ToRot};
 use crate::UnfreezeEntityEvent;
 use crate::UsedMouseButton;
+use crate::tools::drag::DragEvent;
+use crate::{CustomForceDespawn, ToRot};
 
 #[derive(SystemParam)]
 pub struct ToolInteractionState<'w> {
@@ -46,7 +46,7 @@ pub fn left_release(
     mut ev_spring_finish: MessageWriter<FinishSpringEvent>,
     mut overlay: ResMut<OverlayState>,
     selection_config: Res<SelectionConfig>,
-    drag: Query<(Entity), With<DragObject>>,
+    rigid_bodies: Query<(), With<RigidBody>>,
     cameras: Query<&Transform, With<MainCamera>>,
     mut ev_zoom: MessageWriter<ZoomEvent>,
 ) {
@@ -82,7 +82,9 @@ pub fn left_release(
             if pressed {
                 break 'thing;
             }
-            let Some((_at, click_pos, click_pos_screen)) = *state_pos else { break 'thing; };
+            let Some((_at, click_pos, click_pos_screen)) = *state_pos else {
+                break 'thing;
+            };
             let selected = state_button.take();
             info!("resetting state");
             *state_pos = None;
@@ -100,18 +102,20 @@ pub fn left_release(
                     commands.entity(ent).despawn();
                 }
                 Rotate(Some(state)) => {
-                    commands
-                        .entity(state.overlay_ent)
-                        .despawn();
+                    commands.entity(state.overlay_ent).despawn();
                 }
                 Drag(Some(state)) => {
-                    commands.entity(state.drag_entity).insert(CustomForceDespawn);
+                    commands
+                        .entity(state.drag_entity)
+                        .insert(CustomForceDespawn);
                 }
                 _ => {}
             }
             match tool {
                 Move(Some(_)) | Rotate(Some(_)) => {
-                    if let Some(EntitySelection { entity }) = selection_state.selected_entity {
+                    if let Some(EntitySelection { entity }) = selection_state.selected_entity
+                        && rigid_bodies.contains(entity)
+                    {
                         unfreeze.write(UnfreezeEntityEvent { entity });
                     }
                 }
@@ -357,8 +361,14 @@ pub fn left_pressed(
                     }
                 }
             } else if mouse_button_input.just_pressed(button.into())
-                && !egui_ctx.ctx_mut().expect("primary egui context").is_using_pointer()
-                && !egui_ctx.ctx_mut().expect("primary egui context").is_pointer_over_area()
+                && !egui_ctx
+                    .ctx_mut()
+                    .expect("primary egui context")
+                    .is_using_pointer()
+                && !egui_ctx
+                    .ctx_mut()
+                    .expect("primary egui context")
+                    .is_pointer_over_area()
             {
                 info!("button pressed ({:?})", button);
                 *state_button = Some(tool);

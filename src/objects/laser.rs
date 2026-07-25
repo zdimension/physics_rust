@@ -1,16 +1,16 @@
 use std::fmt::{Debug, Formatter};
 
-use bevy::math::{EulerRot, Vec2, Vec3, Vec3Swizzles};
-use bevy::prelude::*;
-use bevy_egui::egui::ecolor::Hsva;
 use crate::lyon_compat::GeometryBuilder;
 use crate::lyon_compat::ShapeBundle;
 use crate::lyon_compat::shapes;
 use avian2d::{math::*, prelude::*};
+use bevy::math::{EulerRot, Vec2, Vec3, Vec3Swizzles};
+use bevy::prelude::*;
+use bevy_egui::egui::ecolor::Hsva;
 use num_traits::float::FloatConst;
 
-use crate::objects::phy_obj::RefractiveIndex;
 use crate::objects::ColorComponent;
+use crate::objects::phy_obj::RefractiveIndex;
 use crate::tools::add_object::query_only_real;
 
 #[derive(Component)]
@@ -46,8 +46,17 @@ impl Debug for LaserRay {
         write!(
             f,
             "{:2} ({:2}): {{ {:.3}, {:.1}Â°, L={:.1}m, {:.1}%, w: {:.1}m, n: {:?}, {:?}, S: {:.1}Â°, E: {:.1}Â° }}",
-            self.num, self.source, self.start, self.angle.to_degrees(), self.length, self.strength * 100.0, self.width, self.refractive_index, self.kind,
-            self.start_angle.to_degrees(), self.end_angle.to_degrees()
+            self.num,
+            self.source,
+            self.start,
+            self.angle.to_degrees(),
+            self.length,
+            self.strength * 100.0,
+            self.width,
+            self.refractive_index,
+            self.kind,
+            self.start_angle.to_degrees(),
+            self.end_angle.to_degrees()
         )
     }
 }
@@ -141,13 +150,11 @@ impl<'a, 'w, 's, ObjInfo: Fn(Entity) -> ObjectInfo> LaserCompute<'a, 'w, 's, Obj
             },
         );
 
-        if let Some(
-            RayHitData {
-                entity: ent,
-                distance: toi,
-                normal
-            }
-        ) = intersection
+        if let Some(RayHitData {
+            entity: ent,
+            distance: toi,
+            normal,
+        }) = intersection
         {
             ray.length = toi;
 
@@ -183,7 +190,7 @@ impl<'a, 'w, 's, ObjInfo: Fn(Entity) -> ObjectInfo> LaserCompute<'a, 'w, 's, Obj
                     } else {
                         true
                     }
-                }
+                },
             );
 
             let incidence_angle = (f32::PI() + ray.angle) - normal_angle;
@@ -329,7 +336,13 @@ fn compute_new_angle(incidence: f32, index_ray: f32, index_new: f32) -> Option<f
 const LASER_WIDTH: f32 = 0.2;
 
 pub fn draw_lasers(
-    lasers: Query<(&Transform, &GlobalTransform, &LaserBundle, &ColorComponent, &Rotation)>,
+    lasers: Query<(
+        &Transform,
+        &GlobalTransform,
+        &LaserBundle,
+        &ColorComponent,
+        &Rotation,
+    )>,
     changed_lasers: Query<
         Entity,
         Or<(
@@ -376,7 +389,7 @@ pub fn draw_lasers(
             false
         });
         let start_index = match object_other {
-            Some(ent) => refr.get(ent).unwrap().0 .0,
+            Some(ent) => refr.get(ent).unwrap().0.0,
             None => 1.0,
         };
 

@@ -1,6 +1,6 @@
+use avian2d::prelude::{Position, Rotation};
 use bevy::math::{Quat, Vec2};
 use bevy::prelude::{Entity, Message, MessageReader, Query, Transform};
-use avian2d::prelude::{Position, Rotation};
 
 #[derive(Copy, Clone, Message)]
 pub struct RotateEvent {

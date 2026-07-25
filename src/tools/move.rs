@@ -1,7 +1,9 @@
 use avian2d::dynamics::rigid_body::{AngularVelocity, LinearVelocity};
 use avian2d::prelude::Position;
 use bevy::math::Vec2;
-use bevy::prelude::{Entity, Message, MessageReader, Query, Transform};
+use bevy::prelude::{Entity, Message, MessageReader, MessageWriter, Query, Transform, With};
+
+use crate::tools::add_object::{AttachmentKind, PlaceAttachmentEvent};
 
 #[derive(Copy, Clone, Message)]
 pub struct MoveEvent {
@@ -11,9 +13,20 @@ pub struct MoveEvent {
 
 pub fn process_move(
     mut events: MessageReader<MoveEvent>,
-    mut query: Query<(&mut Position, &mut Transform, &mut LinearVelocity, &mut AngularVelocity)>,
+    attachable: Query<(), With<AttachmentKind>>,
+    mut place_attachment: MessageWriter<PlaceAttachmentEvent>,
+    mut query: Query<(
+        &mut Position,
+        &mut Transform,
+        &mut LinearVelocity,
+        &mut AngularVelocity,
+    )>,
 ) {
     for MoveEvent { entity, pos } in events.read().copied() {
+        if attachable.contains(entity) {
+            place_attachment.write(PlaceAttachmentEvent { entity, pos });
+            continue;
+        }
         let Ok((mut position, mut transform, mut vel, mut ang_vel)) = query.get_mut(entity) else {
             continue;
         };

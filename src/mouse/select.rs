@@ -165,7 +165,8 @@ pub fn process_select_under_mouse(
             (entity, z)
         });
 
-        let spring_selected = spring::find_spring_under_point(pos, &spring_objects, &body_positions);
+        let spring_selected =
+            spring::find_spring_under_point(pos, &spring_objects, &body_positions);
         let selected = match (spatial_selected, spring_selected) {
             (Some(spatial), Some(spring)) if spring.1 >= spatial.1 => Some(spring.0),
             (Some(spatial), _) => Some(spatial.0),

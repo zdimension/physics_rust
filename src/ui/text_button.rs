@@ -1,4 +1,7 @@
-use bevy_egui::egui::{pos2, NumExt, Response, Sense, TextStyle, TextWrapMode, Ui, Widget, WidgetInfo, WidgetText, WidgetType};
+use bevy_egui::egui::{
+    NumExt, Response, Sense, TextStyle, TextWrapMode, Ui, Widget, WidgetInfo, WidgetText,
+    WidgetType, pos2,
+};
 
 pub struct TextButton {
     text: WidgetText,
@@ -25,13 +28,19 @@ impl Widget for TextButton {
         let button_padding = ui.spacing().button_padding;
         let text_wrap_width = ui.available_width() - button_padding.x * 2.0;
 
-        let text = text.into_galley(ui, Some(TextWrapMode::Extend), text_wrap_width, TextStyle::Button);
+        let text = text.into_galley(
+            ui,
+            Some(TextWrapMode::Extend),
+            text_wrap_width,
+            TextStyle::Button,
+        );
         let mut desired_size = text.size();
         desired_size.y = desired_size.y.at_least(ui.spacing().interact_size.y);
         desired_size += button_padding * 2.0;
 
         let (rect, response) = ui.allocate_at_least(desired_size, Sense::click());
-        response.widget_info(|| WidgetInfo::labeled(WidgetType::Button, ui.is_enabled(), text.text()));
+        response
+            .widget_info(|| WidgetInfo::labeled(WidgetType::Button, ui.is_enabled(), text.text()));
 
         if ui.is_rect_visible(rect) {
             let visuals = ui.style().interact(&response);

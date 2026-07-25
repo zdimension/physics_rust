@@ -89,16 +89,14 @@ macro_rules! tools_enum {
     }
 }
 
+use crate::objects::spring::SpringPlacementState;
 use crate::tools::drag::DragState;
-use crate::tools::pan::PanState;
 use crate::tools::r#move::MoveState;
+use crate::tools::pan::PanState;
 use crate::tools::rotate::RotateState;
 use crate::tools::zoom::ZoomState;
-use crate::objects::spring::SpringPlacementState;
 use bevy::prelude::*;
-use bevy_egui::{egui::TextureId, EguiTextureHandle, EguiUserTextures};
-
-
+use bevy_egui::{EguiTextureHandle, EguiUserTextures, egui::TextureId};
 
 tools_enum! {
     move => Move(Option<MoveState>),
@@ -107,7 +105,7 @@ tools_enum! {
 
     box => Box(Option<Entity>),
     circle => Circle(Option<Entity>),
-    
+
     spring => Spring(Option<SpringPlacementState>),
     fixjoint => Fix(()),
     hinge => Hinge(()),
