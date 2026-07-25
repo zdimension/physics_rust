@@ -2,15 +2,13 @@ use avian2d::prelude::*;
 use bevy::math::{Vec2, Vec3};
 use bevy::prelude::*;
 
-use crate::lyon_compat::{shapes, Fill, GeometryBuilder, ShapeBundle, Stroke};
 use crate::mouse::select;
 use crate::objects::{ColorComponent, SettingComponent, SpriteOnly};
 use crate::palette::{PaletteConfig, ToRgba};
 use crate::tools::add_object::{query_only_real, DepthSorter};
 use crate::ui::images::AppIcons;
-use crate::ui::{EntitySelection, SelectionState};
 use crate::update_from::UpdateFrom;
-use crate::{make_stroke, InvTransformPoint, BORDER_THICKNESS};
+use crate::InvTransformPoint;
 
 const DEFAULT_SPRING_CONSTANT_PER_KG: f32 = 100.0;
 const DEFAULT_DAMPING: f32 = 0.2;
@@ -204,17 +202,18 @@ pub fn spawn_spring(
                     spring: spring_entity,
                     end,
                 },
-                ShapeBundle::new(
-                    GeometryBuilder::build_as(&shapes::Circle {
-                        radius: 0.5,
-                        ..Default::default()
-                    }),
-                    Transform::from_translation(Vec3::Z * endpoint_local_z(end, spring_z, endpoint_a_z, endpoint_b_z))
-                        .with_scale(endpoint_scale),
-                    Visibility::Inherited,
-                ),
-                crate::make_fill(Color::WHITE),
-                make_stroke(Color::BLACK, BORDER_THICKNESS),
+                Sprite {
+                    image: images.spring_attachment.clone(),
+                    custom_size: Some(Vec2::ONE),
+                    ..Default::default()
+                },
+                Transform::from_translation(Vec3::Z * endpoint_local_z(
+                    end,
+                    spring_z,
+                    endpoint_a_z,
+                    endpoint_b_z,
+                ))
+                .with_scale(endpoint_scale),
                 SpriteOnly,
                 Collider::circle(0.5),
                 Sensor,
@@ -362,7 +361,6 @@ fn update_spring_visuals(
     mut commands: Commands,
     images: Res<AppIcons>,
     palette: Res<PaletteConfig>,
-    selection_state: Res<SelectionState>,
     body_transforms: Query<(&Position, &Rotation)>,
     color_sources: Query<(Option<&ChildOf>, Option<Ref<ColorComponent>>)>,
     mut springs: Query<
@@ -380,8 +378,7 @@ fn update_spring_visuals(
             &SpringEndpointVisual,
             &ChildOf,
             &mut Transform,
-            &mut Fill,
-            &mut Stroke,
+            &mut Sprite,
         ),
         (Without<SpringObject>, Without<SpringUnit>),
     >,
@@ -437,7 +434,7 @@ fn update_spring_visuals(
             sprite.custom_size = Some(Vec2::new(unit_len, spring.unit_size));
         }
 
-        for (endpoint_entity, endpoint, parent, mut endpoint_transform, mut fill, mut stroke) in
+        for (endpoint_entity, endpoint, parent, mut endpoint_transform, mut sprite) in
             &mut endpoints
         {
             if parent.parent() != spring_entity {
@@ -450,7 +447,7 @@ fn update_spring_visuals(
             endpoint_transform.translation =
                 Vec3::new(local_x, 0.0, endpoint_transform.translation.z);
             endpoint_transform.scale = Vec3::splat(endpoint_diameter(spring.unit_size));
-            fill.color = endpoint_color(
+            sprite.color = endpoint_color(
                 match endpoint.end {
                     SpringEndIndex::A => spring.end_a,
                     SpringEndIndex::B => spring.end_b,
@@ -459,18 +456,6 @@ fn update_spring_visuals(
                 &color_sources,
                 &palette,
             );
-            stroke.color = if selection_state.selected_entity
-                == Some(EntitySelection {
-                    entity: endpoint_entity,
-                })
-                || selection_state.selected_entity
-                    == Some(EntitySelection {
-                        entity: spring_entity,
-                    }) {
-                Color::WHITE
-            } else {
-                Color::BLACK
-            };
         }
     }
 }

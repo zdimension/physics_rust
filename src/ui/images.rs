@@ -126,6 +126,7 @@ image_set!(
         hinge_balls,
         hinge_inner,
         laserpen,
-        spring
+        spring,
+        spring_attachment
     ]
 );
