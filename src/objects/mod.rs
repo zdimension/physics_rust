@@ -12,7 +12,7 @@ use bevy_egui::egui::ecolor::Hsva;
 use num_traits::FloatConst;
 use std::marker::PhantomData;
 
-pub(crate) mod hinge;
+pub(crate) mod axle;
 pub(crate) mod laser;
 pub(crate) mod phy_obj;
 

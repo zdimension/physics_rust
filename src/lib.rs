@@ -24,7 +24,7 @@ use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use crate::config::AppConfig;
 use crate::skin::SkinConfig;
 use mouse::{button, wheel};
-use objects::hinge::HingeObject;
+use objects::axle::AxleObject;
 use objects::laser::LaserRays;
 use objects::{ColorComponent, SettingComponent, laser};
 use palette::{PaletteConfig, PaletteList, PaletteLoader};
@@ -98,11 +98,11 @@ struct CollideHooks<'w, 's> {
     query: Query<'w, 's, CollideHookData<'static>>,
 }
 
-type CollideHookData<'a> = (&'a HingeObject, &'a MultibodyJoint);
+type CollideHookData<'a> = (&'a AxleObject, &'a MultibodyJoint);
 
 impl<'w, 's> BevyPhysicsHooks for CollideHooks<'w, 's> {
     fn filter_contact_pair(&self, context: PairFilterContextView) -> Option<SolverFlags> {
-        fn check_hinge_contains(
+        fn check_axle_contains(
             query: &Query<CollideHookData<'_>>,
             first: Entity,
             second: Entity,
@@ -117,10 +117,10 @@ impl<'w, 's> BevyPhysicsHooks for CollideHooks<'w, 's> {
         let first = context.collider1();
         let second = context.collider2();
 
-        let hinge_between = check_hinge_contains(&self.query, first, second)
-            || check_hinge_contains(&self.query, second, first);
+        let axle_between = check_axle_contains(&self.query, first, second)
+            || check_axle_contains(&self.query, second, first);
 
-        if hinge_between {
+        if axle_between {
             None
         } else {
             Some(SolverFlags::COMPUTE_IMPULSES)

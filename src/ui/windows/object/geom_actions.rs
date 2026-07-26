@@ -1,4 +1,4 @@
-use crate::tools::add_object::{AddHingeEvent, AddObjectEvent};
+use crate::tools::add_object::{AddAxleEvent, AddObjectEvent};
 use crate::ui::images::GuiIcons;
 use crate::ui::{InitialPos, Subwindow};
 use bevy::prelude::{info, Commands, Component, Entity, MessageWriter, ChildOf, Query, Res, With};
@@ -34,7 +34,7 @@ impl GeometryActionsWindow {
                         .clicked()
                     {
                         info!("Add center axle {:?}", parent.parent());
-                        add_obj.write(AddObjectEvent::Hinge(AddHingeEvent::AddCenter(
+                        add_obj.write(AddObjectEvent::Axle(AddAxleEvent::AddCenter(
                             parent.parent(),
                         )));
                     }

@@ -12,7 +12,7 @@ use crate::mouse::r#move::MouseLongOrMoved;
 use crate::mouse::select::{SelectEnclosedEvent, SelectUnderMouseEvent, SelectionConfig};
 use crate::objects::spring::{FinishSpringEvent, UpdateSpringPreviewEvent};
 use crate::tools::add_object::{
-    AddHingeEvent, AddObjectEvent, AttachmentKind, PlaceAttachmentEvent,
+    AddAxleEvent, AddObjectEvent, AttachmentKind, PlaceAttachmentEvent,
 };
 use crate::tools::r#move::MoveEvent;
 use crate::tools::pan;
@@ -184,8 +184,8 @@ pub fn left_release(
                 Fix(()) => {
                     add_obj.write(AddObjectEvent::Fix(pos));
                 }
-                Hinge(()) => {
-                    add_obj.write(AddObjectEvent::Hinge(AddHingeEvent::Mouse(pos)));
+                Axle(()) => {
+                    add_obj.write(AddObjectEvent::Axle(AddAxleEvent::Mouse(pos)));
                 }
                 Laser(()) => {
                     add_obj.write(AddObjectEvent::Laser(pos));

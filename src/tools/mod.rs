@@ -108,7 +108,7 @@ tools_enum! {
 
     spring => Spring(Option<SpringPlacementState>),
     fixjoint => Fix(()),
-    hinge => Hinge(()),
+    hinge => Axle(()),
     tracer => Tracer(()),
     laserpen => Laser(()),
     thruster => Thruster(()),

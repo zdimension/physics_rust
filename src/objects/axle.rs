@@ -1,7 +1,7 @@
 use bevy::prelude::Component;
 
 #[derive(Component)]
-pub struct HingeObject;
+pub struct AxleObject;
 
 #[derive(Component)]
 pub struct FixObject;

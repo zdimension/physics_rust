@@ -122,7 +122,7 @@ pub fn mouse_long_or_moved(
 
                 if matches!(
                     hover_tool,
-                    Move(None) | Rotate(None) | Drag(None) | Fix(()) | Hinge(()) | Tracer(())
+                    Move(None) | Rotate(None) | Drag(None) | Fix(()) | Axle(()) | Tracer(())
                 ) {
                     select_mouse.write(SelectEvent {
                         entity: under_mouse,

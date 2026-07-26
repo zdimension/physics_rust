@@ -4,14 +4,14 @@ use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts};
 use crate::egui_systems;
 
-egui_systems!(HingeWindow::show);
+egui_systems!(AxleWindow::show);
 
 #[derive(Default, Component)]
-pub struct HingeWindow;
+pub struct AxleWindow;
 
-impl HingeWindow {
+impl AxleWindow {
     pub fn show(
-        mut wnds: Query<(Entity, &ChildOf, &mut InitialPos), With<HingeWindow>>,
+        mut wnds: Query<(Entity, &ChildOf, &mut InitialPos), With<AxleWindow>>,
         mut ents: Query<&mut MotorComponent>,
         mut egui_ctx: EguiContexts,
         mut commands: Commands,

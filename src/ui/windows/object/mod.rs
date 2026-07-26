@@ -8,7 +8,7 @@ egui_systems! {
     mod combine_shapes,
     mod controller,
     mod geom_actions,
-    mod hinge,
+    mod axle,
     mod information,
     mod laser,
     mod material,

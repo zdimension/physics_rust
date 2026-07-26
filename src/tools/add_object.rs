@@ -3,7 +3,7 @@ use crate::lyon_compat::ShapeBundle;
 use crate::lyon_compat::shapes;
 use crate::mouse::select::SelectUnderMouseEvent;
 use crate::mouse_tracking::MainCamera;
-use crate::objects::hinge::{FixObject, HingeObject};
+use crate::objects::axle::{FixObject, AxleObject};
 use crate::objects::laser::LaserBundle;
 use crate::objects::phy_obj::PhysicalObject;
 use crate::objects::tracer::TracerObject;
@@ -29,14 +29,14 @@ pub fn query_only_real() -> SpatialQueryFilter {
 }
 
 #[derive(Debug, Clone, Message)]
-pub enum AddHingeEvent {
+pub enum AddAxleEvent {
     Mouse(Vec2),
     AddCenter(Entity),
 }
 
 #[derive(Debug, Clone, Message)]
 pub enum AddObjectEvent {
-    Hinge(AddHingeEvent),
+    Axle(AddAxleEvent),
     Fix(Vec2),
     Circle { center: Vec2, radius: f32 },
     Box { pos: Vec2, size: Vec2 },
@@ -48,7 +48,7 @@ pub enum AddObjectEvent {
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Component)]
 pub enum AttachmentKind {
     Fix,
-    Hinge,
+    Axle,
     Laser,
     Tracer,
 }
@@ -173,13 +173,13 @@ pub fn process_add_object(
                     scene_state.scene,
                 );
             }
-            Hinge(ref ev) => {
-                let Some(placement) = hinge_placement(ev, &query, &spatial_query, &fixes) else {
+            Axle(ref ev) => {
+                let Some(placement) = axle_placement(ev, &query, &spatial_query, &fixes) else {
                     continue;
                 };
 
                 if sensor.get(placement.body1.entity).is_ok() {
-                    info!("Add hinge on sensor; selecting");
+                    info!("Add axle on sensor; selecting");
                     select_mouse.write(SelectUnderMouseEvent {
                         pos: placement.pos,
                         open_menu: false,
@@ -187,7 +187,7 @@ pub fn process_add_object(
                     continue;
                 }
 
-                spawn_hinge_attachment(
+                spawn_axle_attachment(
                     &mut commands,
                     placement,
                     &images,
@@ -240,7 +240,7 @@ pub fn process_place_attachment(
     mut attachment_colors: Query<(
         Entity,
         &ChildOf,
-        Option<&HingeBodyColor>,
+        Option<&AxleBodyColor>,
         Option<&AttachmentSupportColor>,
         Option<&mut Sprite>,
     )>,
@@ -318,7 +318,7 @@ pub fn process_place_attachment(
                 );
                 spawn_fix_joint(&mut commands, event.entity, placement, scene_state.scene)
             }
-            AttachmentKind::Hinge => {
+            AttachmentKind::Axle => {
                 update_attachment_color_sources(
                     event.entity,
                     placement.body1.entity,
@@ -327,7 +327,7 @@ pub fn process_place_attachment(
                     &mut commands,
                     &mut attachment_colors,
                 );
-                spawn_hinge_joint(&mut commands, event.entity, placement, scene_state.scene)
+                spawn_axle_joint(&mut commands, event.entity, placement, scene_state.scene)
             }
             AttachmentKind::Laser => AttachmentLinks::default(),
             AttachmentKind::Tracer => AttachmentLinks::default(),
@@ -381,22 +381,22 @@ fn single_body_placement(
         })
 }
 
-fn hinge_placement(
-    event: &AddHingeEvent,
+fn axle_placement(
+    event: &AddAxleEvent,
     bodies: &Query<(Entity, &GlobalTransform), (With<RigidBody>, Without<MainCamera>)>,
     spatial_query: &SpatialQuery,
     fixes: &Query<(&FixedJoint, &AttachmentJoint), With<FixObject>>,
 ) -> Option<AttachmentPlacement> {
     match *event {
-        AddHingeEvent::Mouse(pos) => attachment_placement(
+        AddAxleEvent::Mouse(pos) => attachment_placement(
             pos,
-            AttachmentKind::Hinge,
+            AttachmentKind::Axle,
             None,
             bodies,
             spatial_query,
             fixes,
         ),
-        AddHingeEvent::AddCenter(entity) => {
+        AddAxleEvent::AddCenter(entity) => {
             let Ok((_, transform)) = bodies.get(entity) else {
                 info!("Can't find transform for entity (add center axle)");
                 return None;
@@ -531,7 +531,7 @@ fn spawn_fix_attachment(
     visual
 }
 
-fn spawn_hinge_attachment(
+fn spawn_axle_attachment(
     commands: &mut Commands,
     placement: AttachmentPlacement,
     images: &AppIcons,
@@ -560,14 +560,14 @@ fn spawn_hinge_attachment(
             Collider::circle(0.5),
             VIRTUAL_LAYER_OBJ,
             Sensor,
-            AttachmentKind::Hinge,
+            AttachmentKind::Axle,
             ColorComponent(color).update_from_this(),
             MotorComponent::default(),
             ChildOf(placement.body1.entity),
         ))
         .with_children(|builder| {
             builder.spawn((
-                HingeBodyColor,
+                AxleBodyColor,
                 Sprite {
                     image: images.hinge_balls.clone(),
                     ..Default::default()
@@ -597,7 +597,7 @@ fn spawn_hinge_attachment(
             }
         })
         .id();
-    let links = spawn_hinge_joint(commands, visual, placement, scene);
+    let links = spawn_axle_joint(commands, visual, placement, scene);
     commands.entity(visual).insert(links);
     visual
 }
@@ -698,7 +698,7 @@ fn spawn_tracer_attachment(
         .id()
 }
 
-fn spawn_hinge_joint(
+fn spawn_axle_joint(
     commands: &mut Commands,
     visual: Entity,
     placement: AttachmentPlacement,
@@ -712,7 +712,7 @@ fn spawn_hinge_joint(
     }
     let joint = commands
         .spawn((
-            HingeObject,
+            AxleObject,
             AttachmentJoint { visual },
             JointCollisionDisabled,
             UpdateFrom::<MotorComponent>::entity(visual),
@@ -777,7 +777,7 @@ fn body2_or_sky_anchor(
 }
 
 #[derive(Component)]
-pub(crate) struct HingeBodyColor;
+pub(crate) struct AxleBodyColor;
 
 #[derive(Component)]
 pub(crate) struct AttachmentSupportColor;
@@ -791,7 +791,7 @@ fn update_attachment_color_sources(
     colors: &mut Query<(
         Entity,
         &ChildOf,
-        Option<&HingeBodyColor>,
+        Option<&AxleBodyColor>,
         Option<&AttachmentSupportColor>,
         Option<&mut Sprite>,
     )>,

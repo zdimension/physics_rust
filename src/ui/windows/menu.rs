@@ -36,7 +36,7 @@ use crate::ui::windows::object::velocities::VelocitiesWindow;
 use crate::ui::windows::scene::background::BackgroundWindow;
 
 use crate::ui::menu_item::MenuItem;
-use crate::ui::windows::object::hinge::HingeWindow;
+use crate::ui::windows::object::axle::AxleWindow;
 
 egui_systems! {
     MenuWindow::show,
@@ -172,7 +172,7 @@ impl MenuWindow {
                                 menu!("Velocities", velocity, VelocitiesWindow);
                             }
                             if info.5.is_some() {
-                                menu!("Axles", hinge, HingeWindow);
+                                menu!("Axles", hinge, AxleWindow);
                             }
                             if info.6.is_some() || info.7.is_some() {
                                 menu!("Springs", /, SpringWindow);

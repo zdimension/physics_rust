@@ -332,7 +332,7 @@ impl Default for ToolboxState {
                 vec![
                     tool!(Spring),
                     tool!(Fix),
-                    tool!(Hinge),
+                    tool!(Axle),
                     tool!(Thruster),
                     tool!(Laser),
                     tool!(Tracer),
