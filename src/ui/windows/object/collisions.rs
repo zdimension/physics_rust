@@ -46,7 +46,7 @@ impl CollisionsWindow {
                         ui.vertical(|ui| {
                             // todo: center vertically
                             if ui
-                                .add(egui::ImageButton::new(SizedTexture::new(gui_icons.arrow_up, [16.0, 32.0])))
+                                .add(egui::Button::image(SizedTexture::new(gui_icons.arrow_up, [16.0, 32.0])))
                                 .clicked()
                             {
                                 let val = groups.memberships.0;
@@ -56,7 +56,7 @@ impl CollisionsWindow {
                                 changed = true;
                             }
                             if ui
-                                .add(egui::ImageButton::new(SizedTexture::new(gui_icons.arrow_down, [16.0, 32.0])))
+                                .add(egui::Button::image(SizedTexture::new(gui_icons.arrow_down, [16.0, 32.0])))
                                 .clicked()
                             {
                                 let val = groups.memberships.0;

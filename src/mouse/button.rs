@@ -387,11 +387,11 @@ pub fn left_pressed(
                 && !egui_ctx
                     .ctx_mut()
                     .expect("primary egui context")
-                    .is_using_pointer()
+                    .egui_is_using_pointer()
                 && !egui_ctx
                     .ctx_mut()
                     .expect("primary egui context")
-                    .is_pointer_over_area()
+                    .is_pointer_over_egui()
             {
                 info!("button pressed ({:?})", button);
                 *state_button = Some(tool);

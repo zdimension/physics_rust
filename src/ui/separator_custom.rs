@@ -1,4 +1,4 @@
-use bevy_egui::egui::{Response, Sense, Ui, Widget, vec2};
+use bevy_egui::egui::{Response, Sense, Ui, Widget, emath::GuiRounding, vec2};
 
 pub struct SeparatorCustom {
     spacing: f32,
@@ -67,12 +67,12 @@ impl Widget for SeparatorCustom {
             if is_horizontal_line {
                 painter.hline(
                     rect.x_range(),
-                    painter.round_to_pixel(rect.center().y),
+                    rect.center().y.round_to_pixels(painter.pixels_per_point()),
                     stroke,
                 );
             } else {
                 painter.vline(
-                    painter.round_to_pixel(rect.center().x),
+                    rect.center().x.round_to_pixels(painter.pixels_per_point()),
                     rect.y_range(),
                     stroke,
                 );

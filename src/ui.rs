@@ -245,7 +245,7 @@ impl<'a> Subwindow for egui::Window<'a> {
         contents: impl FnOnce(&mut Ui, &mut Commands),
     ) {
         let mut open = true;
-        let center = ctx.input(|i| i.screen_rect().size()) / 2.0;
+        let center = ctx.input(|i| i.content_rect().size()) / 2.0;
         let (wnd, begin) = match initial_pos {
             InitialPos::Pos(begin, _) => {
                 (self.pivot(Align2::LEFT_TOP).default_pos(*begin), *begin) // heu... du coup Ã§a marche pas ?

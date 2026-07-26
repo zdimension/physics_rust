@@ -132,7 +132,7 @@ pub fn update_skin(skin: Res<SkinConfig>, mut egui_ctx: EguiContexts) {
     }.into();
 
     let ctx = egui_ctx.ctx_mut().expect("primary egui context");
-    let mut style = ctx.style().deref().clone();
+    let mut style = ctx.global_style().deref().clone();
     style.visuals.window_fill = fill_color;
     style.visuals.panel_fill = fill_color;
     style.visuals.window_stroke.color = border_color;
@@ -150,5 +150,5 @@ pub fn update_skin(skin: Res<SkinConfig>, mut egui_ctx: EguiContexts) {
                 spread: 0,
                 color: Color32::from_black_alpha(96),
             };
-    ctx.set_style(style);
+    ctx.set_global_style(style);
 }

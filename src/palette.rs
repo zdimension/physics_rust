@@ -155,7 +155,7 @@ impl AssetLoader for PaletteLoader {
         reader: &'a mut dyn Reader,
         _settings: &Self::Settings,
         _load_context: &mut LoadContext,
-    ) -> BoxedFuture<'a, Result<Self::Asset, Self::Error>> {
+    ) -> impl ConditionalSendFuture<Output = Result<Self::Asset, Self::Error>> {
         Box::pin(async move {
             let mut buf = Vec::new();
             reader.read_to_end(&mut buf).await?;

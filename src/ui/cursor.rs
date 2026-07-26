@@ -38,7 +38,7 @@ impl FromWorld for ToolCursorCache {
 pub fn check_egui_wants_focus(mut egui_ctx: EguiContexts, mut wants_focus: ResMut<EguiWantsFocus>) {
     let ctx = egui_ctx.ctx_mut().expect("primary egui context");
     wants_focus.set_if_neq(EguiWantsFocus(
-        ctx.is_using_pointer() || ctx.is_pointer_over_area(),
+        ctx.egui_is_using_pointer() || ctx.is_pointer_over_egui(),
     ));
 }
 

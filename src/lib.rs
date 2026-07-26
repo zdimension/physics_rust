@@ -11,7 +11,7 @@ use avian2d::prelude::*;
 use bevy_diagnostic::FrameTimeDiagnosticsPlugin;
 use bevy_egui::egui::epaint::{Hsva, Shadow};
 use bevy_egui::egui::style::Widgets;
-use bevy_egui::egui::{Color32, Rounding, Slider, Ui, emath};
+use bevy_egui::egui::{Color32, CornerRadius, Slider, Ui, emath};
 use bevy_egui::{
     EguiContexts, EguiPlugin, EguiPostUpdateSet, EguiPreUpdateSet,
     EguiStartupSet,
@@ -588,7 +588,7 @@ fn configure_visuals(mut egui_ctx: EguiContexts) -> Result {
     //egui_set.sampler_descriptor = ImageSampler::linear();
     let ctx = egui_ctx.ctx_mut()?;
     let mut visuals = egui::Visuals {
-        window_corner_radius: Rounding::same(3),
+        window_corner_radius: CornerRadius::same(3),
         /*window_shadow: Shadow {
             extrusion: 10.0,
             color: Color32::from_black_alpha(96),
@@ -602,15 +602,13 @@ fn configure_visuals(mut egui_ctx: EguiContexts) -> Result {
         },
         ..Default::default()
     };
-    visuals.widgets.noninteractive.corner_radius = Rounding::same(3);
-    visuals.widgets.inactive.corner_radius = Rounding::same(3);
-    visuals.widgets.hovered.corner_radius = Rounding::same(3);
-    visuals.widgets.active.corner_radius = Rounding::same(3);
-    visuals.widgets.open.corner_radius = Rounding::same(3);
+    visuals.widgets.noninteractive.corner_radius = CornerRadius::same(3);
+    visuals.widgets.inactive.corner_radius = CornerRadius::same(3);
+    visuals.widgets.hovered.corner_radius = CornerRadius::same(3);
+    visuals.widgets.active.corner_radius = CornerRadius::same(3);
+    visuals.widgets.open.corner_radius = CornerRadius::same(3);
     ctx.set_visuals(visuals);
-    let mut style: egui::Style = (*ctx.style()).clone();
-    style.spacing.slider_width = 260.0;
-    ctx.set_style(style);
+    ctx.global_style_mut(|s| s.spacing.slider_width = 260.0);
     Ok(())
 }
 

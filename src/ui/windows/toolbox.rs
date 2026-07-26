@@ -25,7 +25,7 @@ pub fn draw_toolbox(
         .default_size(egui::Vec2::ZERO)
         .frame(Frame {
             inner_margin: Margin::same(3),
-            ..Frame::window(ctx.style().as_ref())
+            ..Frame::window(ctx.global_style().as_ref())
         })
         .show(ctx, |ui| {
             ui.vertical(|ui| {
