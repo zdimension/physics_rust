@@ -1,3 +1,4 @@
+use crate::BORDER_THICKNESS;
 use crate::lyon_compat::GeometryBuilder;
 use crate::lyon_compat::ShapeBundle;
 use crate::lyon_compat::shapes;
@@ -16,10 +17,9 @@ use crate::rng::RngComponent;
 use crate::ui::SceneState;
 use crate::ui::images::AppIcons;
 use crate::update_from::UpdateFrom;
-use crate::{BORDER_THICKNESS, InvTransformPoint};
 use avian2d::prelude::*;
 use bevy::log::info;
-use bevy::math::{Vec2, Vec3, Vec3Swizzles};
+use bevy::math::{Vec2, Vec3};
 use bevy::prelude::*;
 
 const VIRTUAL_LAYER: u32 = 1 << 31;
@@ -75,6 +75,19 @@ pub struct PlaceAttachmentEvent {
 
 const DEFAULT_OBJ_SIZE: f32 = 66.0;
 
+type BodyQuery<'w, 's> = Query<
+    'w,
+    's,
+    (
+        Entity,
+        &'static GlobalTransform,
+        &'static Position,
+        &'static Rotation,
+        &'static Collider,
+    ),
+    (With<RigidBody>, Without<MainCamera>),
+>;
+
 #[derive(Copy, Clone)]
 struct BodyHit {
     entity: Entity,
@@ -97,7 +110,7 @@ enum LaserPlacement {
 
 pub fn process_add_object(
     mut events: MessageReader<AddObjectEvent>,
-    query: Query<(Entity, &GlobalTransform), (With<RigidBody>, Without<MainCamera>)>,
+    query: BodyQuery,
     images: Res<AppIcons>,
     mut commands: Commands,
     mut cameras: Query<&mut Transform, With<MainCamera>>,
@@ -234,7 +247,7 @@ pub fn process_place_attachment(
     mut events: MessageReader<PlaceAttachmentEvent>,
     mut commands: Commands,
     mut attachments: Query<(&AttachmentKind, Option<&AttachmentLinks>, &mut Transform)>,
-    bodies: Query<(Entity, &GlobalTransform), (With<RigidBody>, Without<MainCamera>)>,
+    bodies: BodyQuery,
     spatial_query: SpatialQuery,
     fixes: Query<(&FixedJoint, &AttachmentJoint), With<FixObject>>,
     mut z: ResMut<DepthSorter>,
@@ -343,7 +356,7 @@ fn attachment_placement(
     pos: Vec2,
     kind: AttachmentKind,
     current: Option<Entity>,
-    bodies: &Query<(Entity, &GlobalTransform), (With<RigidBody>, Without<MainCamera>)>,
+    bodies: &BodyQuery,
     spatial_query: &SpatialQuery,
     fixes: &Query<(&FixedJoint, &AttachmentJoint), With<FixObject>>,
 ) -> Option<AttachmentPlacement> {
@@ -360,11 +373,7 @@ fn attachment_placement(
     Some(AttachmentPlacement { body1, body2, pos })
 }
 
-fn laser_placement(
-    pos: Vec2,
-    bodies: &Query<(Entity, &GlobalTransform), (With<RigidBody>, Without<MainCamera>)>,
-    spatial_query: &SpatialQuery,
-) -> LaserPlacement {
+fn laser_placement(pos: Vec2, bodies: &BodyQuery, spatial_query: &SpatialQuery) -> LaserPlacement {
     single_body_placement(pos, bodies, spatial_query)
         .map(LaserPlacement::Body)
         .unwrap_or(LaserPlacement::Sky { pos })
@@ -372,7 +381,7 @@ fn laser_placement(
 
 fn single_body_placement(
     pos: Vec2,
-    bodies: &Query<(Entity, &GlobalTransform), (With<RigidBody>, Without<MainCamera>)>,
+    bodies: &BodyQuery,
     spatial_query: &SpatialQuery,
 ) -> Option<AttachmentPlacement> {
     body_hits_at(pos, bodies, spatial_query, None)
@@ -386,7 +395,7 @@ fn single_body_placement(
 
 fn axle_placement(
     event: &AddAxleEvent,
-    bodies: &Query<(Entity, &GlobalTransform), (With<RigidBody>, Without<MainCamera>)>,
+    bodies: &BodyQuery,
     spatial_query: &SpatialQuery,
     fixes: &Query<(&FixedJoint, &AttachmentJoint), With<FixObject>>,
 ) -> Option<AttachmentPlacement> {
@@ -400,11 +409,11 @@ fn axle_placement(
             fixes,
         ),
         AddAxleEvent::AddCenter(entity) => {
-            let Ok((_, transform)) = bodies.get(entity) else {
+            let Ok((_, transform, position, _rotation, _)) = bodies.get(entity) else {
                 info!("Can't find transform for entity (add center axle)");
                 return None;
             };
-            let pos = transform.translation_vec3a().xy();
+            let pos = position.0;
             let body1 = BodyHit {
                 entity,
                 local_pos: Vec2::ZERO,
@@ -418,7 +427,7 @@ fn axle_placement(
 
 fn body_hits_at<'a>(
     pos: Vec2,
-    bodies: &'a Query<(Entity, &GlobalTransform), (With<RigidBody>, Without<MainCamera>)>,
+    bodies: &'a BodyQuery,
     spatial_query: &SpatialQuery,
     exclude: Option<Entity>,
 ) -> impl Iterator<Item = BodyHit> + 'a {
@@ -427,17 +436,37 @@ fn body_hits_at<'a>(
         if Some(entity) == exclude {
             return true;
         }
-        if let Ok((entity, transform)) = bodies.get(entity) {
-            hits.push(BodyHit {
-                entity,
-                local_pos: transform.to_local(pos),
-                z: transform.translation_vec3a().z,
-            });
+        if let Ok((entity, transform, position, rotation, _)) = bodies.get(entity) {
+            hits.push(body_hit(entity, pos, transform, position, rotation));
         }
         true
     });
+
+    for (entity, transform, position, rotation, collider) in bodies.iter() {
+        if Some(entity) == exclude || hits.iter().any(|hit| hit.entity == entity) {
+            continue;
+        }
+        if collider.contains_point(*position, *rotation, pos) {
+            hits.push(body_hit(entity, pos, transform, position, rotation));
+        }
+    }
+
     hits.sort_by(|a, b| a.z.total_cmp(&b.z));
     hits.into_iter().rev()
+}
+
+fn body_hit(
+    entity: Entity,
+    pos: Vec2,
+    transform: &GlobalTransform,
+    position: &Position,
+    rotation: &Rotation,
+) -> BodyHit {
+    BodyHit {
+        entity,
+        local_pos: rotation.inverse() * (pos - position.0),
+        z: transform.translation_vec3a().z,
+    }
 }
 
 fn duplicate_fix_exists(
