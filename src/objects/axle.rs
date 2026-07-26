@@ -39,7 +39,7 @@ fn hinge_visual_radius(motor_enabled: bool) -> f32 {
     if motor_enabled {
         HINGE_MOTOR_VISUAL_DIAMETER * 0.4
     } else {
-        HINGE_VISUAL_DIAMETER * 0.5
+        HINGE_VISUAL_DIAMETER * 0.4
     }
 }
 

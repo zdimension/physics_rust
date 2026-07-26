@@ -32,7 +32,7 @@ impl Default for DragConfig {
         Self {
             strength: 1e7,
             max_force: f32::INFINITY,
-            drag_center_of_mass: true,
+            drag_center_of_mass: false,
         }
     }
 }
