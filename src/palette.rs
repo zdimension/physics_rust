@@ -4,7 +4,7 @@ use bevy::asset::io::Reader;
 use bevy::asset::{AssetLoader, AsyncReadExt, LoadContext};
 use bevy::prelude::*;
 use bevy::reflect::TypePath;
-use bevy::tasks::BoxedFuture;
+use bevy::tasks::{BoxedFuture, ConditionalSendFuture};
 use bevy_egui::egui::epaint::Hsva;
 
 use crate::rng::DelegatedRng;
