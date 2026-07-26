@@ -1,10 +1,12 @@
 use crate::objects::MotorComponent;
 use crate::ui::{InitialPos, Subwindow};
+use crate::egui_systems;
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts};
-use crate::egui_systems;
 
 egui_systems!(AxleWindow::show);
+
+const DEFAULT_BREAK_LIMIT: f32 = 10.0;
 
 #[derive(Default, Component)]
 pub struct AxleWindow;
@@ -31,18 +33,27 @@ impl AxleWindow {
                                 .logarithmic(true)
                                 .suffix("rpm")
                                 .smallest_positive(0.1)
-                                .text("Motor speed :")
+                                .text("Motor speed:")
                                 .custom(),
                         );
                         ui.add(
-                            egui::Slider::new(&mut motor.torque, 0.0..=50000.0)
+                            egui::Slider::new(&mut motor.torque, 0.1..=50000.0)
                                 .logarithmic(true)
                                 .suffix("Nm")
-                                .smallest_positive(0.1)
-                                .text("Motor torque :")
+                                .text("Motor torque:")
                                 .custom(),
                         );
                     }
+
+                    ui.add(
+                        egui::Slider::new(&mut motor.break_limit, 0.0..=f32::INFINITY)
+                            .logarithmic(true)
+                            .suffix("Ns")
+                            .smallest_positive(0.01)
+                            .largest_finite(1000.0)
+                            .text("Break limit:")
+                            .custom(),
+                    );
                 });
         }
     }

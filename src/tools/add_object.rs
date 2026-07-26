@@ -3,7 +3,10 @@ use crate::lyon_compat::ShapeBundle;
 use crate::lyon_compat::shapes;
 use crate::mouse::select::SelectUnderMouseEvent;
 use crate::mouse_tracking::MainCamera;
-use crate::objects::axle::{FixObject, AxleObject};
+use crate::objects::axle::{
+    AxleObject, AxleVisual, FixObject, HINGE_MOTOR_VISUAL_DIAMETER, HingeMotorDirection,
+    HingeMotorRing, hinge_selection_radius,
+};
 use crate::objects::laser::LaserBundle;
 use crate::objects::phy_obj::PhysicalObject;
 use crate::objects::tracer::TracerObject;
@@ -549,7 +552,7 @@ fn spawn_axle_attachment(
         .spawn((
             ShapeBundle::new(
                 GeometryBuilder::build_as(&shapes::Circle {
-                    radius: 0.5 * 1.1,
+                    radius: hinge_selection_radius(false),
                     ..Default::default()
                 }),
                 attachment_transform(placement, scale, z.next()),
@@ -561,11 +564,43 @@ fn spawn_axle_attachment(
             VIRTUAL_LAYER_OBJ,
             Sensor,
             AttachmentKind::Axle,
+            AxleVisual,
             ColorComponent(color).update_from_this(),
             MotorComponent::default(),
             ChildOf(placement.body1.entity),
         ))
         .with_children(|builder| {
+            builder.spawn((
+                HingeMotorRing,
+                Sprite {
+                    image: images.hinge_motor.clone(),
+                    custom_size: Some(Vec2::splat(HINGE_MOTOR_VISUAL_DIAMETER)),
+                    ..Default::default()
+                },
+                Transform::from_translation(Vec3::Z * -0.03),
+                Visibility::Hidden,
+                UpdateFrom::<ColorComponent>::This,
+            ));
+            builder.spawn((
+                HingeMotorDirection { reversed: true },
+                Sprite {
+                    image: images.hinge_motor_ccw.clone(),
+                    custom_size: Some(Vec2::splat(HINGE_MOTOR_VISUAL_DIAMETER)),
+                    ..Default::default()
+                },
+                Transform::from_translation(Vec3::Z * -0.02),
+                Visibility::Hidden,
+            ));
+            builder.spawn((
+                HingeMotorDirection { reversed: false },
+                Sprite {
+                    image: images.hinge_motor_cw.clone(),
+                    custom_size: Some(Vec2::splat(HINGE_MOTOR_VISUAL_DIAMETER)),
+                    ..Default::default()
+                },
+                Transform::from_translation(Vec3::Z * -0.02),
+                Visibility::Hidden,
+            ));
             builder.spawn((
                 AxleBodyColor,
                 Sprite {
@@ -715,6 +750,7 @@ fn spawn_axle_joint(
             AxleObject,
             AttachmentJoint { visual },
             JointCollisionDisabled,
+            JointForces::new(),
             UpdateFrom::<MotorComponent>::entity(visual),
             joint,
             ChildOf(scene),

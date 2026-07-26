@@ -1,13 +1,13 @@
 use crate::palette::ToRgba;
-use crate::systems;
 use crate::update_from::UpdateFrom;
+use avian2d::collision::narrow_phase::CollisionEventSystems;
 use avian2d::{math::*, prelude::*};
 use avian2d::{math::*, prelude::*};
 use avian2d::{math::*, prelude::*};
 use bevy::app::Update;
 use bevy::math::Vec3;
 use bevy::prelude::ChildOf;
-use bevy::prelude::{App, Component, Entity, Query, Ref, Sprite, Transform};
+use bevy::prelude::{App, Component, Entity, IntoScheduleConfigs, Query, Ref, Sprite, Transform};
 use bevy_egui::egui::ecolor::Hsva;
 use num_traits::FloatConst;
 use std::marker::PhantomData;
@@ -55,13 +55,30 @@ pub fn update_size_scales(
     }
 }
 
-systems!(
-    update_sprites_color,
-    update_size_scales,
-    phy_obj::spawn_circle_angle_markers,
-    mod spring,
-    mod tracer
-);
+pub mod spring;
+pub mod tracer;
+
+pub fn add_systems(app: &mut App) {
+    spring::add_systems(app);
+    tracer::add_systems(app);
+
+    app.add_systems(
+        Update,
+        (
+            update_sprites_color,
+            update_size_scales,
+            axle::sync_hinge_motors,
+            axle::update_hinge_motor_visuals,
+            phy_obj::spawn_circle_angle_markers,
+        ),
+    )
+    .add_systems(
+        PhysicsSchedule,
+        axle::break_hinges
+            .after(SolverSystems::Finalize)
+            .after(CollisionEventSystems),
+    );
+}
 
 #[derive(Component)]
 pub struct ColorComponent(pub Hsva);
