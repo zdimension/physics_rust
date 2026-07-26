@@ -4,7 +4,7 @@ use bevy::prelude::ChildOf;
 use bevy::prelude::{Commands, Component, Entity, Query, Res, With};
 use bevy_egui::{egui, EguiContexts};
 use egui::load::SizedTexture;
-use avian2d::{math::*, prelude::*};
+use avian2d::prelude::*;
 use crate::egui_systems;
 
 egui_systems!(CollisionsWindow::show);

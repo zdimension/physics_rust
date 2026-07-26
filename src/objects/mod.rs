@@ -1,15 +1,12 @@
 use crate::palette::ToRgba;
 use crate::update_from::UpdateFrom;
 use avian2d::collision::narrow_phase::CollisionEventSystems;
-use avian2d::{math::*, prelude::*};
-use avian2d::{math::*, prelude::*};
-use avian2d::{math::*, prelude::*};
+use avian2d::prelude::*;
 use bevy::app::Update;
 use bevy::math::Vec3;
 use bevy::prelude::ChildOf;
 use bevy::prelude::{App, Component, Entity, IntoScheduleConfigs, Query, Ref, Sprite, Transform};
 use bevy_egui::egui::ecolor::Hsva;
-use num_traits::FloatConst;
 use std::marker::PhantomData;
 
 pub(crate) mod axle;

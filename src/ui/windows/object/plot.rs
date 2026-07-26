@@ -1,13 +1,13 @@
-use crate::measures::{GravityData, GravityEnergy, KineticData, KineticEnergy, Momentum};
+use crate::measures::{GravityData, KineticData};
 use crate::objects::spring::SpringObject;
 use crate::ui::images::GuiIcons;
 use crate::ui::{InitialPos, Subwindow};
 use bevy::prelude::ChildOf;
-use bevy::prelude::{Commands, Component, Entity, Query, Res, Time, Transform};
+use bevy::prelude::{Commands, Component, Entity, Query, Res, Time};
 use egui_plot::{Line, Plot, PlotPoint, PlotPoints};
 use egui::load::SizedTexture;
 use bevy_egui::{egui, EguiContexts};
-use avian2d::{math::*, prelude::*};
+use avian2d::prelude::*;
 use itertools::Itertools;
 use paste::paste;
 use std::borrow::Borrow;

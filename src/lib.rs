@@ -3,19 +3,17 @@ use bevy::input::InputSystems;
 use bevy::math::Vec3Swizzles;
 use bevy::prelude::*;
 use bevy::window::{PresentMode, WindowPlugin};
-use std::collections::{HashMap, HashSet};
-use std::ops::{DerefMut, RangeInclusive};
+use std::ops::RangeInclusive;
 
 use crate::lyon_compat::*;
 use crate::mouse_tracking::{MainCamera, prelude::*};
-use avian2d::{math::*, prelude::*};
-use bevy::image::ImageSampler;
+use avian2d::prelude::*;
 use bevy_diagnostic::FrameTimeDiagnosticsPlugin;
 use bevy_egui::egui::epaint::{Hsva, Shadow};
 use bevy_egui::egui::style::Widgets;
 use bevy_egui::egui::{Color32, Rounding, Slider, Ui, emath};
 use bevy_egui::{
-    EguiContextSettings, EguiContexts, EguiPlugin, EguiPostUpdateSet, EguiPreUpdateSet,
+    EguiContexts, EguiPlugin, EguiPostUpdateSet, EguiPreUpdateSet,
     EguiStartupSet,
     egui::{self},
 };
@@ -24,9 +22,8 @@ use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use crate::config::AppConfig;
 use crate::skin::SkinConfig;
 use mouse::{button, wheel};
-use objects::axle::AxleObject;
 use objects::laser::LaserRays;
-use objects::{ColorComponent, SettingComponent, laser};
+use objects::{ColorComponent, laser};
 use palette::{PaletteConfig, PaletteList, PaletteLoader};
 use tools::add_object::{AddObjectEvent, PlaceAttachmentEvent};
 use tools::pan::PanEvent;
@@ -564,7 +561,7 @@ fn make_stroke(color: Color, thickness: f32) -> Stroke {
 
 const STROKE_TOLERANCE: f32 = 0.0001;
 
-fn setup_physics(mut images: ResMut<Assets<Image>>) {}
+fn setup_physics(_images: ResMut<Assets<Image>>) {}
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen(start)]

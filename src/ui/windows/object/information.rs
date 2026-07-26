@@ -1,13 +1,11 @@
-use crate::measures::{self, GravityData, GravityEnergy, KineticData, KineticEnergy};
+use crate::measures::{GravityData, KineticData};
 use crate::objects::spring::SpringObject;
 use crate::ui::{InitialPos, Subwindow};
 use bevy::prelude::ChildOf;
-use bevy::prelude::{Commands, Component, Entity, GlobalTransform, Query, Res, Transform, With};
+use bevy::prelude::{Commands, Component, Entity, Query, Res, With};
 use bevy_egui::egui::Ui;
 use bevy_egui::{egui, EguiContexts};
-use avian2d::{math::*, prelude::*};
-use avian2d::{math::*, prelude::*};
-use avian2d::{math::*, prelude::*};
+use avian2d::prelude::*;
 use crate::egui_systems;
 
 egui_systems!(InformationWindow::show);
@@ -28,7 +26,7 @@ impl InformationWindow {
             Option<&SpringObject>,
         )>,
         body_positions: Query<(&Position, &Rotation)>,
-        gravity: Res<Gravity>,
+        _gravity: Res<Gravity>,
         mut egui_ctx: EguiContexts,
         mut commands: Commands,
     ) {

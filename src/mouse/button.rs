@@ -1,5 +1,5 @@
 use crate::mouse_tracking::{MainCamera, MousePos, MousePosWorld};
-use avian2d::{math::*, prelude::*};
+use avian2d::prelude::*;
 use bevy::ecs::system::SystemParam;
 use bevy::log::info;
 use bevy::prelude::*;
@@ -25,7 +25,7 @@ use crate::ui::{EntitySelection, PointerToolState, SelectionState, ToolboxState}
 use crate::UnfreezeEntityEvent;
 use crate::UsedMouseButton;
 use crate::tools::drag::DragEvent;
-use crate::{CustomForceDespawn, ToRot};
+use crate::CustomForceDespawn;
 
 #[derive(SystemParam)]
 pub struct ToolInteractionState<'w> {

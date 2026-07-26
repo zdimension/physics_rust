@@ -17,7 +17,7 @@ use crate::ui::SceneState;
 use crate::ui::images::AppIcons;
 use crate::update_from::UpdateFrom;
 use crate::{BORDER_THICKNESS, InvTransformPoint};
-use avian2d::{math::*, prelude::*};
+use avian2d::prelude::*;
 use bevy::log::info;
 use bevy::math::{Vec2, Vec3, Vec3Swizzles};
 use bevy::prelude::*;

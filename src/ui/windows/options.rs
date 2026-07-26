@@ -4,7 +4,7 @@ use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts};
 use bevy_egui::egui::color_picker::Alpha;
 use bevy_egui::egui::ecolor::HsvaGamma;
-use bevy_egui::egui::{vec2, Color32, Stroke};
+use bevy_egui::egui::{Color32, Stroke};
 use bevy_egui::egui::epaint::Shadow;
 use num_traits::Inv;
 use strum::EnumIter;
@@ -117,7 +117,7 @@ pub fn update_skin(skin: Res<SkinConfig>, mut egui_ctx: EguiContexts) {
     let hsva = HsvaGamma::from(skin.current_skin.accent);
 
     let fill_color = HsvaGamma { h: hsva.h, s: hsva.s, v: hsva.v * 0.4, a: hsva.a * skin.current_skin.opacity }.into();
-    let sat_factor = (1.016 * (1.0 - (1.0 + 8.6 * hsva.v.powf(0.94)).inv())); // don't ask
+    let sat_factor = 1.016 * (1.0 - (1.0 + 8.6 * hsva.v.powf(0.94)).inv()) ; // don't ask
     let border_color = HsvaGamma {
         h: hsva.h,
         s: hsva.s * sat_factor,

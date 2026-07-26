@@ -1,7 +1,6 @@
 use bevy::prelude::*;
 use bevy_egui::egui;
 use bevy_egui::egui::ecolor::HsvaGamma;
-use serde;
 
 #[derive(Debug, Copy, Clone)]
 pub struct Skin {

@@ -2,9 +2,8 @@ use crate::objects::phy_obj::RefractiveIndex;
 use crate::ui::{InitialPos, Subwindow};
 use bevy::prelude::{Commands, Component, Entity, ChildOf, Query, With};
 use bevy_egui::{egui, EguiContexts};
-use avian2d::{math::*, prelude::*};
-use crate::{add_slider, egui_systems, update_changed};
-use crate::UpdateStatus::Changed;
+use avian2d::prelude::*;
+use crate::{egui_systems, update_changed};
 
 egui_systems!(MaterialWindow::show);
 

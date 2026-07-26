@@ -15,7 +15,7 @@ use crate::tools::zoom::ZoomState;
 use crate::ui::images::AppIcons;
 use crate::ui::{PointerToolState, SceneState, SelectionState};
 use crate::{CustomForce, InvTransformPoint, UsedMouseButton};
-use avian2d::{math::*, prelude::*};
+use avian2d::prelude::*;
 use bevy::math::Vec2;
 use bevy::prelude::{
     ChildOf, Commands, Entity, GlobalTransform, Message, MessageReader, MessageWriter, Query, Res,
@@ -70,7 +70,7 @@ pub fn mouse_long_or_moved(
 ) {
     use crate::UsedMouseButton;
     use crate::tools::ToolEnum::*;
-    use avian2d::{math::*, prelude::*};
+    use avian2d::prelude::*;
     use bevy::log::info;
     use bevy::math::Vec3Swizzles;
     for MouseLongOrMoved(hover_tool, pos, click_pos_screen, button) in events.read() {

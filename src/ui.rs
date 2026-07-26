@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use crate::mouse_tracking::{MainCamera, MousePos, MousePosWorld};
-use avian2d::{math::*, prelude::*};
+use avian2d::prelude::*;
 use bevy::log::info;
 use bevy::math::{Vec2, Vec2Swizzles, Vec3Swizzles};
 use bevy::prelude::*;

@@ -5,7 +5,6 @@ use bevy_egui::egui::{
     Color32, Response, Sense, TextureId, Ui, Widget, WidgetInfo, WidgetType, pos2,
 };
 use num_traits::Pow;
-use std::ops::AddAssign;
 
 pub struct IconButton<'a> {
     icon: egui::widgets::Image<'a>,

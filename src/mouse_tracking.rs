@@ -4,7 +4,7 @@ use bevy::{ecs::system::EntityCommand, input::InputSystems, prelude::*, window::
 
 pub mod prelude {
     pub use crate::mouse_tracking::{
-        InitMouseTracking, InitWorldTracking, MousePosPlugin, MousePositionSet,
+        InitWorldTracking, MousePosPlugin, MousePositionSet,
     };
 }
 

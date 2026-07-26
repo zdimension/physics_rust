@@ -6,7 +6,7 @@ use bevy::math::Vec2;
 use bevy::prelude::{MessageWriter, Local, Res, ResMut, Time};
 use bevy_egui::egui::Align2;
 use bevy_egui::{egui, EguiContexts};
-use avian2d::{math::*, prelude::*};
+use avian2d::prelude::*;
 use crate::{egui_systems, update_changed};
 use crate::ui::separator_custom::SeparatorCustom;
 

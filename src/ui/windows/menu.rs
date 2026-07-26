@@ -10,7 +10,7 @@ use bevy::prelude::ChildOf;
 use bevy::prelude::*;
 use bevy_egui::egui::{pos2, Separator};
 use bevy_egui::{egui, EguiContexts};
-use avian2d::{math::*, prelude::*};
+use avian2d::prelude::*;
 use std::time::Duration;
 use bevy::math::Vec3Swizzles;
 use bevy::camera::primitives::Aabb;

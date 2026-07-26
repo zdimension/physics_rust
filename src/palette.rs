@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 
-use bevy::asset::LoadedAsset;
 use bevy::asset::io::Reader;
 use bevy::asset::{AssetLoader, AsyncReadExt, LoadContext};
 use bevy::prelude::*;

@@ -6,7 +6,7 @@ use crate::lyon_compat::GeometryBuilder;
 use crate::lyon_compat::RectangleOrigin;
 use crate::lyon_compat::ShapeBundle;
 use crate::lyon_compat::shapes;
-use avian2d::{math::*, prelude::*};
+use avian2d::prelude::*;
 
 use crate::objects::{CircleAngleMarker, ColorComponent};
 use crate::update_from::UpdateFrom;
