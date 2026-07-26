@@ -2,6 +2,7 @@ use crate::objects::laser::LaserBundle;
 use crate::objects::spring::{SpringEndHandle, SpringObject};
 use crate::objects::tracer::TracerObject;
 use crate::objects::{ColorComponent, MotorComponent};
+use crate::tools::ToolIcons;
 use crate::ui::images::GuiIcons;
 use crate::ui::{InitialPos, Subwindow, TemporaryWindow};
 use crate::{CAMERA_Z,  egui_systems};
@@ -57,6 +58,7 @@ impl MenuWindow {
         time: Res<Time>,
         mut egui_ctx: EguiContexts,
         icons: Res<GuiIcons>,
+        tool_icons: Res<ToolIcons>,
         mut commands: Commands,
         entity_info: Query<(
             Option<&ColorComponent>,
@@ -138,6 +140,9 @@ impl MenuWindow {
                             ($text:literal, $icon:ident, $wnd:ty) => {
                                 menu!(@ $text, Some(icons.$icon), $wnd);
                             };
+                            ($text:literal, $icon:expr, $wnd:ty) => {
+                                menu!(@ $text, Some($icon), $wnd);
+                            };
                             ($text:literal, /, $wnd:ty) => {
                                 menu!(@ $text, None, $wnd);
                             };
@@ -181,7 +186,7 @@ impl MenuWindow {
                                 menu!("Laser pens", lasermenu, LaserWindow);
                             }
                             if info.9.is_some() {
-                                menu!("Tracer", /, TracerWindow);
+                                menu!("Tracers", tool_icons.egui_icon_tracer, TracerWindow);
                             }
                             menu!("Information", info, InformationWindow);
                             if info.2.is_some() {
