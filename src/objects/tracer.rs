@@ -32,6 +32,12 @@ impl Default for TracerObject {
     }
 }
 
+impl TracerObject {
+    pub fn clear_trail(&mut self) {
+        self.samples.clear();
+    }
+}
+
 #[derive(Clone, Copy)]
 struct TracerSample {
     pos: Vec2,
@@ -42,7 +48,6 @@ struct TracerSample {
 struct TracerTrailRoot {
     tracer: Entity,
     mesh: Handle<Mesh>,
-    material: Handle<ColorMaterial>,
 }
 
 fn update_tracer_trails(
@@ -65,8 +70,8 @@ fn update_tracer_trails(
         if tracers.contains(root.tracer) {
             roots_by_tracer.insert(root.tracer, (root_entity, root.mesh.clone()));
         } else {
-            meshes.remove(root.mesh.id());
-            materials.remove(root.material.id());
+            // Let handle drops release assets after the entity is gone.
+            // Manually removing here can race with render-world extraction.
             commands.entity(root_entity).despawn();
         }
     }
@@ -76,7 +81,15 @@ fn update_tracer_trails(
 
     for (entity, transform, mut tracer, color, size) in &mut tracers {
         let (root, mesh) = roots_by_tracer.remove(&entity).map_or_else(
-            || spawn_trail_root(&mut commands, &mut meshes, &mut materials, scene_state.scene, entity),
+            || {
+                spawn_trail_root(
+                    &mut commands,
+                    &mut meshes,
+                    &mut materials,
+                    scene_state.scene,
+                    entity,
+                )
+            },
             |(root, mesh)| (root, mesh),
         );
 
@@ -90,7 +103,8 @@ fn update_tracer_trails(
         tracer.samples.retain(|sample| sample.age <= fade_time);
 
         let pos = transform.translation().truncate();
-        let min_sample_distance = (size.0 * SAMPLE_DISTANCE_DIAMETER_FACTOR).max(MIN_SAMPLE_DISTANCE);
+        let min_sample_distance =
+            (size.0 * SAMPLE_DISTANCE_DIAMETER_FACTOR).max(MIN_SAMPLE_DISTANCE);
         if is_running
             && tracer
                 .samples
@@ -100,13 +114,18 @@ fn update_tracer_trails(
             tracer.samples.push(TracerSample { pos, age: 0.0 });
         }
 
-        commands.entity(root).insert(Transform::from_translation(
-            Vec3::Z * (transform.translation().z + TRAIL_Z_OFFSET),
-        ));
+        let is_drawable = meshes.get_mut(&mesh).is_some_and(|mut mesh| {
+            update_trail_mesh(&mut mesh, &tracer.samples, size.0, color, fade_time)
+        });
 
-        if let Some(mut mesh) = meshes.get_mut(&mesh) {
-            *mesh = build_trail_mesh(&tracer.samples, size.0, color, fade_time);
-        }
+        commands.entity(root).insert((
+            Transform::from_translation(Vec3::Z * (transform.translation().z + TRAIL_Z_OFFSET)),
+            if is_drawable {
+                Visibility::Visible
+            } else {
+                Visibility::Hidden
+            },
+        ));
     }
 }
 
@@ -117,7 +136,7 @@ fn spawn_trail_root(
     scene: Entity,
     tracer: Entity,
 ) -> (Entity, Handle<Mesh>) {
-    let mesh = meshes.add(empty_trail_mesh());
+    let mesh = meshes.add(placeholder_trail_mesh());
     let material = materials.add(ColorMaterial {
         color: Color::WHITE,
         alpha_mode: AlphaMode2d::Blend,
@@ -128,12 +147,11 @@ fn spawn_trail_root(
             TracerTrailRoot {
                 tracer,
                 mesh: mesh.clone(),
-                material: material.clone(),
             },
             Mesh2d(mesh.clone()),
             MeshMaterial2d(material),
             Transform::default(),
-            Visibility::Visible,
+            Visibility::Hidden,
             ChildOf(scene),
         ))
         .id();
@@ -141,14 +159,34 @@ fn spawn_trail_root(
     (root, mesh)
 }
 
-fn build_trail_mesh(
+fn update_trail_mesh(
+    mesh: &mut Mesh,
     samples: &[TracerSample],
     diameter: f32,
     color: &ColorComponent,
     fade_time: f32,
-) -> Mesh {
+) -> bool {
+    let Some((positions, uvs, colors, indices)) =
+        trail_mesh_data(samples, diameter, color, fade_time)
+    else {
+        return false;
+    };
+
+    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uvs);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, colors);
+    mesh.insert_indices(Indices::U32(indices));
+    true
+}
+
+fn trail_mesh_data(
+    samples: &[TracerSample],
+    diameter: f32,
+    color: &ColorComponent,
+    fade_time: f32,
+) -> Option<(Vec<[f32; 3]>, Vec<[f32; 2]>, Vec<[f32; 4]>, Vec<u32>)> {
     if samples.len() < 2 {
-        return empty_trail_mesh();
+        return None;
     }
 
     let mut positions = Vec::with_capacity(samples.len() * 2);
@@ -179,7 +217,7 @@ fn build_trail_mesh(
     }
 
     if positions.len() < 4 {
-        return empty_trail_mesh();
+        return None;
     }
 
     let mut indices = Vec::with_capacity((positions.len() / 2 - 1) * 6);
@@ -191,23 +229,18 @@ fn build_trail_mesh(
         indices.extend_from_slice(&[left0, right0, left1, right0, right1, left1]);
     }
 
-    let mut mesh = empty_trail_mesh();
-    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
-    mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uvs);
-    mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, colors);
-    mesh.insert_indices(Indices::U32(indices));
-    mesh
+    Some((positions, uvs, colors, indices))
 }
 
-fn empty_trail_mesh() -> Mesh {
+fn placeholder_trail_mesh() -> Mesh {
     let mut mesh = Mesh::new(
         PrimitiveTopology::TriangleList,
         RenderAssetUsages::default(),
     );
-    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, Vec::<[f32; 3]>::new());
-    mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, Vec::<[f32; 2]>::new());
-    mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, Vec::<[f32; 4]>::new());
-    mesh.insert_indices(Indices::U32(Vec::new()));
+    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, vec![[0.0, 0.0, 0.0]; 4]);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, vec![[0.0, 0.0]; 4]);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, vec![[0.0, 0.0, 0.0, 0.0]; 4]);
+    mesh.insert_indices(Indices::U32(vec![0, 1, 2, 1, 3, 2]));
     mesh
 }
 

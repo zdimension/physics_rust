@@ -13,8 +13,7 @@ use bevy_egui::egui::epaint::{Hsva, Shadow};
 use bevy_egui::egui::style::Widgets;
 use bevy_egui::egui::{Color32, CornerRadius, Slider, Ui, emath};
 use bevy_egui::{
-    EguiContexts, EguiPlugin, EguiPostUpdateSet, EguiPreUpdateSet,
-    EguiStartupSet,
+    EguiContexts, EguiPlugin, EguiPostUpdateSet, EguiPreUpdateSet, EguiStartupSet,
     egui::{self},
 };
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
@@ -360,6 +359,12 @@ pub fn app_main() {
     .add_systems(
         PostUpdate,
         lyon_compat::sync_draw_components.before(bevy_prototype_lyon::plugin::BuildShapes),
+    )
+    .add_systems(
+        PostUpdate,
+        lyon_compat::sanitize_empty_shape_meshes
+            .after(bevy_prototype_lyon::plugin::BuildShapes)
+            .before(bevy::asset::AssetEventSystems),
     )
     .add_systems(Update, laser::draw_lasers)
     .add_systems(Update, apply_custom_forces)

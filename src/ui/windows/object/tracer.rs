@@ -1,9 +1,9 @@
 use bevy::prelude::*;
-use bevy_egui::{egui, EguiContexts};
+use bevy_egui::{EguiContexts, egui};
 
 use crate::egui_systems;
-use crate::objects::tracer::TracerObject;
 use crate::objects::SizeComponent;
+use crate::objects::tracer::TracerObject;
 use crate::ui::{InitialPos, Subwindow};
 
 egui_systems!(TracerWindow::show);
@@ -42,6 +42,9 @@ impl TracerWindow {
                             .text("Fade time :")
                             .custom(),
                     );
+                    if ui.button("Clear trail").clicked() {
+                        tracer.clear_trail();
+                    }
                 });
         }
     }

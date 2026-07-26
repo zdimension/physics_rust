@@ -1,3 +1,5 @@
+use bevy::asset::RenderAssetUsages;
+use bevy::mesh::{Indices, PrimitiveTopology};
 use bevy::prelude::*;
 pub use bevy_prototype_lyon::entity::Shape;
 use bevy_prototype_lyon::geometry::Geometry;
@@ -130,4 +132,30 @@ pub fn sync_draw_components(
             shape.stroke = Some((*stroke).into());
         }
     }
+}
+
+pub fn sanitize_empty_shape_meshes(
+    mut meshes: ResMut<Assets<Mesh>>,
+    shapes: Query<&Mesh2d, Changed<Shape>>,
+) {
+    for mesh in &shapes {
+        let Some(mut mesh_asset) = meshes.get_mut(&mesh.0) else {
+            continue;
+        };
+        if mesh_asset.get_vertex_buffer_size() == 0 {
+            *mesh_asset = transparent_placeholder_mesh();
+        }
+    }
+}
+
+fn transparent_placeholder_mesh() -> Mesh {
+    let mut mesh = Mesh::new(
+        PrimitiveTopology::TriangleList,
+        RenderAssetUsages::default(),
+    );
+    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, vec![[0.0, 0.0, 0.0]; 3]);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, vec![[0.0, 0.0]; 3]);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, vec![[0.0, 0.0, 0.0, 0.0]; 3]);
+    mesh.insert_indices(Indices::U32(vec![0, 1, 2]));
+    mesh
 }

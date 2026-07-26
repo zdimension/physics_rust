@@ -375,7 +375,15 @@ pub struct SceneState {
 impl FromWorld for SceneState {
     fn from_world(world: &mut World) -> Self {
         Self {
-            scene: world.spawn((Scene, Transform::default())).id(),
+            scene: world
+                .spawn((
+                    Scene,
+                    Transform::default(),
+                    Visibility::Inherited,
+                    InheritedVisibility::default(),
+                    ViewVisibility::default(),
+                ))
+                .id(),
         }
     }
 }
