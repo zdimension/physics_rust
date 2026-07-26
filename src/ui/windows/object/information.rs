@@ -81,8 +81,8 @@ impl InformationWindow {
 
                         if let Some(kin) = &kin {
                             let mom = kin.momentum();
-                            line(ui, "Momentum", format!("[x={:.3}, y={:.3}] N⋅s", mom.linear.x, mom.linear.y));
-                            line(ui, "Angular momentum", format!("{:.3} J⋅s", mom.angular));
+                            line(ui, "Momentum", format!("[x={:.3}, y={:.3}] N·s", mom.linear.x, mom.linear.y));
+                            line(ui, "Angular momentum", format!("{:.3} J·s", mom.angular));
                         }
                     });
                     ui.separator();
