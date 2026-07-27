@@ -49,7 +49,8 @@ pub fn process_move(
     }
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Clone, Debug)]
 pub struct MoveState {
-    pub obj_delta: Vec2,
+    pub primary_delta: Vec2,
+    pub targets: Vec<(Entity, Vec2)>,
 }

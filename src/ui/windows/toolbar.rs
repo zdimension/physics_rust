@@ -37,7 +37,7 @@ pub fn draw_bottom_toolbar(
                         )
                         .clicked()
                     {
-                        toolbox_state.toolbox_selected = *def;
+                        toolbox_state.toolbox_selected = def.clone();
                         clear_tmp.write(RemoveTemporaryWindowsEvent);
                     }
                 }

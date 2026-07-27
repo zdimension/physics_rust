@@ -1,21 +1,21 @@
-use crate::measures::{GravityData, KineticData};
-use crate::objects::spring::SpringObject;
+use crate::egui_systems;
+use crate::measures::{AggregateMeasureData, AggregateMeasures, aggregate_measures};
 use crate::ui::images::GuiIcons;
-use crate::ui::{InitialPos, Subwindow};
+use crate::ui::{
+    InitialPos, Subwindow, WindowSelectionTarget, bool_checkbox, window_target_entities,
+};
+use avian2d::prelude::*;
 use bevy::prelude::ChildOf;
 use bevy::prelude::{Commands, Component, Entity, Query, Res, Time};
-use egui_plot::{Line, Plot, PlotPoint, PlotPoints};
+use bevy_egui::{EguiContexts, egui};
 use egui::load::SizedTexture;
-use bevy_egui::{egui, EguiContexts};
-use avian2d::prelude::*;
+use egui_plot::{Line, Plot, PlotPoint, PlotPoints};
 use itertools::Itertools;
 use paste::paste;
 use std::borrow::Borrow;
 use std::collections::{HashMap, HashSet};
 use std::fmt::{Debug, Display, Formatter};
 use std::hash::{Hash, Hasher};
-use bevy::ecs::query::{QueryData, WorldQuery};
-use crate::egui_systems;
 
 egui_systems!(PlotWindow::show);
 
@@ -95,16 +95,7 @@ impl PlotSeries {
     &'a GravityEnergy,
     &'a Momentum,
 );*/
-#[derive(QueryData)]
-pub(crate) struct PlotQuery {
-    position: Option<&'static Position>,
-    lin_velocity: Option<&'static LinearVelocity>,
-    ang_velocity: Option<&'static AngularVelocity>,
-    kin_data: Option<KineticData>,
-    grav_data: Option<GravityData>,
-    spring: Option<&'static SpringObject>,
-}
-type QuantityFn = fn(f32, &PlotQueryItem, &Query<(&Position, &Rotation)>) -> Option<f32>;
+type QuantityFn = fn(f32, &AggregateMeasures) -> Option<f32>;
 
 struct PlotQuantity {
     name: &'static str,
@@ -132,53 +123,42 @@ fn sum_if_any(items: &[Option<f32>]) -> Option<f32> {
             any = true;
         }
     }
-    if any {
-        Some(sum)
-    } else {
-        None
-    }
+    if any { Some(sum) } else { None }
 }
 
 static PLOT_QUANTITIES: &[&[PlotQuantity]] = &[
-    &[quantity("Time", |time, _, _| Some(time))],
+    &[quantity("Time", |time, _| Some(time))],
     &[
-        quantity("Position (x)", |_, query, _| Some(query.position?.x)),
-        quantity("Position (y)", |_, query, _| Some(query.position?.y)),
+        quantity("Position (x)", |_, query| Some(query.position?.x)),
+        quantity("Position (y)", |_, query| Some(query.position?.y)),
     ],
     &[
-        quantity("Speed", |_, query, _| Some(query.lin_velocity?.0.length())),
-        quantity("Velocity (x)", |_, query, _| Some(query.lin_velocity?.0.x)),
-        quantity("Velocity (y)", |_, query, _| Some(query.lin_velocity?.0.y)),
+        quantity("Speed", |_, query| Some(query.velocity?.length())),
+        quantity("Velocity (x)", |_, query| Some(query.velocity?.x)),
+        quantity("Velocity (y)", |_, query| Some(query.velocity?.y)),
     ],
-    &[
-        quantity("Angular velocity", |_, query, _| query.ang_velocity.map(|ang| ang.0)),
-    ],
+    &[quantity("Angular velocity", |_, query| {
+        query.angular_velocity
+    })],
     // todo: acceleration
     // todo: force
     &[
-        quantity("Momentum (x)", |_, query, _| Some(query.kin_data.as_ref()?.momentum().linear.x)),
-        quantity("Momentum (y)", |_, query, _| Some(query.kin_data.as_ref()?.momentum().linear.y)),
+        quantity("Momentum (x)", |_, query| Some(query.momentum?.linear.x)),
+        quantity("Momentum (y)", |_, query| Some(query.momentum?.linear.y)),
     ],
-    &[quantity("Angular momentum", |_, query, _| Some(query.kin_data.as_ref()?.momentum().angular))],
+    &[quantity("Angular momentum", |_, query| {
+        Some(query.momentum?.angular)
+    })],
     &[
-        quantity("Linear kinetic energy", |_, query, _| Some(query.kin_data.as_ref()?.kinetic_energy().linear)),
-        quantity("Angular kinetic energy", |_, query, _| Some(query.kin_data.as_ref()?.kinetic_energy().angular)),
-        quantity("Kinetic energy (sum)", |_, query, _| Some(query.kin_data.as_ref()?.kinetic_energy().total())),
-        quantity("Potential gravitational energy", |_, query, _| Some(query.grav_data.as_ref()?.gravity_energy().energy)),
-        quantity("Potential spring energy", |_, query, bodies| query.spring?.potential_energy(bodies)),
-        quantity("Potential energy (sum)", |_, query, bodies| {
-            let grav = query.grav_data.as_ref().map(|g| g.gravity_energy().energy);
-            let spring = query.spring.and_then(|spring| spring.potential_energy(bodies));
-            sum_if_any(&[grav, spring])
+        quantity("Linear kinetic energy", |_, query| query.kinetic_linear),
+        quantity("Angular kinetic energy", |_, query| query.kinetic_angular),
+        quantity("Kinetic energy (sum)", |_, query| query.kinetic_total()),
+        quantity("Potential gravitational energy", |_, query| {
+            query.gravity_energy
         }),
-        quantity("Energy (sum)", |_, query, bodies| {
-            // sum all energies
-            // (if no energy *are present* (different from "sum energy is zero"!), return None)
-            let kin = query.kin_data.as_ref().map(|k| k.kinetic_energy().total());
-            let grav = query.grav_data.as_ref().map(|g| g.gravity_energy().energy);
-            let spring = query.spring.and_then(|spring| spring.potential_energy(bodies));
-            sum_if_any(&[kin, grav, spring])
-        })
+        quantity("Potential spring energy", |_, query| query.spring_energy),
+        quantity("Potential energy (sum)", |_, query| query.potential_total()),
+        quantity("Energy (sum)", |_, query| query.energy_total()),
     ],
 ];
 
@@ -220,36 +200,55 @@ impl Eq for &'static PlotQuantity {}
 
 impl PlotWindow {
     pub(crate) fn show(
-        mut wnds: Query<(Entity, &ChildOf, &mut InitialPos, &mut PlotWindow)>,
-        ents: Query<PlotQuery>,
+        mut wnds: Query<(
+            Entity,
+            Option<&ChildOf>,
+            Option<&WindowSelectionTarget>,
+            &mut InitialPos,
+            &mut PlotWindow,
+        )>,
+        ents: Query<AggregateMeasureData>,
         body_positions: Query<(&Position, &Rotation)>,
         mut egui_ctx: EguiContexts,
         mut commands: Commands,
         time: Res<Time>,
         gui_icons: Res<GuiIcons>,
-        physics: Res<Time<Physics>>
+        physics: Res<Time<Physics>>,
+        gravity: Res<Gravity>,
     ) {
         let ctx = egui_ctx.ctx_mut().expect("primary egui context");
-        for (id, parent, mut initial_pos, mut plot) in wnds.iter_mut() {
-            let ent = ents.get(parent.parent()).unwrap();
+        for (id, parent, target, mut initial_pos, mut plot) in wnds.iter_mut() {
+            let targets = window_target_entities(target, parent);
+            let aggregate =
+                aggregate_measures(targets.iter().copied(), &ents, &body_positions, gravity.0);
             if plot.quantities.is_empty() {
-                plot.quantities = PLOT_QUANTITIES.iter().filter_map(|&group| {
-                    let measures = group.iter().filter(|measure| {
-                        (measure.measure)(plot.time, &ent, &body_positions).is_some()
-                    }).collect::<Vec<_>>();
-                    if !measures.is_empty() {
-                        Some((group, measures))
-                    } else {
-                        None
-                    }
-                }).collect();
+                plot.quantities = PLOT_QUANTITIES
+                    .iter()
+                    .filter_map(|&group| {
+                        let measures = group
+                            .iter()
+                            .filter(|measure| (measure.measure)(plot.time, &aggregate).is_some())
+                            .collect::<Vec<_>>();
+                        if !measures.is_empty() {
+                            Some((group, measures))
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
             }
 
             if !physics.is_paused() {
                 let cur_time = plot.time;
+                let aggregate =
+                    aggregate_measures(targets.iter().copied(), &ents, &body_positions, gravity.0);
                 for (name, series) in plot.series.iter_mut() {
-                    let Some(x) = (name.x.measure)(cur_time, &ent, &body_positions) else { continue };
-                    let Some(y) = (name.y.measure)(cur_time, &ent, &body_positions) else { continue };
+                    let Some(x) = (name.x.measure)(cur_time, &aggregate) else {
+                        continue;
+                    };
+                    let Some(y) = (name.y.measure)(cur_time, &aggregate) else {
+                        continue;
+                    };
                     series.values.push(PlotPoint::new(x, y));
                 }
                 plot.time += time.delta_secs();
@@ -298,7 +297,7 @@ impl PlotWindow {
                                             }
                                             for [<$sym _measure>] in measures {
                                                 let mut existing = plot.[<measures_ $sym>].contains([<$sym _measure>]);
-                                                if ui.checkbox(&mut existing, [<$sym _measure>].name).changed() {
+                                                if bool_checkbox(ui, &gui_icons, &mut existing, [<$sym _measure>].name) {
                                                     if existing {
                                                         if !std::ptr::eq(*group, plot.[<category_ $sym>]) {
                                                             plot.[<category_ $sym>] = group;

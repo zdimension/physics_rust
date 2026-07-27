@@ -1,11 +1,12 @@
-use crate::ui::images::GuiIcons;
-use crate::ui::{InitialPos, Subwindow};
-use bevy::prelude::ChildOf;
-use bevy::prelude::{Commands, Component, Entity, Query, Res, With};
-use bevy_egui::{egui, EguiContexts};
-use egui::load::SizedTexture;
-use avian2d::prelude::*;
 use crate::egui_systems;
+use crate::ui::images::GuiIcons;
+use crate::ui::{
+    InitialPos, Subwindow, WindowSelectionTarget, component_checkbox, edit_components,
+    window_matching_entities,
+};
+use avian2d::prelude::*;
+use bevy::prelude::{ChildOf, Commands, Component, Entity, Query, Res, With};
+use bevy_egui::{EguiContexts, egui};
 
 egui_systems!(CollisionsWindow::show);
 
@@ -29,83 +30,103 @@ impl PhysicsLayer for CollisionLayer {
 
 impl CollisionsWindow {
     pub fn show(
-        mut wnds: Query<(Entity, &ChildOf, &mut InitialPos), With<CollisionsWindow>>,
+        mut wnds: Query<
+            (
+                Entity,
+                Option<&ChildOf>,
+                Option<&WindowSelectionTarget>,
+                &mut InitialPos,
+            ),
+            With<CollisionsWindow>,
+        >,
         ents: Query<&CollisionLayers>,
         gui_icons: Res<GuiIcons>,
         mut egui_ctx: EguiContexts,
         mut commands: Commands,
     ) {
         let ctx = egui_ctx.ctx_mut().expect("primary egui context");
-        for (id, parent, mut initial_pos) in wnds.iter_mut() {
-            let mut groups = *ents.get(parent.parent()).unwrap();
-            let mut changed = false;
-            egui::Window::new("Collisions")
-                .resizable(false)
-                .subwindow(id, ctx, &mut initial_pos, &mut commands, |ui, _commands| {
+        for (id, parent, target, mut initial_pos) in wnds.iter_mut() {
+            let targets = window_matching_entities(target, parent, &ents);
+            if targets.is_empty() {
+                commands.entity(id).despawn();
+                continue;
+            }
+
+            egui::Window::new("Collisions").resizable(false).subwindow(
+                id,
+                ctx,
+                &mut initial_pos,
+                &mut commands,
+                |ui, commands| {
                     ui.horizontal(|ui| {
                         ui.vertical(|ui| {
-                            // todo: center vertically
                             if ui
-                                .add(egui::Button::image(SizedTexture::new(gui_icons.arrow_up, [16.0, 32.0])))
+                                .add(egui::Button::image(egui::load::SizedTexture::new(
+                                    gui_icons.arrow_up,
+                                    [16.0, 32.0],
+                                )))
                                 .clicked()
                             {
-                                let val = groups.memberships.0;
-                                let shifted = val >> 1;
-                                let new_val = shifted | ((val & 1) << (GROUP_COUNT - 1));
-                                groups = CollisionLayers::from_bits(new_val, new_val);
-                                changed = true;
+                                edit_components(commands, &targets, &ents, |groups| {
+                                    let value = groups.memberships.0;
+                                    let shifted = value >> 1;
+                                    let new_value = shifted | ((value & 1) << (GROUP_COUNT - 1));
+                                    *groups = CollisionLayers::from_bits(new_value, new_value);
+                                });
                             }
                             if ui
-                                .add(egui::Button::image(SizedTexture::new(gui_icons.arrow_down, [16.0, 32.0])))
+                                .add(egui::Button::image(egui::load::SizedTexture::new(
+                                    gui_icons.arrow_down,
+                                    [16.0, 32.0],
+                                )))
                                 .clicked()
                             {
-                                let val = groups.memberships.0;
-                                let shifted = val << 1;
-                                let new_val = shifted
-                                    | ((val & (1 << (GROUP_COUNT - 1))) >> (GROUP_COUNT - 1));
-                                groups = CollisionLayers::from_bits(new_val, new_val);
-                                changed = true;
+                                edit_components(commands, &targets, &ents, |groups| {
+                                    let value = groups.memberships.0;
+                                    let shifted = value << 1;
+                                    let new_value = shifted
+                                        | ((value & (1 << (GROUP_COUNT - 1))) >> (GROUP_COUNT - 1));
+                                    *groups = CollisionLayers::from_bits(new_value, new_value);
+                                });
                             }
                         });
                         ui.vertical(|ui| {
                             for i in 0..GROUP_COUNT {
                                 let flag = 1 << i;
-                                let mut checked = groups.memberships.0 & flag != 0;
-                                if ui
-                                    .checkbox(
-                                        &mut checked,
-                                        format!(
-                                            "Collision layer {}",
-                                            (b'A' + i as u8) as char
-                                        ),
-                                    )
-                                    .changed()
-                                {
-                                    let new_val = if checked {
-                                        groups.memberships.0 | flag
-                                    } else {
-                                        groups.memberships.0 & !flag
-                                    };
-                                    groups = CollisionLayers::from_bits(new_val, new_val);
-                                    changed = true;
-                                }
+                                component_checkbox(
+                                    ui,
+                                    commands,
+                                    &gui_icons,
+                                    &targets,
+                                    &ents,
+                                    |groups| groups.memberships.0 & flag != 0,
+                                    |groups, checked| {
+                                        let new_value = if checked {
+                                            groups.memberships.0 | flag
+                                        } else {
+                                            groups.memberships.0 & !flag
+                                        };
+                                        *groups = CollisionLayers::from_bits(new_value, new_value);
+                                    },
+                                    format!("Collision layer {}", (b'A' + i as u8) as char),
+                                );
                             }
                         });
                     });
                     ui.horizontal(|ui| {
                         if ui.button("Check all").clicked() {
-                            groups = CollisionLayers::ALL;
-                            changed = true;
+                            edit_components(commands, &targets, &ents, |groups| {
+                                *groups = CollisionLayers::ALL;
+                            });
                         }
                         if ui.button("Uncheck all").clicked() {
-                            groups = CollisionLayers::NONE;
-                            changed = true;
+                            edit_components(commands, &targets, &ents, |groups| {
+                                *groups = CollisionLayers::NONE;
+                            });
                         }
                     });
-                });
-            if changed {
-                commands.entity(parent.parent()).insert(groups);
-            }
+                },
+            );
         }
     }
 }

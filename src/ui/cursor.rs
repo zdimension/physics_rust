@@ -60,11 +60,11 @@ pub fn show_current_tool_icon(
         CursorIcon::System(SystemCursorIcon::Default)
     } else {
         let current_tool = match pointer_state.mouse_button {
-            Some(UsedMouseButton::Left) => pointer_state.mouse_left,
-            Some(UsedMouseButton::Right) => pointer_state.mouse_right,
+            Some(UsedMouseButton::Left) => pointer_state.mouse_left.clone(),
+            Some(UsedMouseButton::Right) => pointer_state.mouse_right.clone(),
             None => None,
         }
-        .unwrap_or(toolbox_state.toolbox_selected);
+        .unwrap_or_else(|| toolbox_state.toolbox_selected.clone());
 
         match hardware_cursor_for_tool(
             current_tool.icon(tool_icons),

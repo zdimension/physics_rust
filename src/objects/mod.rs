@@ -3,11 +3,11 @@ use crate::update_from::UpdateFrom;
 use avian2d::collision::narrow_phase::CollisionEventSystems;
 use avian2d::prelude::*;
 use bevy::app::Update;
-use bevy::math::Vec3;
 use bevy::prelude::ChildOf;
-use bevy::prelude::{App, Component, Entity, IntoScheduleConfigs, Query, Ref, Sprite, Transform};
+use bevy::prelude::{
+    App, Changed, Component, Entity, IntoScheduleConfigs, Query, Ref, Sprite, With,
+};
 use bevy_egui::egui::ecolor::Hsva;
-use std::marker::PhantomData;
 
 pub(crate) mod axle;
 pub(crate) mod laser;
@@ -21,34 +21,28 @@ pub trait SettingComponent: Component + Sized {
     fn update_from_this(self) -> (Self, UpdateFrom<Self>) {
         (self, UpdateFrom::<Self>::This)
     }
-
-    fn update_from_entity(self, entity: Entity) -> (Self, UpdateFrom<Self>) {
-        (self, UpdateFrom::<Self>::Entity(entity, PhantomData))
-    }
 }
 
 pub fn update_sprites_color(
     mut sprites: Query<(Entity, &mut Sprite, &UpdateFrom<ColorComponent>)>,
     parents: Query<(Option<&ChildOf>, Option<Ref<ColorComponent>>)>,
+    changed_colors: Query<(), Changed<ColorComponent>>,
+    changed_sources: Query<(), Changed<UpdateFrom<ColorComponent>>>,
+    changed_parents: Query<(), (Changed<ChildOf>, With<UpdateFrom<ColorComponent>>)>,
 ) {
+    if changed_colors.is_empty() && changed_sources.is_empty() && changed_parents.is_empty() {
+        return;
+    }
+
     for (entity, mut sprite, update_source) in sprites.iter_mut() {
-        sprite.color = update_source
+        let color = update_source
             .find_component(entity, &parents)
             .expect("no color found")
             .1
             .to_rgba();
-    }
-}
-
-pub fn update_size_scales(
-    mut scales: Query<(Entity, &mut Transform, &UpdateFrom<SizeComponent>)>,
-    parents: Query<(Option<&ChildOf>, Option<Ref<SizeComponent>>)>,
-) {
-    for (entity, mut scale, update_source) in scales.iter_mut() {
-        let (_, size) = update_source
-            .find_component(entity, &parents)
-            .expect("size not found");
-        scale.scale = Vec3::new(size, size, 1.0);
+        if sprite.color != color {
+            sprite.color = color;
+        }
     }
 }
 
@@ -63,7 +57,7 @@ pub fn add_systems(app: &mut App) {
         Update,
         (
             update_sprites_color,
-            update_size_scales,
+            laser::sync_laser_size.before(laser::draw_lasers),
             axle::sync_hinge_motors,
             axle::update_hinge_motor_visuals,
             phy_obj::spawn_circle_angle_markers,
@@ -90,17 +84,6 @@ impl SettingComponent for ColorComponent {
     type Value = Hsva;
 
     fn get(&self) -> Hsva {
-        self.0
-    }
-}
-
-#[derive(Component)]
-pub struct SizeComponent(pub f32);
-
-impl SettingComponent for SizeComponent {
-    type Value = f32;
-
-    fn get(&self) -> f32 {
         self.0
     }
 }

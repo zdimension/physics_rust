@@ -1,8 +1,8 @@
-use crate::objects::ColorComponent;
-use crate::ui::{InitialPos, Subwindow};
-use bevy::prelude::*;
-use bevy_egui::{egui, EguiContexts};
 use crate::egui_systems;
+use crate::objects::ColorComponent;
+use crate::ui::{InitialPos, Subwindow, WindowSelectionTarget, window_matching_entities};
+use bevy::prelude::*;
+use bevy_egui::{EguiContexts, egui};
 
 egui_systems!(AppearanceWindow::show);
 
@@ -11,14 +11,26 @@ pub struct AppearanceWindow;
 
 impl AppearanceWindow {
     pub fn show(
-        mut wnds: Query<(Entity, &ChildOf, &mut InitialPos), With<AppearanceWindow>>,
-        mut ents: Query<&mut ColorComponent>,
+        mut wnds: Query<
+            (
+                Entity,
+                Option<&ChildOf>,
+                Option<&WindowSelectionTarget>,
+                &mut InitialPos,
+            ),
+            With<AppearanceWindow>,
+        >,
+        ents: Query<&ColorComponent>,
         mut egui_ctx: EguiContexts,
         mut commands: Commands,
     ) {
         let ctx = egui_ctx.ctx_mut().expect("primary egui context");
-        for (id, parent, mut initial_pos) in wnds.iter_mut() {
-            let mut color = ents.get_mut(parent.parent()).unwrap();
+        for (id, parent, target, mut initial_pos) in wnds.iter_mut() {
+            let targets = window_matching_entities(target, parent, &ents);
+            let Some(color) = targets.iter().find_map(|entity| ents.get(*entity).ok()) else {
+                commands.entity(id).despawn();
+                continue;
+            };
             egui::Window::new("Appearance")
                 .resizable(false)
                 .default_size(egui::Vec2::ZERO)
@@ -29,7 +41,9 @@ impl AppearanceWindow {
                         &mut hsva,
                         egui::color_picker::Alpha::OnlyBlend,
                     ) {
-                        color.0 = hsva;
+                        for entity in &targets {
+                            _commands.entity(*entity).insert(ColorComponent(hsva));
+                        }
                     }
                 });
         }

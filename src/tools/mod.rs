@@ -12,7 +12,7 @@ use paste::paste;
 
 macro_rules! tools_enum {
     ($($pic:ident => $name:ident($data:ty)),*$(,)?) => {
-        #[derive(Debug, Copy, Clone)]
+        #[derive(Debug, Clone)]
         pub enum ToolEnum {
             $($name($data)),*
         }

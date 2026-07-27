@@ -1,12 +1,14 @@
 use std::time::Duration;
 
 use crate::mouse_tracking::{MainCamera, MousePos, MousePosWorld};
-use avian2d::prelude::*;
+use bevy::ecs::component::Mutable;
+use bevy::ecs::query::{QueryData, QueryFilter};
 use bevy::log::info;
 use bevy::math::{Vec2, Vec2Swizzles, Vec3Swizzles};
 use bevy::prelude::*;
 use bevy_diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin};
-use bevy_egui::egui::{Align2, Context, Id, Pos2, Ui, pos2};
+use bevy_egui::egui::load::SizedTexture;
+use bevy_egui::egui::{Align2, Context, Id, Pos2, Slider, Ui, pos2};
 use bevy_egui::{EguiContexts, egui};
 use derivative::Derivative;
 
@@ -15,6 +17,7 @@ use crate::palette::{PaletteConfig, PaletteList};
 use crate::tools::ToolEnum;
 use crate::{UsedMouseButton, demo, egui_systems};
 
+use self::images::GuiIcons;
 use self::windows::menu::MenuWindow;
 
 pub mod cursor;
@@ -31,6 +34,7 @@ egui_systems! {
     mod windows,
     ui_example,
     process_temporary_windows,
+    remove_empty_target_windows,
     remove_temporary_windows,
 }
 
@@ -54,7 +58,7 @@ pub struct Scene;
 pub fn ui_example(
     mut egui_ctx: EguiContexts,
     scene_state: Res<SceneState>,
-    selection_state: Res<SelectionState>,
+    selected: Query<Entity, With<Selected>>,
     toolbox_state: Res<ToolboxState>,
     pointer_state: Res<PointerToolState>,
     mut is_initialized: Local<bool>,
@@ -104,7 +108,10 @@ pub fn ui_example(
         ui.collapsing("UI state", |ui| {
             ui.monospace(format!(
                 "{:#?}\n{:#?}\n{:#?}\n{:#?}",
-                selection_state, toolbox_state, pointer_state, scene_state
+                selected.iter().collect::<Vec<_>>(),
+                toolbox_state,
+                pointer_state,
+                scene_state
             ));
         });
         /*ui.collapsing("Rapier", |ui| {
@@ -165,27 +172,286 @@ pub struct TemporaryWindow;
 #[derive(Message)]
 pub struct ContextMenuEvent {
     pub screen_pos: Vec2,
+    pub target: WindowSelectionTarget,
+}
+
+#[derive(Component, Clone, Debug, Default)]
+pub struct WindowSelectionTarget {
+    pub entities: Vec<Entity>,
+}
+
+impl WindowSelectionTarget {
+    pub fn from_entities(entities: impl IntoIterator<Item = Entity>) -> Self {
+        Self {
+            entities: entities.into_iter().fold(Vec::new(), |mut acc, entity| {
+                if !acc.contains(&entity) {
+                    acc.push(entity);
+                }
+                acc
+            }),
+        }
+    }
+
+    pub fn iter(&self) -> impl DoubleEndedIterator<Item = Entity> + '_ {
+        self.entities.iter().copied()
+    }
+}
+
+pub(crate) fn window_target_entities(
+    target: Option<&WindowSelectionTarget>,
+    parent: Option<&ChildOf>,
+) -> Vec<Entity> {
+    if let Some(target) = target {
+        if !target.entities.is_empty() {
+            return target.iter().collect();
+        }
+    }
+    parent.map(ChildOf::parent).into_iter().collect::<Vec<_>>()
+}
+
+pub(crate) fn window_matching_entities<D: QueryData, F: QueryFilter>(
+    target: Option<&WindowSelectionTarget>,
+    parent: Option<&ChildOf>,
+    query: &Query<D, F>,
+) -> Vec<Entity> {
+    window_target_entities(target, parent)
+        .into_iter()
+        .filter(|entity| query.contains(*entity))
+        .collect()
+}
+
+pub(crate) fn shared_f32(values: impl IntoIterator<Item = f32>) -> Option<f32> {
+    let mut values = values.into_iter();
+    let first = values.next()?;
+    if values.all(|value| value == first) {
+        Some(first)
+    } else {
+        Some(f32::NAN)
+    }
+}
+
+pub(crate) fn max_f32<D, F>(
+    targets: &[Entity],
+    query: &Query<D, F>,
+    get: impl for<'w, 's> Fn(<D as QueryData>::Item<'w, 's>) -> f32,
+) -> Option<f32>
+where
+    D: QueryData<ReadOnly = D>,
+    F: QueryFilter,
+{
+    targets
+        .iter()
+        .filter_map(|entity| query.get(*entity).ok().map(&get))
+        .reduce(f32::max)
+}
+
+pub(crate) fn multi_slider<D, F>(
+    ui: &mut Ui,
+    commands: &mut Commands,
+    targets: &[Entity],
+    query: &Query<D, F>,
+    get: impl for<'w, 's> Fn(<D as QueryData>::Item<'w, 's>) -> f32,
+    set: impl for<'w, 's> Fn(Entity, <D as QueryData>::Item<'w, 's>, f32, &mut Commands),
+    range: std::ops::RangeInclusive<f32>,
+    settings: impl FnOnce(Slider) -> Slider,
+) where
+    D: QueryData<ReadOnly = D>,
+    F: QueryFilter,
+{
+    let mut current = shared_f32(
+        targets
+            .iter()
+            .filter_map(|entity| query.get(*entity).ok().map(&get)),
+    )
+    .unwrap_or(f32::NAN);
+
+    if ui
+        .add(settings(Slider::new(&mut current, range)).custom())
+        .changed()
+    {
+        for entity in targets {
+            if let Ok(item) = query.get(*entity) {
+                set(*entity, item, current, commands);
+            }
+        }
+    }
+}
+
+pub(crate) fn component_slider<C>(
+    ui: &mut Ui,
+    commands: &mut Commands,
+    targets: &[Entity],
+    query: &Query<&C>,
+    get: impl Fn(&C) -> f32,
+    set: impl Fn(&mut C, f32),
+    range: std::ops::RangeInclusive<f32>,
+    settings: impl FnOnce(Slider) -> Slider,
+) where
+    C: Component + Copy,
+{
+    multi_slider(
+        ui,
+        commands,
+        targets,
+        query,
+        get,
+        |entity, component, value, commands| {
+            let mut component = *component;
+            set(&mut component, value);
+            commands.entity(entity).insert(component);
+        },
+        range,
+        settings,
+    );
+}
+
+pub(crate) fn edit_components<C>(
+    commands: &mut Commands,
+    targets: &[Entity],
+    query: &Query<&C>,
+    edit: impl Fn(&mut C),
+) where
+    C: Component + Copy,
+{
+    for entity in targets {
+        if let Ok(component) = query.get(*entity) {
+            let mut component = *component;
+            edit(&mut component);
+            commands.entity(*entity).insert(component);
+        }
+    }
+}
+
+pub(crate) fn component_slider_mut<C>(
+    ui: &mut Ui,
+    targets: &[Entity],
+    query: &mut Query<&mut C>,
+    get: impl Fn(&C) -> f32,
+    set: impl Fn(&mut C, f32),
+    range: std::ops::RangeInclusive<f32>,
+    settings: impl FnOnce(Slider) -> Slider,
+) where
+    C: Component<Mutability = Mutable>,
+{
+    let mut values = Vec::new();
+    for entity in targets {
+        if let Ok(component) = query.get_mut(*entity) {
+            values.push(get(&component));
+        }
+    }
+    let mut current = shared_f32(values).unwrap_or(f32::NAN);
+
+    if ui
+        .add(settings(Slider::new(&mut current, range)).custom())
+        .changed()
+    {
+        for entity in targets {
+            if let Ok(mut component) = query.get_mut(*entity) {
+                set(&mut *component, current);
+            }
+        }
+    }
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub(crate) enum TriState {
+    Off,
+    On,
+    Mixed,
+}
+
+pub(crate) fn shared_bool(values: impl IntoIterator<Item = bool>) -> Option<TriState> {
+    let mut values = values.into_iter();
+    let first = values.next()?;
+    if values.all(|value| value == first) {
+        Some(if first { TriState::On } else { TriState::Off })
+    } else {
+        Some(TriState::Mixed)
+    }
+}
+
+pub(crate) fn component_checkbox<C>(
+    ui: &mut Ui,
+    commands: &mut Commands,
+    icons: &GuiIcons,
+    targets: &[Entity],
+    query: &Query<&C>,
+    get: impl Fn(&C) -> bool,
+    set: impl Fn(&mut C, bool),
+    label: impl Into<egui::WidgetText>,
+) -> Option<TriState>
+where
+    C: Component + Copy,
+{
+    let state = shared_bool(
+        targets
+            .iter()
+            .filter_map(|entity| query.get(*entity).ok().map(&get)),
+    )?;
+
+    if let Some(value) = image_checkbox(ui, icons, state, label) {
+        for entity in targets {
+            if let Ok(component) = query.get(*entity) {
+                let mut component = *component;
+                set(&mut component, value);
+                commands.entity(*entity).insert(component);
+            }
+        }
+    }
+
+    Some(state)
+}
+
+pub(crate) fn image_checkbox(
+    ui: &mut Ui,
+    icons: &GuiIcons,
+    state: TriState,
+    label: impl Into<egui::WidgetText>,
+) -> Option<bool> {
+    let icon = match state {
+        TriState::Off => icons.checkbox_off,
+        TriState::On => icons.checkbox_on,
+        TriState::Mixed => icons.checkbox_unknown,
+    };
+    let clicked = ui
+        .add(egui::Button::image_and_text(
+            SizedTexture::new(icon, [16.0, 16.0]),
+            label,
+        ))
+        .clicked();
+    clicked.then_some(!matches!(state, TriState::On))
+}
+
+pub(crate) fn bool_checkbox(
+    ui: &mut Ui,
+    icons: &GuiIcons,
+    value: &mut bool,
+    label: impl Into<egui::WidgetText>,
+) -> bool {
+    let state = if *value { TriState::On } else { TriState::Off };
+    if let Some(new_value) = image_checkbox(ui, icons, state, label) {
+        *value = new_value;
+        true
+    } else {
+        false
+    }
 }
 
 pub fn handle_context_menu(
     mut ev: MessageReader<ContextMenuEvent>,
-    selection: Res<SelectionState>,
     mut commands: Commands,
     existing: Query<Entity, With<MenuWindow>>,
 ) {
     for ev in ev.read() {
-        let entity = selection.selected_entity.map(|sel| sel.entity);
-        info!("context menu at {:?} for {:?}", ev.screen_pos, entity);
+        info!("context menu at {:?} for {:?}", ev.screen_pos, ev.target);
         if let Ok(existing) = existing.single() {
             commands.entity(existing).despawn();
         }
-        let wnd = commands
-            .spawn((MenuWindow::default(), InitialPos::initial(ev.screen_pos)))
-            .id();
-
-        if let Some(id) = entity {
-            commands.entity(id).add_children(&[wnd]);
-        }
+        commands.spawn((
+            MenuWindow::default(),
+            ev.target.clone(),
+            InitialPos::initial(ev.screen_pos),
+        ));
     }
 }
 
@@ -204,6 +470,20 @@ fn process_temporary_windows(
                 wnd, begin, current
             );
             commands.entity(wnd).remove::<TemporaryWindow>();
+        }
+    }
+}
+
+fn remove_empty_target_windows(
+    mut commands: Commands,
+    wnds: Query<(Entity, &WindowSelectionTarget)>,
+    alive: Query<()>,
+) {
+    for (entity, target) in &wnds {
+        if !target.entities.is_empty()
+            && !target.entities.iter().any(|entity| alive.contains(*entity))
+        {
+            commands.entity(entity).despawn();
         }
     }
 }
@@ -286,24 +566,8 @@ fn remove_temporary_windows(
     }
 }
 
-#[derive(Copy, Clone, PartialEq, Debug)]
-pub struct EntitySelection {
-    pub(crate) entity: Entity,
-}
-
-#[derive(Resource, Derivative)]
-#[derivative(Debug)]
-pub struct SelectionState {
-    pub(crate) selected_entity: Option<EntitySelection>,
-}
-
-impl Default for SelectionState {
-    fn default() -> Self {
-        Self {
-            selected_entity: None,
-        }
-    }
-}
+#[derive(Component, Copy, Clone, Debug, Default)]
+pub struct Selected;
 
 #[derive(Resource, Derivative)]
 #[derivative(Debug)]
@@ -338,7 +602,7 @@ impl Default for ToolboxState {
                     tool!(Tracer),
                 ],
             ],
-            toolbox_bottom: vec![tool!(Zoom), pan],
+            toolbox_bottom: vec![tool!(Zoom), pan.clone()],
             toolbox_selected: pan,
         }
     }

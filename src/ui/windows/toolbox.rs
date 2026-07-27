@@ -1,18 +1,21 @@
+use crate::egui_systems;
+use crate::mouse::select::SelectionConfig;
 use crate::tools::drag::DragConfig;
 use crate::tools::{ToolEnum, ToolIcons};
 use crate::ui::icon_button::IconButton;
+use crate::ui::images::GuiIcons;
 use crate::ui::separator_custom::SeparatorCustom;
-use crate::ui::{RemoveTemporaryWindowsEvent, ToolboxState};
-use crate::mouse::select::SelectionConfig;
+use crate::ui::{RemoveTemporaryWindowsEvent, ToolboxState, bool_checkbox};
+use crate::update_changed;
 use bevy::prelude::{MessageWriter, Res, ResMut};
 use bevy_egui::egui::{Align2, Frame, Margin};
-use bevy_egui::{egui, EguiContexts};
-use crate::{egui_systems, update_changed};
+use bevy_egui::{EguiContexts, egui};
 
 pub fn draw_toolbox(
     mut egui_ctx: EguiContexts,
     mut toolbox_state: ResMut<ToolboxState>,
     tool_icons: Res<ToolIcons>,
+    gui_icons: Res<GuiIcons>,
     mut clear_tmp: MessageWriter<RemoveTemporaryWindowsEvent>,
     mut drag_config: ResMut<DragConfig>,
     mut selection_config: ResMut<SelectionConfig>,
@@ -36,21 +39,17 @@ pub fn draw_toolbox(
                         ui.add(SeparatorCustom::default().horizontal());
                     }
                     for chunk in category.chunks(2) {
-
                         ui.horizontal(|ui| {
                             for def in chunk {
                                 if ui
                                     .add(
-                                        IconButton::new(
-                                            def.egui_icon(&tool_icons),
-                                            24.0,
-                                        )
+                                        IconButton::new(def.egui_icon(&tool_icons), 24.0)
                                             .dim_if_unselected(true)
-                                        .selected(toolbox_state.toolbox_selected.is_same(def)),
+                                            .selected(toolbox_state.toolbox_selected.is_same(def)),
                                     )
                                     .clicked()
                                 {
-                                    toolbox_state.toolbox_selected = *def;
+                                    toolbox_state.toolbox_selected = def.clone();
                                     clear_tmp.write(RemoveTemporaryWindowsEvent);
                                 }
                             }
@@ -58,16 +57,20 @@ pub fn draw_toolbox(
                     }
                 }
             });
-        }).expect("Toolbox must be visible");
-        
+        })
+        .expect("Toolbox must be visible");
+
     egui::Window::new("Tool settings")
-        .anchor(Align2::LEFT_BOTTOM, [toolbox.response.rect.width() + 2.0, -1.0])
+        .anchor(
+            Align2::LEFT_BOTTOM,
+            [toolbox.response.rect.width() + 2.0, -1.0],
+        )
         .title_bar(false)
         .resizable(false)
         .default_size(egui::Vec2::ZERO)
         .frame(Frame {
             inner_margin: Margin::same(3),
-            ..Frame::window(ctx.style().as_ref())
+            ..Frame::window(ctx.global_style().as_ref())
         })
         .show(ctx, |ui| {
             ui.vertical(|ui| {
@@ -76,21 +79,35 @@ pub fn draw_toolbox(
                 'settings: {
                     match toolbox_state.toolbox_selected {
                         Drag(_) => {
-                            ui.checkbox(&mut drag_config.drag_center_of_mass, "Drag center of mass");
+                            bool_checkbox(
+                                ui,
+                                &gui_icons,
+                                &mut drag_config.drag_center_of_mass,
+                                "Drag center of mass",
+                            );
                             update_changed!(ui, drag_config.strength, 1000.0..=1e8, |slider| {
-                                slider.text("Drag strength:")
-                                    .logarithmic(true)
-                                    .custom()   
+                                slider.text("Drag strength:").logarithmic(true).custom()
                             });
-                            update_changed!(ui, drag_config.max_force, 1.0..=f32::INFINITY, |slider| {
-                                slider.text("Max force:")
-                                    .logarithmic(true)
-                                    .largest_finite(1e6)
-                                    .custom()   
-                            });
+                            update_changed!(
+                                ui,
+                                drag_config.max_force,
+                                1.0..=f32::INFINITY,
+                                |slider| {
+                                    slider
+                                        .text("Max force:")
+                                        .logarithmic(true)
+                                        .largest_finite(1e6)
+                                        .custom()
+                                }
+                            );
                         }
                         Box(_) => {
-                            ui.checkbox(&mut selection_config.select_by_encircling, "Select by encircling");
+                            bool_checkbox(
+                                ui,
+                                &gui_icons,
+                                &mut selection_config.select_by_encircling,
+                                "Select by encircling",
+                            );
                         }
                         _ => {
                             break 'settings;

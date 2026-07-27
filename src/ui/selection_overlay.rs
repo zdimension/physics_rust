@@ -3,12 +3,20 @@ use crate::lyon_compat::RectangleOrigin;
 use crate::lyon_compat::shapes;
 use crate::lyon_compat::{Fill, Shape, ShapeBundle, Stroke};
 use crate::mouse_tracking::{MainCamera, MousePosWorld};
+use crate::ui::Selected;
+use crate::{BORDER_THICKNESS, make_fill, make_stroke};
+use avian2d::parry::shape::TypedShape;
+use avian2d::prelude::Collider;
 use bevy::math::{Vec2, Vec3Swizzles};
 use bevy::prelude::*;
+use std::collections::HashMap;
 use std::f32::consts::{PI, TAU};
 
 use crate::FOREGROUND_Z;
 use crate::tools::rotate::ROTATE_HELPER_RADIUS;
+
+const SELECTION_OVERLAY_Z: f32 = 0.05;
+const SELECTION_COLOR: Color = Color::WHITE;
 
 #[derive(Copy, Clone, PartialEq)]
 pub enum Overlay {
@@ -20,6 +28,120 @@ pub enum Overlay {
 #[derive(Resource, Default)]
 pub struct OverlayState {
     pub draw_ent: Option<(Entity, Overlay, Vec2)>,
+}
+
+#[derive(Component)]
+pub(crate) struct SelectionHighlight;
+
+pub fn sync_selection_highlights(
+    mut commands: Commands,
+    selected: Query<Entity, With<Selected>>,
+    mut highlight_parents: Query<(Entity, &ChildOf), With<SelectionHighlight>>,
+    mut highlights: Query<(&mut Shape, &mut Transform), With<SelectionHighlight>>,
+    colliders: Query<Ref<Collider>, Without<SelectionHighlight>>,
+    added_selected: Query<(), Added<Selected>>,
+    changed_selected_colliders: Query<(), (With<Selected>, Changed<Collider>)>,
+    mut removed_selected: RemovedComponents<Selected>,
+    mut removed_colliders: RemovedComponents<Collider>,
+) {
+    let selection_removed = removed_selected.read().next().is_some();
+    let collider_removed = removed_colliders.read().next().is_some();
+    if added_selected.is_empty()
+        && changed_selected_colliders.is_empty()
+        && !selection_removed
+        && !collider_removed
+    {
+        return;
+    }
+
+    let mut highlight_by_target = HashMap::new();
+    for (highlight, parent) in &mut highlight_parents {
+        let target = parent.parent();
+        if selected.contains(target) && colliders.contains(target) {
+            highlight_by_target.insert(target, highlight);
+        } else {
+            commands.entity(highlight).despawn();
+        }
+    }
+
+    for target in &selected {
+        let Ok(collider) = colliders.get(target) else {
+            continue;
+        };
+        let highlight = highlight_by_target.get(&target).copied();
+        if highlight.is_some() && !collider.is_changed() {
+            continue;
+        }
+        upsert_selection_highlight(
+            target,
+            highlight,
+            collider_path(&collider),
+            SELECTION_OVERLAY_Z,
+            &mut commands,
+            &mut highlights,
+        );
+    }
+}
+
+fn upsert_selection_highlight(
+    target: Entity,
+    highlight: Option<Entity>,
+    path: bevy_prototype_lyon::prelude::tess::path::Path,
+    local_z: f32,
+    commands: &mut Commands,
+    highlights: &mut Query<(&mut Shape, &mut Transform), With<SelectionHighlight>>,
+) {
+    if let Some(highlight) = highlight
+        && let Ok((mut shape, mut transform)) = highlights.get_mut(highlight)
+    {
+        shape.path = path;
+        transform.translation = Vec3::Z * local_z;
+        return;
+    }
+
+    commands.entity(target).with_children(|parent| {
+        parent.spawn((
+            SelectionHighlight,
+            ShapeBundle::new(
+                path,
+                Transform::from_translation(Vec3::Z * local_z),
+                Visibility::Inherited,
+            ),
+            make_fill(Color::srgba(0.0, 0.0, 0.0, 0.0)),
+            make_stroke(SELECTION_COLOR, BORDER_THICKNESS),
+        ));
+    });
+}
+
+fn collider_path(collider: &Collider) -> bevy_prototype_lyon::prelude::tess::path::Path {
+    match collider.shape().as_typed_shape() {
+        TypedShape::Ball(ball) => GeometryBuilder::build_as(&shapes::Circle {
+            radius: ball.radius,
+            ..Default::default()
+        }),
+        TypedShape::Cuboid(cuboid) => GeometryBuilder::build_as(&shapes::Rectangle {
+            extents: Vec2::new(cuboid.half_extents.x, cuboid.half_extents.y) * 2.0,
+            ..Default::default()
+        }),
+        TypedShape::ConvexPolygon(polygon) => GeometryBuilder::build_as(&shapes::Polygon {
+            points: polygon
+                .points()
+                .iter()
+                .map(|point| Vec2::new(point.x, point.y))
+                .collect(),
+            closed: true,
+        }),
+        _ => {
+            let aabb = collider.shape().compute_local_aabb();
+            GeometryBuilder::new()
+                .begin(Vec2::new(aabb.mins.x, aabb.mins.y))
+                .line_to(Vec2::new(aabb.maxs.x, aabb.mins.y))
+                .line_to(Vec2::new(aabb.maxs.x, aabb.maxs.y))
+                .line_to(Vec2::new(aabb.mins.x, aabb.maxs.y))
+                .close()
+                .build()
+        }
+    }
 }
 
 pub fn process_draw_overlay(

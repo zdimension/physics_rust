@@ -28,11 +28,11 @@ pub(crate) struct HingeMotorDirection {
 pub(crate) const HINGE_MOTOR_VISUAL_DIAMETER: f32 = 2.0;
 
 const HINGE_VISUAL_DIAMETER: f32 = 1.0;
-const HINGE_SELECTION_PADDING: f32 = 1.1;
+const HINGE_SELECTION_RADIUS: f32 = 0.55;
 const MOTOR_DAMPING: f32 = 1.0;
 
-pub(crate) fn hinge_selection_radius(motor_enabled: bool) -> f32 {
-    hinge_visual_radius(motor_enabled) * HINGE_SELECTION_PADDING
+pub(crate) fn hinge_selection_radius(_motor_enabled: bool) -> f32 {
+    HINGE_SELECTION_RADIUS
 }
 
 fn hinge_visual_radius(motor_enabled: bool) -> f32 {
@@ -46,7 +46,13 @@ fn hinge_visual_radius(motor_enabled: bool) -> f32 {
 pub(crate) fn sync_hinge_motors(
     mut joints: Query<(&mut RevoluteJoint, &UpdateFrom<MotorComponent>), With<AxleObject>>,
     parents: Query<(Option<&ChildOf>, Option<Ref<MotorComponent>>)>,
+    changed_motors: Query<(), Changed<MotorComponent>>,
+    changed_sources: Query<(), Changed<UpdateFrom<MotorComponent>>>,
 ) {
+    if changed_motors.is_empty() && changed_sources.is_empty() {
+        return;
+    }
+
     for (mut joint, update_source) in &mut joints {
         let Some((_, motor)) = update_source.find_component(Entity::PLACEHOLDER, &parents) else {
             continue;
@@ -88,7 +94,10 @@ pub(crate) fn break_hinges(
 }
 
 pub(crate) fn update_hinge_motor_visuals(
-    mut hinges: Query<(Entity, Ref<MotorComponent>, &mut Shape, &mut Collider), With<AxleVisual>>,
+    mut hinges: Query<
+        (Entity, &MotorComponent, &mut Shape, &mut Collider),
+        (With<AxleVisual>, Changed<MotorComponent>),
+    >,
     mut motor_parts: Query<
         (
             &ChildOf,
@@ -100,10 +109,6 @@ pub(crate) fn update_hinge_motor_visuals(
     >,
 ) {
     for (hinge, motor, mut shape, mut collider) in &mut hinges {
-        if !motor.is_changed() {
-            continue;
-        }
-
         shape.path = GeometryBuilder::build_as(&shapes::Circle {
             radius: hinge_selection_radius(motor.enabled),
             ..Default::default()

@@ -1,8 +1,8 @@
 use std::fmt::{Debug, Formatter};
 
 use crate::lyon_compat::GeometryBuilder;
-use crate::lyon_compat::ShapeBundle;
 use crate::lyon_compat::shapes;
+use crate::lyon_compat::{Shape, ShapeBundle};
 use avian2d::prelude::*;
 use bevy::math::{Vec2, Vec3, Vec3Swizzles};
 use bevy::prelude::*;
@@ -13,10 +13,14 @@ use crate::objects::ColorComponent;
 use crate::objects::phy_obj::RefractiveIndex;
 use crate::tools::add_object::query_only_real;
 
-#[derive(Component)]
-pub struct LaserBundle {
+#[derive(Component, Copy, Clone, Debug)]
+pub struct LaserSettings {
+    pub(crate) size: f32,
     pub(crate) fade_distance: f32,
 }
+
+#[derive(Component)]
+pub(crate) struct LaserVisual;
 
 struct LaserRay {
     start: Vec2,
@@ -76,7 +80,7 @@ impl LaserRay {
         self.start + Vec2::from_angle(self.angle) * self.length_clipped()
     }
 
-    fn end_strength(&self, laser: &LaserBundle) -> f32 {
+    fn end_strength(&self, laser: &LaserSettings) -> f32 {
         0.0f32
             .max(self.strength * (1.0 - self.length / (laser.fade_distance - self.start_distance)))
     }
@@ -96,7 +100,7 @@ struct ObjectInfo {
 }
 
 struct LaserCompute<'a, 'w, 's, ObjInfo: Fn(Entity) -> ObjectInfo> {
-    laser: &'a LaserBundle,
+    laser: &'a LaserSettings,
     query: &'a SpatialQuery<'w, 's>,
     object_info: ObjInfo,
     rays: Vec<LaserRay>,
@@ -105,7 +109,11 @@ struct LaserCompute<'a, 'w, 's, ObjInfo: Fn(Entity) -> ObjectInfo> {
 const MAX_RAYS: usize = 1000;
 
 impl<'a, 'w, 's, ObjInfo: Fn(Entity) -> ObjectInfo> LaserCompute<'a, 'w, 's, ObjInfo> {
-    fn new(laser: &'a LaserBundle, query: &'a SpatialQuery<'w, 's>, object_info: ObjInfo) -> Self {
+    fn new(
+        laser: &'a LaserSettings,
+        query: &'a SpatialQuery<'w, 's>,
+        object_info: ObjInfo,
+    ) -> Self {
         Self {
             laser,
             query,
@@ -336,17 +344,11 @@ fn compute_new_angle(incidence: f32, index_ray: f32, index_new: f32) -> Option<f
 const LASER_WIDTH: f32 = 0.2;
 
 pub fn draw_lasers(
-    lasers: Query<(
-        &Transform,
-        &GlobalTransform,
-        &LaserBundle,
-        &ColorComponent,
-        &Rotation,
-    )>,
+    lasers: Query<(&GlobalTransform, &LaserSettings, &ColorComponent, &Rotation)>,
     changed_lasers: Query<
         Entity,
         Or<(
-            Added<LaserBundle>,
+            Changed<LaserSettings>,
             Changed<Transform>,
             Changed<GlobalTransform>,
             Changed<ColorComponent>,
@@ -367,7 +369,7 @@ pub fn draw_lasers(
             )>,
         ),
     >,
-    refr: Query<(&RefractiveIndex, &ColorComponent), Without<LaserBundle>>,
+    refr: Query<(&RefractiveIndex, &ColorComponent), Without<LaserSettings>>,
     mut rays: Query<(Entity, &mut LaserRays)>,
     mut commands: Commands,
     spatial_query: SpatialQuery,
@@ -379,10 +381,12 @@ pub fn draw_lasers(
     let (rays, mut rays_obj) = rays.single_mut().unwrap();
     commands.entity(rays).despawn_children();
 
-    for (transform, glob, laser, color, rot) in lasers.iter() {
-        let ray_width = transform.scale.x * LASER_WIDTH;
+    for (glob, laser, color, rot) in lasers.iter() {
+        let ray_width = laser.size * LASER_WIDTH;
 
-        let start = glob.transform_point(Vec3::new(0.5, 0.0, 1.0)).xy();
+        let start = glob
+            .transform_point(Vec3::new(laser.size * 0.5, 0.0, 1.0))
+            .xy();
         let mut object_other = None;
         spatial_query.point_intersections_callback(start, &query_only_real(), |ent| {
             object_other = Some(ent);
@@ -450,7 +454,7 @@ pub fn draw_lasers(
                         Transform::from_translation(Vec3::new(
                             0.0,
                             0.0,
-                            transform.translation.z - 0.1,
+                            glob.translation().z - 0.1,
                         )),
                         Visibility::Inherited,
                     ),
@@ -460,6 +464,28 @@ pub fn draw_lasers(
         }
 
         rays_obj.debug = debug;
+    }
+}
+
+pub(crate) fn sync_laser_size(
+    mut lasers: Query<
+        (&LaserSettings, &Children, &mut Collider, &mut Shape),
+        Changed<LaserSettings>,
+    >,
+    mut visuals: Query<&mut Transform, With<LaserVisual>>,
+) {
+    for (settings, children, mut collider, mut shape) in &mut lasers {
+        *collider = Collider::rectangle(settings.size * 0.5, settings.size * 0.25);
+        shape.path = GeometryBuilder::build_as(&shapes::Rectangle {
+            extents: Vec2::new(settings.size, settings.size * 0.5) * 1.1,
+            ..Default::default()
+        });
+
+        for child in children.iter() {
+            if let Ok(mut transform) = visuals.get_mut(child) {
+                transform.scale = Vec3::new(settings.size / 256.0, settings.size / 256.0, 1.0);
+            }
+        }
     }
 }
 

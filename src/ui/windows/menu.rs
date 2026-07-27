@@ -1,22 +1,22 @@
-use crate::objects::laser::LaserBundle;
+use crate::mouse_tracking::MainCamera;
+use crate::objects::laser::LaserSettings;
 use crate::objects::spring::{SpringEndHandle, SpringObject};
-use crate::objects::tracer::TracerObject;
+use crate::objects::tracer::TracerSettings;
 use crate::objects::{ColorComponent, MotorComponent};
 use crate::tools::ToolIcons;
+use crate::tools::add_object::{AttachmentLinks, despawn_attachment_links};
 use crate::ui::images::GuiIcons;
-use crate::ui::{InitialPos, Subwindow, TemporaryWindow};
-use crate::{CAMERA_Z,  egui_systems};
+use crate::ui::{InitialPos, Subwindow, TemporaryWindow, WindowSelectionTarget};
+use crate::{CAMERA_Z, egui_systems};
+use avian2d::prelude::*;
+use bevy::camera::primitives::Aabb;
+use bevy::math::Vec3Swizzles;
 use bevy::prelude::ChildOf;
 use bevy::prelude::*;
-use bevy_egui::egui::{pos2, Separator};
-use bevy_egui::{egui, EguiContexts};
-use avian2d::prelude::*;
-use std::time::Duration;
-use bevy::math::Vec3Swizzles;
-use bevy::camera::primitives::Aabb;
 use bevy::window::PrimaryWindow;
-use crate::mouse_tracking::MainCamera;
-use crate::tools::add_object::{despawn_attachment_links, AttachmentLinks};
+use bevy_egui::egui::{Separator, pos2};
+use bevy_egui::{EguiContexts, egui};
+use std::time::Duration;
 
 use crate::ui::windows::object::appearance::AppearanceWindow;
 use crate::ui::windows::object::collisions::CollisionsWindow;
@@ -53,7 +53,13 @@ pub struct MenuWindow {
 
 impl MenuWindow {
     fn show(
-        mut wnds: Query<(Entity, Option<&ChildOf>, &mut MenuWindow, &mut InitialPos)>,
+        mut wnds: Query<(
+            Entity,
+            Option<&ChildOf>,
+            Option<&WindowSelectionTarget>,
+            &mut MenuWindow,
+            &mut InitialPos,
+        )>,
         is_temp: Query<Option<&TemporaryWindow>>,
         time: Res<Time>,
         mut egui_ctx: EguiContexts,
@@ -64,20 +70,22 @@ impl MenuWindow {
             Option<&ColorComponent>,
             Option<&LinearVelocity>,
             Option<&CollisionLayers>,
-            Option<&LaserBundle>,
+            Option<&LaserSettings>,
             Option<&RigidBody>,
             Option<&MotorComponent>,
             Option<&SpringObject>,
             Option<&SpringEndHandle>,
             Option<&AttachmentLinks>,
-            Option<&TracerObject>,
+            Option<&TracerSettings>,
         )>,
         mut cameras: Query<&mut Transform, With<MainCamera>>,
-        mut zoom2scene: MessageWriter<ZoomToScene>
+        mut zoom2scene: MessageWriter<ZoomToScene>,
     ) {
         let ctx = egui_ctx.ctx_mut().expect("primary egui context");
-        for (wnd_id, entity, mut info_wnd, mut initial_pos) in wnds.iter_mut() {
-            let entity = entity.map(ChildOf::parent);
+        for (wnd_id, entity, target, mut info_wnd, mut initial_pos) in wnds.iter_mut() {
+            let targets = target
+                .map(|target| target.iter().collect::<Vec<_>>())
+                .unwrap_or_else(|| entity.map(ChildOf::parent).into_iter().collect());
             egui::Window::new("context menu")
                 .default_size(egui::Vec2::ZERO)
                 .resizable(false)
@@ -114,17 +122,16 @@ impl MenuWindow {
 
                                     if selected {
                                         if let Some((_, id)) = info_wnd.selected_item {
-                                            commands.get_entity(id).map(|mut ent| _ = ent.despawn());
+                                            let _ = commands.get_entity(id).map(|mut ent| {
+                                                ent.despawn();
+                                            });
                                         }
 
                                         let new_wnd = commands.spawn((
                                             <$wnd as Default>::default(),
+                                            WindowSelectionTarget::from_entities(targets.iter().copied()),
                                             InitialPos::initial(menu.rect.right_top())
                                         )).id();
-
-                                        if let Some(id) = entity {
-                                            commands.entity(id).add_children(&[new_wnd]);
-                                        }
 
                                         info_wnd.selected_item = Some((our_id, new_wnd));
                                     }
@@ -148,58 +155,77 @@ impl MenuWindow {
                             };
                         }
 
-                    match entity {
-                        Some(id) => {
-                            let info = entity_info.get(id).expect("Missing entity info");
+                    if !targets.is_empty() {
+                            let has = |mut f: Box<dyn FnMut(&(
+                                Option<&ColorComponent>,
+                                Option<&LinearVelocity>,
+                                Option<&CollisionLayers>,
+                                Option<&LaserSettings>,
+                                Option<&RigidBody>,
+                                Option<&MotorComponent>,
+                                Option<&SpringObject>,
+                                Option<&SpringEndHandle>,
+                                Option<&AttachmentLinks>,
+                                Option<&TracerSettings>,
+                            )) -> bool>| {
+                                targets.iter().copied().any(|id| {
+                                    entity_info.get(id).ok().is_some_and(|info| f(&info))
+                                })
+                            };
 
                             if item!("Erase", erase) {
-                                despawn_attachment_links(commands, info.8);
-                                commands.entity(id).despawn();
+                                for id in targets.iter().copied() {
+                                    if let Ok(info) = entity_info.get(id) {
+                                        despawn_attachment_links(commands, info.8);
+                                    }
+                                    commands.entity(id).despawn();
+                                }
                             }
                             if item!("Mirror", mirror) {}
                             if item!("Show plot", plot) {
-                                commands.entity(id).with_children(|parent| {
-                                    parent.spawn((PlotWindow::default(), InitialPos::persistent(pos2(100.0, 100.0))));
-                                });
+                                commands.spawn((
+                                    PlotWindow::default(),
+                                    WindowSelectionTarget::from_entities(targets.iter().copied()),
+                                    InitialPos::persistent(pos2(100.0, 100.0)),
+                                ));
                                 commands.entity(wnd_id).despawn();
                             }
                             ui.add(Separator::default().horizontal());
 
                             menu!("Selection", /, SelectionWindow);
-                            if info.0.is_some() {
+                            if has(Box::new(|info| info.0.is_some())) {
                                 menu!("Appearance", color, AppearanceWindow);
                             }
                             //menu!("Text", text, TextWindow);
-                            if info.4.is_some() {
+                            if has(Box::new(|info| info.4.is_some())) {
                                 menu!("Material", material, MaterialWindow);
                             }
-                            if info.1.is_some() {
+                            if has(Box::new(|info| info.1.is_some())) {
                                 menu!("Velocities", velocity, VelocitiesWindow);
                             }
-                            if info.5.is_some() {
+                            if has(Box::new(|info| info.5.is_some())) {
                                 menu!("Axles", hinge, AxleWindow);
                             }
-                            if info.6.is_some() || info.7.is_some() {
+                            if has(Box::new(|info| info.6.is_some())) {
                                 menu!("Springs", /, SpringWindow);
                             }
-                            if info.3.is_some() {
+                            if has(Box::new(|info| info.3.is_some())) {
                                 menu!("Laser pens", lasermenu, LaserWindow);
                             }
-                            if info.9.is_some() {
+                            if has(Box::new(|info| info.9.is_some())) {
                                 menu!("Tracers", tool_icons.egui_icon_tracer, TracerWindow);
                             }
                             menu!("Information", info, InformationWindow);
-                            if info.2.is_some() {
+                            if has(Box::new(|info| info.2.is_some())) {
                                 menu!("Collision layers", collisions, CollisionsWindow);
                             }
-                            if info.4.is_some() {
+                            if has(Box::new(|info| info.4.is_some())) {
                                 menu!("Geometry actions", /, GeometryActionsWindow);
                             }
                             menu!("Combine shapes", csg, CombineShapesWindow);
                             menu!("Controller", controller, ControllerWindow);
                             menu!("Script menu", /, ScriptMenuWindow);
-                        }
-                        None => {
+                    } else {
                             if item!("Zoom to scene", zoom2scene) {
                                 zoom2scene.write(ZoomToScene);
                             }
@@ -210,7 +236,6 @@ impl MenuWindow {
                                 camera.scale = Vec3::new(scale, scale, 1.0);
                             }
                             menu!("Background", color, BackgroundWindow);
-                        }
                     }
                 });
         }
@@ -224,7 +249,7 @@ fn handle_zoom_to_scene(
     mut events: MessageReader<ZoomToScene>,
     mut cameras: Query<&mut Transform, With<MainCamera>>,
     bboxes: Query<(&Position, &Aabb), Without<MainCamera>>,
-    windows: Query<&Window, With<PrimaryWindow>>
+    windows: Query<&Window, With<PrimaryWindow>>,
 ) {
     let prim = windows.single().unwrap();
     const FIT_MARGIN: f32 = 0.66;

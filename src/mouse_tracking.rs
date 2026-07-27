@@ -3,9 +3,7 @@ use std::{fmt::Display, ops::Deref};
 use bevy::{ecs::system::EntityCommand, input::InputSystems, prelude::*, window::PrimaryWindow};
 
 pub mod prelude {
-    pub use crate::mouse_tracking::{
-        InitWorldTracking, MousePosPlugin, MousePositionSet,
-    };
+    pub use crate::mouse_tracking::{InitWorldTracking, MousePosPlugin, MousePositionSet};
 }
 
 pub struct MousePosPlugin;
@@ -61,10 +59,10 @@ impl Display for MousePosWorld {
     }
 }
 
-#[derive(Component, Default)]
+#[derive(Component, Default, PartialEq)]
 struct CameraMousePos(Vec2);
 
-#[derive(Component, Default)]
+#[derive(Component, Default, PartialEq)]
 struct CameraMousePosWorld(Vec3);
 
 pub struct InitMouseTracking;
@@ -111,14 +109,14 @@ fn update_mouse_positions(
     let mut main_world = None;
 
     for (camera, transform, mut screen, world, main) in mouse_positions.p1().iter_mut() {
-        screen.0 = cursor_pos;
+        screen.set_if_neq(CameraMousePos(cursor_pos));
         let world_pos = camera
             .viewport_to_world_2d(transform, cursor_pos)
             .map(|pos| pos.extend(0.0))
             .unwrap_or_default();
 
         if let Some(mut world) = world {
-            world.0 = world_pos;
+            world.set_if_neq(CameraMousePosWorld(world_pos));
         }
 
         if main.is_some() {
@@ -129,9 +127,9 @@ fn update_mouse_positions(
 
     let (mut screen_res, mut world_res) = mouse_positions.p0();
     if let Some(pos) = main_screen {
-        screen_res.0 = pos;
+        screen_res.set_if_neq(MousePos(pos));
     }
     if let Some(pos) = main_world {
-        world_res.0 = pos;
+        world_res.set_if_neq(MousePosWorld(pos));
     }
 }

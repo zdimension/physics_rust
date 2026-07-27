@@ -2,16 +2,16 @@ use crate::BORDER_THICKNESS;
 use crate::lyon_compat::GeometryBuilder;
 use crate::lyon_compat::ShapeBundle;
 use crate::lyon_compat::shapes;
-use crate::mouse::select::SelectUnderMouseEvent;
+use crate::mouse::select::{SelectUnderMouseEvent, SelectionMode};
 use crate::mouse_tracking::MainCamera;
 use crate::objects::axle::{
     AxleObject, AxleVisual, FixObject, HINGE_MOTOR_VISUAL_DIAMETER, HingeMotorDirection,
     HingeMotorRing, hinge_selection_radius,
 };
-use crate::objects::laser::LaserBundle;
+use crate::objects::laser::{LaserSettings, LaserVisual};
 use crate::objects::phy_obj::PhysicalObject;
-use crate::objects::tracer::TracerObject;
-use crate::objects::{ColorComponent, MotorComponent, SettingComponent, SizeComponent, SpriteOnly};
+use crate::objects::tracer::{TracerObject, TracerSettings, TracerVisual};
+use crate::objects::{ColorComponent, MotorComponent, SettingComponent, SpriteOnly};
 use crate::palette::PaletteConfig;
 use crate::rng::RngComponent;
 use crate::ui::SceneState;
@@ -173,6 +173,7 @@ pub fn process_add_object(
                 if sensor.get(placement.body1.entity).is_ok() {
                     select_mouse.write(SelectUnderMouseEvent {
                         pos,
+                        mode: SelectionMode::Replace,
                         open_menu: false,
                     });
                     continue;
@@ -198,6 +199,7 @@ pub fn process_add_object(
                     info!("Add axle on sensor; selecting");
                     select_mouse.write(SelectUnderMouseEvent {
                         pos: placement.pos,
+                        mode: SelectionMode::Replace,
                         open_menu: false,
                     });
                     continue;
@@ -269,16 +271,15 @@ pub fn process_place_attachment(
 
         if *kind == AttachmentKind::Laser {
             let placement = laser_placement(event.pos, &bodies, &spatial_query);
-            let current_scale = transform.scale.x;
             match placement {
                 LaserPlacement::Body(placement) => {
-                    *transform = attachment_transform(placement, current_scale, z.next());
+                    *transform = attachment_pose(placement, z.next());
                     commands
                         .entity(event.entity)
                         .insert(ChildOf(placement.body1.entity));
                 }
                 LaserPlacement::Sky { pos } => {
-                    *transform = sky_attachment_transform(pos, current_scale, z.next());
+                    *transform = sky_attachment_pose(pos, z.next());
                     commands
                         .entity(event.entity)
                         .insert(ChildOf(scene_state.scene));
@@ -295,8 +296,7 @@ pub fn process_place_attachment(
                 commands.entity(event.entity).despawn();
                 continue;
             };
-            let current_scale = transform.scale.x;
-            *transform = attachment_transform(placement, current_scale, z.next());
+            *transform = attachment_pose(placement, z.next());
             commands
                 .entity(event.entity)
                 .insert(ChildOf(placement.body1.entity))
@@ -481,12 +481,15 @@ fn duplicate_fix_exists(
 }
 
 fn attachment_transform(placement: AttachmentPlacement, scale: f32, z: f32) -> Transform {
-    Transform::from_translation(placement.body1.local_pos.extend(z - placement.body1.z))
-        .with_scale(Vec3::new(scale, scale, 1.0))
+    attachment_pose(placement, z).with_scale(Vec3::new(scale, scale, 1.0))
 }
 
-fn sky_attachment_transform(pos: Vec2, scale: f32, z: f32) -> Transform {
-    Transform::from_translation(pos.extend(z)).with_scale(Vec3::new(scale, scale, 1.0))
+fn attachment_pose(placement: AttachmentPlacement, z: f32) -> Transform {
+    Transform::from_translation(placement.body1.local_pos.extend(z - placement.body1.z))
+}
+
+fn sky_attachment_pose(pos: Vec2, z: f32) -> Transform {
+    Transform::from_translation(pos.extend(z))
 }
 
 pub(crate) fn despawn_attachment_links(commands: &mut Commands, links: Option<&AttachmentLinks>) {
@@ -677,42 +680,41 @@ fn spawn_laser_attachment(
 ) -> Entity {
     let scale = camera_scale * DEFAULT_OBJ_SIZE;
     let (transform, parent) = match placement {
-        LaserPlacement::Body(placement) => (
-            attachment_transform(placement, scale, z.next()),
-            placement.body1.entity,
-        ),
-        LaserPlacement::Sky { pos } => (sky_attachment_transform(pos, scale, z.next()), scene),
+        LaserPlacement::Body(placement) => {
+            (attachment_pose(placement, z.next()), placement.body1.entity)
+        }
+        LaserPlacement::Sky { pos } => (sky_attachment_pose(pos, z.next()), scene),
     };
     commands
         .spawn((
             ShapeBundle::new(
                 GeometryBuilder::build_as(&shapes::Rectangle {
-                    extents: Vec2::new(1.0, 0.5) * 1.1,
+                    extents: Vec2::new(scale, scale * 0.5) * 1.1,
                     ..Default::default()
                 }),
                 transform,
                 Visibility::Inherited,
             ),
             crate::make_stroke(Color::srgba(0.0, 0.0, 0.0, 0.0), BORDER_THICKNESS),
-            LaserBundle {
+            LaserSettings {
+                size: scale,
                 fade_distance: 10.0,
             },
             ColorComponent(color).update_from_this(),
-            Collider::rectangle(0.5, 0.25),
+            Collider::rectangle(scale * 0.5, scale * 0.25),
             VIRTUAL_LAYER_OBJ,
-            SizeComponent(scale),
             Sensor,
             AttachmentKind::Laser,
             AttachmentLinks::default(),
-            UpdateFrom::<SizeComponent>::This,
             ChildOf(parent),
         ))
         .with_child((
+            LaserVisual,
             Sprite {
                 image: images.laserpen.clone(),
                 ..Default::default()
             },
-            Transform::from_scale(Vec3::new(1.0 / 256.0, 1.0 / 256.0, 1.0)),
+            Transform::from_scale(Vec3::new(scale / 256.0, scale / 256.0, 1.0)),
             UpdateFrom::<ColorComponent>::This,
         ))
         .id()
@@ -731,29 +733,32 @@ fn spawn_tracer_attachment(
         .spawn((
             ShapeBundle::new(
                 GeometryBuilder::build_as(&shapes::Circle {
-                    radius: 0.5 * 1.1,
+                    radius: scale * 0.55,
                     ..Default::default()
                 }),
-                attachment_transform(placement, scale, z.next()),
+                attachment_pose(placement, z.next()),
                 Visibility::Inherited,
             ),
             crate::make_stroke(Color::srgba(0.0, 0.0, 0.0, 0.0), BORDER_THICKNESS),
             TracerObject::default(),
+            TracerSettings {
+                diameter: scale,
+                ..Default::default()
+            },
             ColorComponent(color).update_from_this(),
-            Collider::circle(0.5),
+            Collider::circle(scale * 0.5),
             VIRTUAL_LAYER_OBJ,
-            SizeComponent(scale),
             Sensor,
             SpriteOnly,
             AttachmentKind::Tracer,
             AttachmentLinks::default(),
-            UpdateFrom::<SizeComponent>::This,
             ChildOf(placement.body1.entity),
         ))
         .with_child((
+            TracerVisual,
             Sprite {
                 image: images.tracer.clone(),
-                custom_size: Some(Vec2::ONE),
+                custom_size: Some(Vec2::splat(scale)),
                 ..Default::default()
             },
             Transform::default(),

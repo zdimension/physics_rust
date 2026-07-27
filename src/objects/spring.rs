@@ -2,13 +2,13 @@ use avian2d::prelude::*;
 use bevy::math::{Vec2, Vec3};
 use bevy::prelude::*;
 
+use crate::InvTransformPoint;
 use crate::mouse::select;
 use crate::objects::{ColorComponent, SettingComponent, SpriteOnly};
 use crate::palette::{PaletteConfig, ToRgba};
-use crate::tools::add_object::{query_only_real, DepthSorter};
+use crate::tools::add_object::DepthSorter;
 use crate::ui::images::AppIcons;
 use crate::update_from::UpdateFrom;
-use crate::InvTransformPoint;
 
 const DEFAULT_SPRING_CONSTANT_PER_KG: f32 = 100.0;
 const DEFAULT_DAMPING: f32 = 0.2;
@@ -151,17 +151,12 @@ pub fn unit_size_for_camera(camera: &Transform) -> f32 {
 }
 
 pub fn pick_body_at(
-    spatial_query: &SpatialQuery,
+    colliders: &Query<(Entity, &Collider, &GlobalTransform), Without<ColliderDisabled>>,
     bodies: &Query<(&GlobalTransform, Option<&RigidBody>)>,
     point: Vec2,
 ) -> Option<Entity> {
-    select::find_under_mouse(spatial_query, point, query_only_real(), |ent| {
-        bodies
-            .get(ent)
-            .map(|(transform, _)| transform.translation_vec3a().z)
-            .unwrap_or(f32::NEG_INFINITY)
-    })
-    .find(|ent| bodies.get(*ent).is_ok_and(|(_, body)| body.is_some()))
+    select::colliders_under_point(point, colliders)
+        .find(|ent| bodies.get(*ent).is_ok_and(|(_, body)| body.is_some()))
 }
 
 pub fn spawn_spring(
@@ -189,6 +184,9 @@ pub fn spawn_spring(
         color.update_from_this(),
         Transform::from_translation(Vec3::new(0.0, 0.0, spring_z)),
         Visibility::Inherited,
+        Collider::rectangle(current_length.max(unit_size), spring_thickness(unit_size)),
+        Sensor,
+        non_interacting_virtual_layers(),
     ));
     if preview {
         entity.insert(SpringPreview);
@@ -207,12 +205,9 @@ pub fn spawn_spring(
                     custom_size: Some(Vec2::ONE),
                     ..Default::default()
                 },
-                Transform::from_translation(Vec3::Z * endpoint_local_z(
-                    end,
-                    spring_z,
-                    endpoint_a_z,
-                    endpoint_b_z,
-                ))
+                Transform::from_translation(
+                    Vec3::Z * endpoint_local_z(end, spring_z, endpoint_a_z, endpoint_b_z),
+                )
                 .with_scale(endpoint_scale),
                 SpriteOnly,
                 Collider::circle(0.5),
@@ -248,47 +243,6 @@ fn spawn_unit(
     ));
 }
 
-pub fn find_spring_under_point(
-    point: Vec2,
-    springs: &Query<(Entity, &SpringObject, &Transform)>,
-    bodies: &Query<(&Position, &Rotation)>,
-) -> Option<(Entity, f32)> {
-    let mut best_hit = None;
-
-    for (spring_entity, spring, transform) in springs {
-        let Some((point_a, point_b)) = spring.world_points(bodies) else {
-            continue;
-        };
-
-        let z = transform.translation.z;
-        let spring_radius = spring_thickness(spring.unit_size) * 0.5;
-        if point_to_segment_distance(point, point_a, point_b) <= spring_radius {
-            best_hit = higher_hit(best_hit, (spring_entity, z));
-        }
-
-    }
-
-    best_hit
-}
-
-fn higher_hit(current: Option<(Entity, f32)>, candidate: (Entity, f32)) -> Option<(Entity, f32)> {
-    match current {
-        Some(current) if current.1 > candidate.1 => Some(current),
-        _ => Some(candidate),
-    }
-}
-
-fn point_to_segment_distance(point: Vec2, start: Vec2, end: Vec2) -> f32 {
-    let segment = end - start;
-    let length_squared = segment.length_squared();
-    if length_squared <= f32::EPSILON {
-        return point.distance(start);
-    }
-
-    let t = ((point - start).dot(segment) / length_squared).clamp(0.0, 1.0);
-    point.distance(start + segment * t)
-}
-
 fn update_spring_previews(
     mut events: MessageReader<UpdateSpringPreviewEvent>,
     mut springs: Query<&mut SpringObject, With<SpringPreview>>,
@@ -310,7 +264,7 @@ fn update_spring_previews(
 
 fn finish_springs(
     mut events: MessageReader<FinishSpringEvent>,
-    spatial_query: SpatialQuery,
+    colliders: Query<(Entity, &Collider, &GlobalTransform), Without<ColliderDisabled>>,
     bodies: Query<(&GlobalTransform, Option<&RigidBody>)>,
     body_positions: Query<(&Position, &Rotation)>,
     body_masses: Query<&ColliderMassProperties>,
@@ -321,7 +275,7 @@ fn finish_springs(
         let Ok(mut spring) = springs.get_mut(event.state.preview) else {
             continue;
         };
-        let end_body = pick_body_at(&spatial_query, &bodies, event.end_pos);
+        let end_body = pick_body_at(&colliders, &bodies, event.end_pos);
         let start_body = event.state.start.body();
         let end_b = match (start_body, end_body) {
             (None, None) => {
@@ -364,26 +318,40 @@ fn update_spring_visuals(
     body_transforms: Query<(&Position, &Rotation)>,
     color_sources: Query<(Option<&ChildOf>, Option<Ref<ColorComponent>>)>,
     mut springs: Query<
-        (Entity, &SpringObject, &mut Transform),
+        (
+            Entity,
+            &SpringObject,
+            &Children,
+            &mut Transform,
+            &mut Collider,
+        ),
         (Without<SpringUnit>, Without<SpringEndpointVisual>),
     >,
-    unit_count_query: Query<(Entity, &SpringUnit, &ChildOf)>,
     mut units: Query<
-        (&SpringUnit, &ChildOf, &mut Transform, &mut Sprite),
+        (Entity, &SpringUnit, &mut Transform, &mut Sprite),
         (Without<SpringObject>, Without<SpringEndpointVisual>),
     >,
     mut endpoints: Query<
-        (
-            Entity,
-            &SpringEndpointVisual,
-            &ChildOf,
-            &mut Transform,
-            &mut Sprite,
-        ),
+        (Entity, &SpringEndpointVisual, &mut Transform, &mut Sprite),
         (Without<SpringObject>, Without<SpringUnit>),
     >,
+    changed_springs: Query<(), Changed<SpringObject>>,
+    changed_bodies: Query<(), Or<(Changed<Position>, Changed<Rotation>)>>,
+    changed_colors: Query<(), Changed<ColorComponent>>,
+    added_units: Query<(), Added<SpringUnit>>,
+    added_endpoints: Query<(), Added<SpringEndpointVisual>>,
 ) {
-    for (spring_entity, spring, mut transform) in &mut springs {
+    if changed_springs.is_empty()
+        && changed_bodies.is_empty()
+        && changed_colors.is_empty()
+        && added_units.is_empty()
+        && added_endpoints.is_empty()
+        && !palette.is_changed()
+    {
+        return;
+    }
+
+    for (spring_entity, spring, children, mut transform, mut collider) in &mut springs {
         let Some((point_a, point_b)) = spring.world_points(&body_transforms) else {
             commands.entity(spring_entity).despawn();
             continue;
@@ -400,62 +368,63 @@ fn update_spring_visuals(
 
         transform.translation = ((point_a + point_b) * 0.5).extend(transform.translation.z);
         transform.rotation = Quat::from_rotation_z(angle);
+        *collider = Collider::rectangle(safe_length, thickness);
 
-        let existing = unit_count_query
-            .iter()
-            .filter(|(_, _, parent)| parent.parent() == spring_entity)
-            .collect::<Vec<_>>();
-        if existing.len() < spring.unit_count {
+        let unit_len = safe_length / spring.unit_count.max(1) as f32;
+        let mut unit_count = 0;
+        for child in children.iter() {
+            if let Ok((unit_entity, unit, mut unit_transform, mut sprite)) = units.get_mut(child) {
+                unit_count += 1;
+                if unit.index >= spring.unit_count {
+                    commands.entity(unit_entity).despawn();
+                } else {
+                    unit_transform.translation = Vec3::new(
+                        -safe_length * 0.5 + unit_len * (unit.index as f32 + 0.5),
+                        0.0,
+                        0.01,
+                    );
+                    unit_transform.rotation = Quat::IDENTITY;
+                    unit_transform.scale = Vec3::ONE;
+                    sprite.custom_size = Some(Vec2::new(unit_len, spring.unit_size));
+                }
+            }
+
+            if let Ok((endpoint_entity, endpoint, mut endpoint_transform, mut sprite)) =
+                endpoints.get_mut(child)
+            {
+                let local_x = match endpoint.end {
+                    SpringEndIndex::A => -safe_length * 0.5,
+                    SpringEndIndex::B => safe_length * 0.5,
+                };
+                let translation = Vec3::new(local_x, 0.0, endpoint_transform.translation.z);
+                let scale = Vec3::splat(endpoint_diameter(spring.unit_size));
+                let color = endpoint_color(
+                    match endpoint.end {
+                        SpringEndIndex::A => spring.end_a,
+                        SpringEndIndex::B => spring.end_b,
+                    },
+                    endpoint_entity,
+                    &color_sources,
+                    &palette,
+                );
+                if endpoint_transform.translation != translation {
+                    endpoint_transform.translation = translation;
+                }
+                if endpoint_transform.scale != scale {
+                    endpoint_transform.scale = scale;
+                }
+                if sprite.color != color {
+                    sprite.color = color;
+                }
+            }
+        }
+
+        if unit_count < spring.unit_count {
             commands.entity(spring_entity).with_children(|builder| {
-                for index in existing.len()..spring.unit_count {
+                for index in unit_count..spring.unit_count {
                     spawn_unit(builder, &images, spring_entity, index, spring.unit_size);
                 }
             });
-        } else if existing.len() > spring.unit_count {
-            for (entity, unit, _) in existing {
-                if unit.index >= spring.unit_count {
-                    commands.entity(entity).despawn();
-                }
-            }
-        }
-
-        let unit_len = safe_length / spring.unit_count.max(1) as f32;
-        for (unit, parent, mut unit_transform, mut sprite) in &mut units {
-            if parent.parent() != spring_entity {
-                continue;
-            }
-            unit_transform.translation = Vec3::new(
-                -safe_length * 0.5 + unit_len * (unit.index as f32 + 0.5),
-                0.0,
-                0.01,
-            );
-            unit_transform.rotation = Quat::IDENTITY;
-            unit_transform.scale = Vec3::ONE;
-            sprite.custom_size = Some(Vec2::new(unit_len, spring.unit_size));
-        }
-
-        for (endpoint_entity, endpoint, parent, mut endpoint_transform, mut sprite) in
-            &mut endpoints
-        {
-            if parent.parent() != spring_entity {
-                continue;
-            }
-            let local_x = match endpoint.end {
-                SpringEndIndex::A => -safe_length * 0.5,
-                SpringEndIndex::B => safe_length * 0.5,
-            };
-            endpoint_transform.translation =
-                Vec3::new(local_x, 0.0, endpoint_transform.translation.z);
-            endpoint_transform.scale = Vec3::splat(endpoint_diameter(spring.unit_size));
-            sprite.color = endpoint_color(
-                match endpoint.end {
-                    SpringEndIndex::A => spring.end_a,
-                    SpringEndIndex::B => spring.end_b,
-                },
-                endpoint_entity,
-                &color_sources,
-                &palette,
-            );
         }
     }
 }
@@ -545,13 +514,16 @@ impl SpringBodyPoint {
 }
 
 impl SpringObject {
-    fn world_points(&self, bodies: &Query<(&Position, &Rotation)>) -> Option<(Vec2, Vec2)> {
+    pub(crate) fn world_points(
+        &self,
+        bodies: &Query<(&Position, &Rotation)>,
+    ) -> Option<(Vec2, Vec2)> {
         Some((self.end_a.world_pos(bodies)?, self.end_b.world_pos(bodies)?))
     }
 }
 
 impl SpringEnd {
-    fn world_pos(self, bodies: &Query<(&Position, &Rotation)>) -> Option<Vec2> {
+    pub(crate) fn world_pos(self, bodies: &Query<(&Position, &Rotation)>) -> Option<Vec2> {
         match self {
             Self::Body {
                 entity,
@@ -640,7 +612,7 @@ fn default_spring_constant_for_ends(
         (Some(a), Some(b)) => {
             // todo: this is just effective mass
             Some(DEFAULT_SPRING_CONSTANT_PER_KG * a * b / (a + b))
-        },
+        }
         (Some(x), None) | (None, Some(x)) => Some(DEFAULT_SPRING_CONSTANT_PER_KG * x),
         _ => None,
     }

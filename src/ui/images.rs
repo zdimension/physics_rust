@@ -16,7 +16,13 @@ impl LoadedImage {
 }
 
 macro_rules! icon_set {
-    ($type:ident, $root:literal, [$($name:ident),*$(,)?]) => {
+    (@ path $root:literal, $name:ident) => {
+        concat!($root, stringify!($name), ".png")
+    };
+    (@ path $root:literal, $name:ident => $file:literal) => {
+        concat!($root, $file)
+    };
+    ($type:ident, $root:literal, [$($name:ident $(=> $file:literal)?),*$(,)?]) => {
         #[derive(Resource)]
         pub struct $type {
             $(
@@ -25,7 +31,7 @@ macro_rules! icon_set {
             image_ids: HashSet<AssetId<Image>>,
         }
 
-        impl FromWorld for $type {
+            impl FromWorld for $type {
             fn from_world(world: &mut World) -> Self {
                 let unsafe_world = world.as_unsafe_world_cell();
                 let mut egui_ctx = unsafe { unsafe_world.get_resource_mut::<EguiUserTextures>().unwrap() };
@@ -34,7 +40,7 @@ macro_rules! icon_set {
                 Self {
                     $(
                         $name: {
-                            let handle = asset_server.load(concat!($root, stringify!($name), ".png"));
+                            let handle = asset_server.load(icon_set!(@ path $root, $name $(=> $file)?));
                             image_ids.insert(handle.id());
                             let egui_id = egui_ctx.add_image(EguiTextureHandle::Strong(handle));
                             egui_id
@@ -91,6 +97,9 @@ icon_set!(
         arrow_down,
         arrow_right,
         arrow_up,
+        checkbox_off => "checkbox-off.png",
+        checkbox_on => "checkbox-on.png",
+        checkbox_unknown => "checkbox-unknown.png",
         collisions,
         color,
         controller,

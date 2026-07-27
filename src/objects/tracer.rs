@@ -6,7 +6,8 @@ use bevy::mesh::{Indices, PrimitiveTopology};
 use bevy::prelude::*;
 use bevy::sprite_render::AlphaMode2d;
 
-use crate::objects::{ColorComponent, SizeComponent};
+use crate::lyon_compat::{GeometryBuilder, Shape, shapes};
+use crate::objects::ColorComponent;
 use crate::ui::SceneState;
 use crate::{hsva_to_rgba, systems};
 
@@ -15,19 +16,34 @@ const MIN_SAMPLE_DISTANCE: f32 = 1.0e-4;
 const SAMPLE_DISTANCE_DIAMETER_FACTOR: f32 = 0.1;
 const TRAIL_Z_OFFSET: f32 = -0.1;
 
-systems!(update_tracer_trails);
+systems!(update_tracer_trails, sync_tracer_size);
+
+#[derive(Component, Copy, Clone, Debug)]
+pub struct TracerSettings {
+    pub(crate) diameter: f32,
+    pub(crate) fade_time: f32,
+}
+
+impl Default for TracerSettings {
+    fn default() -> Self {
+        Self {
+            diameter: 1.0,
+            fade_time: DEFAULT_FADE_TIME,
+        }
+    }
+}
 
 #[derive(Component)]
 pub struct TracerObject {
-    pub fade_time: f32,
     samples: Vec<TracerSample>,
+    dirty: bool,
 }
 
 impl Default for TracerObject {
     fn default() -> Self {
         Self {
-            fade_time: DEFAULT_FADE_TIME,
             samples: Vec::new(),
+            dirty: true,
         }
     }
 }
@@ -35,8 +51,12 @@ impl Default for TracerObject {
 impl TracerObject {
     pub fn clear_trail(&mut self) {
         self.samples.clear();
+        self.dirty = true;
     }
 }
+
+#[derive(Component)]
+pub(crate) struct TracerVisual;
 
 #[derive(Clone, Copy)]
 struct TracerSample {
@@ -60,11 +80,28 @@ fn update_tracer_trails(
         Entity,
         &GlobalTransform,
         &mut TracerObject,
+        &TracerSettings,
         &ColorComponent,
-        &SizeComponent,
     )>,
     roots: Query<(Entity, &TracerTrailRoot)>,
+    changed_settings: Query<(), Changed<TracerSettings>>,
+    changed_colors: Query<(), (With<TracerObject>, Changed<ColorComponent>)>,
+    changed_transforms: Query<(), (With<TracerObject>, Changed<GlobalTransform>)>,
+    mut removed_tracers: RemovedComponents<TracerObject>,
 ) {
+    let tracer_removed = removed_tracers.read().next().is_some();
+    let is_running = !physics.is_paused();
+    let has_dirty_trail = tracers.iter().any(|(_, _, tracer, _, _)| tracer.dirty);
+    if !is_running
+        && !has_dirty_trail
+        && changed_settings.is_empty()
+        && changed_colors.is_empty()
+        && changed_transforms.is_empty()
+        && !tracer_removed
+    {
+        return;
+    }
+
     let mut roots_by_tracer = HashMap::new();
     for (root_entity, root) in &roots {
         if tracers.contains(root.tracer) {
@@ -76,10 +113,9 @@ fn update_tracer_trails(
         }
     }
 
-    let is_running = !physics.is_paused();
     let dt = physics.delta_secs();
 
-    for (entity, transform, mut tracer, color, size) in &mut tracers {
+    for (entity, transform, mut tracer, settings, color) in &mut tracers {
         let (root, mesh) = roots_by_tracer.remove(&entity).map_or_else(
             || {
                 spawn_trail_root(
@@ -99,12 +135,12 @@ fn update_tracer_trails(
             }
         }
 
-        let fade_time = tracer.fade_time.max(f32::EPSILON);
+        let fade_time = settings.fade_time.max(f32::EPSILON);
         tracer.samples.retain(|sample| sample.age <= fade_time);
 
         let pos = transform.translation().truncate();
         let min_sample_distance =
-            (size.0 * SAMPLE_DISTANCE_DIAMETER_FACTOR).max(MIN_SAMPLE_DISTANCE);
+            (settings.diameter * SAMPLE_DISTANCE_DIAMETER_FACTOR).max(MIN_SAMPLE_DISTANCE);
         if is_running
             && tracer
                 .samples
@@ -115,7 +151,13 @@ fn update_tracer_trails(
         }
 
         let is_drawable = meshes.get_mut(&mesh).is_some_and(|mut mesh| {
-            update_trail_mesh(&mut mesh, &tracer.samples, size.0, color, fade_time)
+            update_trail_mesh(
+                &mut mesh,
+                &tracer.samples,
+                settings.diameter,
+                color,
+                fade_time,
+            )
         });
 
         commands.entity(root).insert((
@@ -126,6 +168,29 @@ fn update_tracer_trails(
                 Visibility::Hidden
             },
         ));
+        tracer.dirty = false;
+    }
+}
+
+fn sync_tracer_size(
+    mut tracers: Query<
+        (&TracerSettings, &Children, &mut Collider, &mut Shape),
+        Changed<TracerSettings>,
+    >,
+    mut visuals: Query<&mut Sprite, With<TracerVisual>>,
+) {
+    for (settings, children, mut collider, mut shape) in &mut tracers {
+        *collider = Collider::circle(settings.diameter * 0.5);
+        shape.path = GeometryBuilder::build_as(&shapes::Circle {
+            radius: settings.diameter * 0.55,
+            ..Default::default()
+        });
+
+        for child in children.iter() {
+            if let Ok(mut sprite) = visuals.get_mut(child) {
+                sprite.custom_size = Some(Vec2::splat(settings.diameter));
+            }
+        }
     }
 }
 

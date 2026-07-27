@@ -2,9 +2,11 @@ use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
 
 use crate::egui_systems;
-use crate::objects::SizeComponent;
-use crate::objects::tracer::TracerObject;
-use crate::ui::{InitialPos, Subwindow};
+use crate::objects::tracer::{TracerObject, TracerSettings};
+use crate::ui::{
+    InitialPos, Subwindow, WindowSelectionTarget, component_slider_mut,
+    window_matching_entities,
+};
 
 egui_systems!(TracerWindow::show);
 
@@ -13,37 +15,56 @@ pub struct TracerWindow;
 
 impl TracerWindow {
     pub fn show(
-        mut wnds: Query<(Entity, &ChildOf, &mut InitialPos), With<TracerWindow>>,
-        mut ents: Query<(&mut TracerObject, &mut SizeComponent)>,
+        mut wnds: Query<
+            (
+                Entity,
+                Option<&ChildOf>,
+                Option<&WindowSelectionTarget>,
+                &mut InitialPos,
+            ),
+            With<TracerWindow>,
+        >,
+        mut settings: Query<&mut TracerSettings>,
+        mut tracers: Query<&mut TracerObject>,
         mut egui_ctx: EguiContexts,
         mut commands: Commands,
     ) {
         let ctx = egui_ctx.ctx_mut().expect("primary egui context");
-        for (id, parent, mut initial_pos) in wnds.iter_mut() {
-            let Ok((mut tracer, mut size)) = ents.get_mut(parent.parent()) else {
+        for (id, parent, target, mut initial_pos) in wnds.iter_mut() {
+            let targets = window_matching_entities(target, parent, &settings);
+            if targets.is_empty() {
                 commands.entity(id).despawn();
                 continue;
-            };
+            }
+
             egui::Window::new("Tracer")
                 .resizable(false)
                 .default_size(egui::Vec2::ZERO)
                 .subwindow(id, ctx, &mut initial_pos, &mut commands, |ui, _commands| {
-                    ui.add(
-                        egui::Slider::new(&mut size.0, 0.01..=5.0)
-                            .logarithmic(true)
-                            .suffix("m")
-                            .text("Diameter :")
-                            .custom(),
+                    component_slider_mut(
+                        ui,
+                        &targets,
+                        &mut settings,
+                        |settings| settings.diameter,
+                        |settings, value| settings.diameter = value,
+                        0.01..=5.0,
+                        |slider| slider.logarithmic(true).suffix("m").text("Diameter :"),
                     );
-                    ui.add(
-                        egui::Slider::new(&mut tracer.fade_time, 0.05..=60.0)
-                            .logarithmic(true)
-                            .suffix("s")
-                            .text("Fade time :")
-                            .custom(),
+                    component_slider_mut(
+                        ui,
+                        &targets,
+                        &mut settings,
+                        |settings| settings.fade_time,
+                        |settings, value| settings.fade_time = value,
+                        0.05..=60.0,
+                        |slider| slider.logarithmic(true).suffix("s").text("Fade time :"),
                     );
                     if ui.button("Clear trail").clicked() {
-                        tracer.clear_trail();
+                        for entity in &targets {
+                            if let Ok(mut tracer) = tracers.get_mut(*entity) {
+                                tracer.clear_trail();
+                            }
+                        }
                     }
                 });
         }

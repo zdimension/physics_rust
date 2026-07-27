@@ -1,7 +1,7 @@
 use crate::egui_systems;
 use crate::tools::add_object::DepthSorter;
 use crate::ui::menu_item::MenuItem;
-use crate::ui::{InitialPos, Subwindow};
+use crate::ui::{InitialPos, Subwindow, WindowSelectionTarget, window_target_entities};
 use avian2d::prelude::*;
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts};
@@ -17,11 +17,19 @@ enum ZOrderAction {
     Front,
 }
 
-type SelectableObjectFilter = Or<(With<Collider>, With<crate::objects::spring::SpringObject>)>;
+type SelectableObjectFilter = With<Collider>;
 
 impl SelectionWindow {
     pub fn show(
-        mut wnds: Query<(Entity, &ChildOf, &mut InitialPos), With<SelectionWindow>>,
+        mut wnds: Query<
+            (
+                Entity,
+                Option<&ChildOf>,
+                Option<&WindowSelectionTarget>,
+                &mut InitialPos,
+            ),
+            With<SelectionWindow>,
+        >,
         mut egui_ctx: EguiContexts,
         mut commands: Commands,
         mut objects: ParamSet<(
@@ -32,8 +40,8 @@ impl SelectionWindow {
         mut depth: ResMut<DepthSorter>,
     ) {
         let ctx = egui_ctx.ctx_mut().expect("primary egui context");
-        for (id, parent, mut initial_pos) in wnds.iter_mut() {
-            let selected = parent.parent();
+        for (id, parent, target, mut initial_pos) in wnds.iter_mut() {
+            let selected = window_target_entities(target, parent);
             egui::Window::new("Selection")
                 .default_size(egui::Vec2::ZERO)
                 .resizable(false)
@@ -42,13 +50,13 @@ impl SelectionWindow {
                         .add(MenuItem::button(None, "Move selected to back"))
                         .clicked()
                     {
-                        move_selected_z(selected, ZOrderAction::Back, &mut objects, &mut depth);
+                        move_selected_z(&selected, ZOrderAction::Back, &mut objects, &mut depth);
                     }
                     if ui
                         .add(MenuItem::button(None, "Move selected to front"))
                         .clicked()
                     {
-                        move_selected_z(selected, ZOrderAction::Front, &mut objects, &mut depth);
+                        move_selected_z(&selected, ZOrderAction::Front, &mut objects, &mut depth);
                     }
                 });
         }
@@ -56,7 +64,7 @@ impl SelectionWindow {
 }
 
 fn move_selected_z(
-    selected: Entity,
+    selected: &[Entity],
     action: ZOrderAction,
     objects: &mut ParamSet<(
         Query<(Entity, &GlobalTransform), SelectableObjectFilter>,
@@ -70,7 +78,7 @@ fn move_selected_z(
         let other_zs = objects
             .iter()
             .filter_map(|(entity, transform)| {
-                (entity != selected).then_some(transform.translation().z)
+                (!selected.contains(&entity)).then_some(transform.translation().z)
             });
 
         match action {
@@ -83,9 +91,13 @@ fn move_selected_z(
         return;
     };
 
+    let Some(first_selected) = selected.first().copied() else {
+        return;
+    };
+
     let parent_entity = {
         let transforms = objects.p1();
-        let Ok((_, parent)) = transforms.get(selected) else {
+        let Ok((_, parent)) = transforms.get(first_selected) else {
             return;
         };
         parent.map(ChildOf::parent)
@@ -103,10 +115,16 @@ fn move_selected_z(
 
     {
         let mut transforms = objects.p1();
-        let Ok((mut transform, _)) = transforms.get_mut(selected) else {
-            return;
-        };
-        transform.translation.z = target_z - parent_z;
+        for (offset, entity) in selected.iter().copied().enumerate() {
+            let Ok((mut transform, _)) = transforms.get_mut(entity) else {
+                continue;
+            };
+            let offset = offset as f32;
+            transform.translation.z = match action {
+                ZOrderAction::Back => target_z - parent_z - offset,
+                ZOrderAction::Front => target_z - parent_z + offset,
+            };
+        }
     }
 
     if matches!(action, ZOrderAction::Front) {

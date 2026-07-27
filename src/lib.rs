@@ -1,4 +1,3 @@
-use bevy::ecs::system::SystemParam;
 use bevy::input::InputSystems;
 use bevy::math::Vec3Swizzles;
 use bevy::prelude::*;
@@ -31,10 +30,7 @@ use tools::zoom::ZoomEvent;
 use tools::{add_object, drag, r#move, pan, rotate, zoom};
 use ui::cursor::ToolCursor;
 use ui::selection_overlay::OverlayState;
-use ui::{
-    ContextMenuEvent, EntitySelection, PointerToolState, SceneState, SelectionState, ToolboxState,
-    cursor, selection_overlay,
-};
+use ui::{ContextMenuEvent, PointerToolState, SceneState, ToolboxState, cursor, selection_overlay};
 use update_from::UpdateFrom;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
@@ -200,7 +196,6 @@ pub fn app_main() {
         .init_asset::<PaletteList>()
         .init_asset_loader::<PaletteLoader>()
         .init_resource::<PaletteConfig>()
-        .init_resource::<SelectionState>()
         .init_resource::<ToolboxState>()
         .init_resource::<PointerToolState>()
         .init_resource::<SceneState>()
@@ -358,7 +353,12 @@ pub fn app_main() {
     .add_systems(Update, update_draw_modes)
     .add_systems(
         PostUpdate,
-        lyon_compat::sync_draw_components.before(bevy_prototype_lyon::plugin::BuildShapes),
+        (
+            selection_overlay::sync_selection_highlights,
+            lyon_compat::sync_draw_components,
+        )
+            .chain()
+            .before(bevy_prototype_lyon::plugin::BuildShapes),
     )
     .add_systems(
         PostUpdate,
@@ -431,31 +431,45 @@ fn update_draw_modes(
         Option<&CircleAngleMarker>,
     )>,
     parents: Query<(Option<&ChildOf>, Option<Ref<ColorComponent>>)>,
-    selection_state: Res<SelectionState>,
+    changed_colors: Query<(), Changed<ColorComponent>>,
+    changed_sources: Query<(), Changed<UpdateFrom<ColorComponent>>>,
+    changed_parents: Query<(), (Changed<ChildOf>, With<UpdateFrom<ColorComponent>>)>,
+    changed_sprite_only: Query<(), Changed<SpriteOnly>>,
+    changed_angle_markers: Query<(), Changed<CircleAngleMarker>>,
 ) {
+    if changed_colors.is_empty()
+        && changed_sources.is_empty()
+        && changed_parents.is_empty()
+        && changed_sprite_only.is_empty()
+        && changed_angle_markers.is_empty()
+    {
+        return;
+    }
+
     for (entity, fill, stroke, update_source, sprite_only, angle_marker) in draws.iter_mut() {
-        let (entity, color) = update_source
+        let (_entity, color) = update_source
             .find_component(entity, &parents)
             .expect("no color component found");
 
-        let border_color = if selection_state.selected_entity == Some(EntitySelection { entity }) {
-            Color::WHITE
-        } else {
-            hsva_to_rgba(Hsva {
-                v: color.v * 0.5,
-                a: if sprite_only.is_some() { 0.0 } else { 1.0 },
-                ..color
-            })
-        };
+        let border_color = hsva_to_rgba(Hsva {
+            v: color.v * 0.5,
+            a: if sprite_only.is_some() { 0.0 } else { 1.0 },
+            ..color
+        });
         if let Some(mut fill) = fill {
-            fill.color = if angle_marker.is_some() {
+            let color = if angle_marker.is_some() {
                 border_color
             } else {
                 hsva_to_rgba(color)
             };
+            if fill.color != color {
+                fill.color = color;
+            }
         }
         if let Some(mut stroke) = stroke {
-            stroke.color = border_color;
+            if stroke.color != border_color {
+                stroke.color = border_color;
+            }
         }
     }
 }

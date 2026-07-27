@@ -115,7 +115,7 @@ impl PhysicalObject {
     }
 }
 
-#[derive(Component)]
+#[derive(Component, Copy, Clone)]
 pub struct RefractiveIndex(pub(crate) f32);
 
 impl Default for RefractiveIndex {

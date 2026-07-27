@@ -9,7 +9,9 @@ use std::time::Duration;
 use pan::PanState;
 
 use crate::mouse::r#move::MouseLongOrMoved;
-use crate::mouse::select::{SelectEnclosedEvent, SelectUnderMouseEvent, SelectionConfig};
+use crate::mouse::select::{
+    SelectEnclosedEvent, SelectUnderMouseEvent, SelectionConfig, SelectionMode,
+};
 use crate::objects::spring::{FinishSpringEvent, UpdateSpringPreviewEvent};
 use crate::tools::add_object::{
     AddAxleEvent, AddObjectEvent, AttachmentKind, PlaceAttachmentEvent,
@@ -17,21 +19,22 @@ use crate::tools::add_object::{
 use crate::tools::r#move::MoveEvent;
 use crate::tools::pan;
 use crate::tools::pan::PanEvent;
-use crate::tools::rotate::RotateEvent;
+use crate::tools::rotate::{RotateEvent, rotation_delta};
 use crate::tools::zoom::ZoomEvent;
 use crate::ui::selection_overlay::{Overlay, OverlayState};
-use crate::ui::{EntitySelection, PointerToolState, SelectionState, ToolboxState};
+use crate::ui::{PointerToolState, Selected, ToolboxState};
 //use crate::Despawn;
+use crate::CustomForceDespawn;
 use crate::UnfreezeEntityEvent;
 use crate::UsedMouseButton;
 use crate::tools::drag::DragEvent;
-use crate::CustomForceDespawn;
 
 #[derive(SystemParam)]
-pub struct ToolInteractionState<'w> {
+pub struct ToolInteractionState<'w, 's> {
     pointer: ResMut<'w, PointerToolState>,
     toolbox: Res<'w, ToolboxState>,
-    selection: Res<'w, SelectionState>,
+    keys: Res<'w, ButtonInput<KeyCode>>,
+    selected: Query<'w, 's, Entity, With<Selected>>,
 }
 
 #[derive(SystemParam)]
@@ -62,7 +65,14 @@ pub fn left_release(
     use bevy::math::Vec3Swizzles;
     let screen_pos = **screen_pos;
     let pos = mouse_pos.xy();
-    let selected_entity = tool_state.selection.selected_entity;
+    let selected_entities = tool_state.selected.iter().collect::<Vec<_>>();
+    let selection_mode = if tool_state.keys.pressed(KeyCode::ControlLeft)
+        || tool_state.keys.pressed(KeyCode::ControlRight)
+    {
+        SelectionMode::Toggle
+    } else {
+        SelectionMode::Replace
+    };
 
     let pointer_state = &mut *tool_state.pointer;
     let mut rebase_active_zoom = false;
@@ -73,6 +83,7 @@ pub fn left_release(
             &mut pointer_state.mouse_left,
             SelectUnderMouseEvent {
                 pos,
+                mode: selection_mode,
                 open_menu: false,
             },
         ),
@@ -82,6 +93,7 @@ pub fn left_release(
             &mut pointer_state.mouse_right,
             SelectUnderMouseEvent {
                 pos,
+                mode: selection_mode,
                 open_menu: true,
             },
         ),
@@ -103,12 +115,12 @@ pub fn left_release(
                 pointer_state.mouse_button = None;
             }
             *overlay = OverlayState { draw_ent: None };
-            match tool {
+            match &tool {
                 Box(Some(ent)) => {
-                    commands.entity(ent).despawn();
+                    commands.entity(*ent).despawn();
                 }
                 Circle(Some(ent)) => {
-                    commands.entity(ent).despawn();
+                    commands.entity(*ent).despawn();
                 }
                 Rotate(Some(state)) => {
                     commands.entity(state.overlay_ent).despawn();
@@ -122,13 +134,13 @@ pub fn left_release(
             }
             match tool {
                 Move(Some(state)) => {
-                    if let Some(EntitySelection { entity }) = selected_entity {
+                    for entity in selected_entities.iter().copied() {
                         if attachment_move_commit.attachments.contains(entity) {
                             attachment_move_commit
                                 .place_attachment
                                 .write(PlaceAttachmentEvent {
                                     entity,
-                                    pos: pos + state.obj_delta,
+                                    pos: pos + state.primary_delta,
                                 });
                         } else if rigid_bodies.contains(entity) {
                             unfreeze.write(UnfreezeEntityEvent { entity });
@@ -136,10 +148,10 @@ pub fn left_release(
                     }
                 }
                 Rotate(Some(_)) => {
-                    if let Some(EntitySelection { entity }) = selected_entity
-                        && rigid_bodies.contains(entity)
-                    {
-                        unfreeze.write(UnfreezeEntityEvent { entity });
+                    for entity in selected_entities.iter().copied() {
+                        if rigid_bodies.contains(entity) {
+                            unfreeze.write(UnfreezeEntityEvent { entity });
+                        }
                     }
                 }
                 Box(Some(_ent)) if screen_pos.distance(click_pos_screen) > 6.0 => {
@@ -147,6 +159,7 @@ pub fn left_release(
                         select_enclosed.write(SelectEnclosedEvent {
                             start: click_pos,
                             end: pos,
+                            mode: selection_mode,
                             open_menu: false,
                             fallback_add_object: Some(AddObjectEvent::Box {
                                 pos: click_pos,
@@ -237,7 +250,6 @@ pub fn left_pressed(
     mut ev_spring_preview: MessageWriter<UpdateSpringPreviewEvent>,
     mut overlay: ResMut<OverlayState>,
     time: Res<Time>,
-    xform: Query<(&Rotation, &Position)>,
 ) {
     let screen_pos = **screen_pos;
 
@@ -252,8 +264,7 @@ pub fn left_pressed(
 
     let pos = mouse_pos.xy();
 
-    let selected_entity = tool_state.selection.selected_entity;
-    let selected_tool = tool_state.toolbox.toolbox_selected;
+    let selected_tool = tool_state.toolbox.toolbox_selected.clone();
     let pointer_state = &mut *tool_state.pointer; // https://bevy-cheatbook.github.io/pitfalls/split-borrows.html
     let left_tool_if_right = match pointer_state.mouse_right_pos {
         Some(_) => Pan(None),
@@ -266,13 +277,13 @@ pub fn left_pressed(
     for (button, tool, state_pos, state_button) in [
         (
             UsedMouseButton::Left,
-            left_tool_if_right,
+            left_tool_if_right.clone(),
             &mut pointer_state.mouse_left_pos,
             &mut pointer_state.mouse_left,
         ),
         (
             UsedMouseButton::Right,
-            right_tool_if_left,
+            right_tool_if_left.clone(),
             &mut pointer_state.mouse_right_pos,
             &mut pointer_state.mouse_right,
         ),
@@ -284,25 +295,27 @@ pub fn left_pressed(
                 break 'thing;
             }
             if let Some((at, click_pos, click_pos_screen)) = *state_pos {
-                match *state_button {
+                match state_button.as_ref() {
                     Some(Pan(Some(PanState { orig_camera_pos }))) => {
                         ev_pan.write(PanEvent {
-                            orig_camera_pos,
+                            orig_camera_pos: *orig_camera_pos,
                             delta: click_pos_screen - screen_pos,
                         });
                     }
                     Some(Zoom(Some(state))) => {
                         ev_zoom.write(ZoomEvent {
-                            state,
+                            state: *state,
                             mouse_pos_screen: screen_pos,
                         });
                     }
                     Some(Move(Some(state))) => {
-                        if let Some(EntitySelection { entity }) = selected_entity {
-                            ev_move.write(MoveEvent {
-                                entity,
-                                pos: pos + state.obj_delta,
-                            });
+                        if !state.targets.is_empty() {
+                            for (entity, original_pos) in state.targets.iter().copied() {
+                                ev_move.write(MoveEvent {
+                                    entity,
+                                    pos: original_pos + (pos - click_pos),
+                                });
+                            }
                         } else {
                             info!("move target disappeared, resetting");
                             *state_pos = None;
@@ -310,25 +323,24 @@ pub fn left_pressed(
                         }
                     }
                     Some(Rotate(Some(state))) => {
-                        if let Some(EntitySelection { entity }) = selected_entity {
+                        if !state.targets.is_empty() {
+                            let current_angle =
+                                state.current_angle + rotation_delta(state, click_pos, pos);
                             ev_rotate.write(RotateEvent {
-                                entity,
-                                orig_obj_rot: state.orig_obj_rot,
+                                state: state.clone(),
                                 click_pos,
                                 mouse_pos: pos,
-                                scale: state.scale,
                             });
-                            let (rot, pos) = xform.get(entity).expect("Missing xform");
                             *overlay = OverlayState {
                                 draw_ent: Some((
                                     state.overlay_ent,
                                     Overlay::Rotate(
-                                        rot.as_radians(),
+                                        current_angle,
                                         state.scale,
-                                        state.orig_obj_rot,
+                                        state.current_angle,
                                         click_pos,
                                     ),
-                                    pos.0,
+                                    state.pivot,
                                 )),
                             };
                         } else {
@@ -339,7 +351,7 @@ pub fn left_pressed(
                     }
                     Some(Drag(Some(state))) => {
                         ev_drag.write(DragEvent {
-                            state,
+                            state: *state,
                             mouse_pos: pos,
                         });
                     }
@@ -352,7 +364,7 @@ pub fn left_pressed(
                     Some(Box(Some(draw_ent))) => {
                         *overlay = OverlayState {
                             draw_ent: Some((
-                                draw_ent,
+                                *draw_ent,
                                 Overlay::Rectangle(pos - click_pos),
                                 click_pos,
                             )),
@@ -361,7 +373,7 @@ pub fn left_pressed(
                     Some(Circle(Some(draw_ent))) => {
                         *overlay = OverlayState {
                             draw_ent: Some((
-                                draw_ent,
+                                *draw_ent,
                                 Overlay::Circle((pos - click_pos).length()),
                                 click_pos,
                             )),
