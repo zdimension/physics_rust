@@ -15,7 +15,8 @@ use std::f32::consts::{PI, TAU};
 use crate::FOREGROUND_Z;
 use crate::tools::rotate::ROTATE_HELPER_RADIUS;
 
-const SELECTION_OVERLAY_Z: f32 = 0.05;
+// Object layers are one unit apart, leaving this above object details but below the next object.
+const SELECTION_OVERLAY_Z: f32 = 0.5;
 const SELECTION_COLOR: Color = Color::WHITE;
 
 #[derive(Copy, Clone, PartialEq)]
