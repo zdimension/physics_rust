@@ -21,14 +21,21 @@ use std::hash::{Hash, Hasher};
 
 egui_systems!(PlotWindow::show);
 
+struct AxisSetting {
+    category: &'static [PlotQuantity],
+    measures: HashSet<&'static PlotQuantity>,
+}
+
 #[derive(Component)]
 pub struct PlotWindow {
     quantities: Vec<(&'static [PlotQuantity], Vec<&'static PlotQuantity>)>,
     series: HashMap<PlotSeriesId, PlotSeries>,
-    category_x: &'static [PlotQuantity],
+    /*category_x: &'static [PlotQuantity],
     measures_x: HashSet<&'static PlotQuantity>,
     category_y: &'static [PlotQuantity],
-    measures_y: HashSet<&'static PlotQuantity>,
+    measures_y: HashSet<&'static PlotQuantity>,*/
+    x: AxisSetting,
+    y: AxisSetting,
     time: f32,
 }
 
@@ -177,10 +184,14 @@ impl Default for PlotWindow {
                 PlotSeriesId::new(&PLOT_QUANTITIES[0][0], &PLOT_QUANTITIES[2][0]),
                 PlotSeries::new(),
             )]),
-            category_x: PLOT_QUANTITIES[0],
-            measures_x: HashSet::from([&PLOT_QUANTITIES[0][0]]),
-            category_y: PLOT_QUANTITIES[2],
-            measures_y: HashSet::from([&PLOT_QUANTITIES[2][0]]),
+            x: AxisSetting {
+                category: PLOT_QUANTITIES[0],
+                measures: HashSet::from([&PLOT_QUANTITIES[0][0]]),
+            },
+            y: AxisSetting {
+                category: PLOT_QUANTITIES[2],
+                measures: HashSet::from([&PLOT_QUANTITIES[2][0]]),
+            },
             time: 0.0,
         }
     }
@@ -289,45 +300,54 @@ impl PlotWindow {
                         }
 
                         let quants = plot.quantities.clone();
-                        
-                        macro_rules! axis {
-                            ($name:literal, $sym:ident, $other:ident) => {
-                                paste! {
-                                    MenuButton::new(format!("{}-axis: {}", $name, plot.[<measures_ $sym>].iter().map(|m| m.name).sorted().join(", ")))
-                                        .config(MenuConfig::new().close_behavior(PopupCloseBehavior::CloseOnClickOutside))
-                                        .ui(ui, |ui| {
-                                            for (i, (group, measures)) in quants.iter().enumerate() {
-                                                if i > 0 {
-                                                    ui.separator();
-                                                }
-                                                for [<$sym _measure>] in measures {
-                                                    let mut existing = plot.[<measures_ $sym>].contains([<$sym _measure>]);
-                                                    if bool_checkbox(ui, &gui_icons, &mut existing, [<$sym _measure>].name) {
-                                                        if existing {
-                                                            if !std::ptr::eq(*group, plot.[<category_ $sym>]) {
-                                                                plot.[<category_ $sym>] = group;
-                                                                plot.[<measures_ $sym>].clear();
-                                                                plot.series.clear();
-                                                            }
-                                                            let plot = &mut *plot;
-                                                            for [<$other _measure>] in plot.[<measures_ $other>].iter() {
-                                                                plot.series.insert(PlotSeriesId::new(x_measure, y_measure), PlotSeries::new());
-                                                            }
-                                                            plot.[<measures_ $sym>].insert([<$sym _measure>]);
-                                                        } else {
-                                                            plot.series.retain(|id, _| id.$sym != [<$sym _measure>]);
-                                                            plot.[<measures_ $sym>].remove([<$sym _measure>]);
-                                                        }
+
+                        let plot = &mut *plot;
+                        let (x, y, series) = (&mut plot.x, &mut plot.y, &mut plot.series);
+
+                        let mut axis_ = |name, this: &mut AxisSetting, other: &mut AxisSetting, swap: bool| {
+                            MenuButton::new(format!("{}-axis: {}", name, this.measures.iter().map(|m| m.name).sorted().join(", ")))
+                                .config(MenuConfig::new().close_behavior(PopupCloseBehavior::CloseOnClickOutside))
+                                .ui(ui, |ui| {
+                                    for (i, (group, measures)) in quants.iter().enumerate() {
+                                        if i > 0 {
+                                            ui.separator();
+                                        }
+                                        for measure in measures {
+                                            let mut existing = this.measures.contains(measure);
+                                            if bool_checkbox(ui, &gui_icons, &mut existing, measure.name) {
+                                                if existing {
+                                                    if !std::ptr::eq(*group, this.category) {
+                                                        this.category = group;
+                                                        this.measures.clear();
+                                                        series.clear();
                                                     }
+                                                    for other_measure in other.measures.iter() {
+                                                        let (x_measure, y_measure) = if swap {
+                                                            (other_measure, measure)
+                                                        } else {
+                                                            (measure, other_measure)
+                                                        };
+                                                        series.insert(PlotSeriesId::new(x_measure, y_measure), PlotSeries::new());
+                                                    }
+                                                    this.measures.insert(measure);
+                                                } else {
+                                                    series.retain(|id, _| {
+                                                        if swap {
+                                                            id.y != measure
+                                                        } else {
+                                                            id.x != measure
+                                                        }
+                                                    });
+                                                    this.measures.remove(measure);
                                                 }
                                             }
-                                        });
-                                }
-                            }
-                        }
+                                        }
+                                    }
+                                });
+                        };
 
-                        axis!("X", x, y);
-                        axis!("Y", y, x);
+                        axis_("X", x, y, false);
+                        axis_("Y", y, x, true);
                     });
                     Plot::new("plot")
                         .label_formatter(fmt)
