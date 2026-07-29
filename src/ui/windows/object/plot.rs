@@ -13,30 +13,24 @@ use egui::containers::menu::{MenuButton, MenuConfig};
 use egui::load::SizedTexture;
 use egui_plot::{HoverPosition, Line, Plot, PlotPoint, PlotPoints};
 use itertools::Itertools;
-use paste::paste;
-use std::borrow::Borrow;
-use std::collections::{HashMap, HashSet};
-use std::fmt::{Debug, Display, Formatter};
-use std::hash::{Hash, Hasher};
+use std::fmt::{Display, Formatter};
 
 egui_systems!(PlotWindow::show);
 
 struct AxisSetting {
     category: &'static [PlotQuantity],
-    measures: HashSet<&'static PlotQuantity>,
+    measures: Vec<&'static PlotQuantity>,
 }
 
 #[derive(Component)]
 pub struct PlotWindow {
     quantities: Vec<(&'static [PlotQuantity], Vec<&'static PlotQuantity>)>,
-    series: HashMap<PlotSeriesId, PlotSeries>,
-    /*category_x: &'static [PlotQuantity],
-    measures_x: HashSet<&'static PlotQuantity>,
-    category_y: &'static [PlotQuantity],
-    measures_y: HashSet<&'static PlotQuantity>,*/
+    series: Vec<PlotSeries>,
     x: AxisSetting,
     y: AxisSetting,
     time: f32,
+    time_span: f32,
+    show_axes: bool,
     sidebar: bool,
 }
 
@@ -56,55 +50,56 @@ impl PlotSeriesId {
     }
 }
 
-impl Hash for PlotSeriesId {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.name.hash(state);
-    }
-}
-
-impl PartialEq for PlotSeriesId {
-    fn eq(&self, other: &Self) -> bool {
-        std::ptr::eq(self.x, other.x) && std::ptr::eq(self.y, other.y)
-    }
-}
-
-impl Eq for PlotSeriesId {}
-
 impl Display for PlotSeriesId {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.name)
     }
 }
 
-impl Borrow<str> for PlotSeriesId {
-    fn borrow(&self) -> &str {
-        &self.name
-    }
-}
-
-impl Debug for PlotSeriesId {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.name)
-    }
-}
-
 struct PlotSeries {
-    values: Vec<PlotPoint>,
+    id: PlotSeriesId,
+    sample_times: Vec<f32>,
+    points: Vec<PlotPoint>,
+    visible: bool,
 }
 
 impl PlotSeries {
-    fn new() -> Self {
-        Self { values: Vec::new() }
+    fn new(x: &'static PlotQuantity, y: &'static PlotQuantity) -> Self {
+        Self {
+            id: PlotSeriesId::new(x, y),
+            sample_times: Vec::new(),
+            points: Vec::new(),
+            visible: true,
+        }
+    }
+
+    fn push(&mut self, time: f32, point: PlotPoint) {
+        self.sample_times.push(time);
+        self.points.push(point);
+    }
+
+    fn clear(&mut self) {
+        self.sample_times.clear();
+        self.points.clear();
+    }
+
+    fn points_in_time_span(&self, current_time: f32, time_span: f32) -> &[PlotPoint] {
+        debug_assert_eq!(self.sample_times.len(), self.points.len());
+        let start = if time_span.is_finite() {
+            let cutoff = current_time - time_span;
+            self.sample_times.partition_point(|time| *time < cutoff)
+        } else {
+            0
+        };
+        &self.points[start..]
     }
 }
 
-/*type PlotQuery<'a> = (
-    &'a Transform,
-    &'a Velocity,
-    &'a KineticEnergy,
-    &'a GravityEnergy,
-    &'a Momentum,
-);*/
+fn series_color(index: usize) -> egui::Color32 {
+    let golden_ratio = (5.0_f32.sqrt() - 1.0) / 2.0;
+    egui::ecolor::Hsva::new(index as f32 * golden_ratio, 0.85, 0.5, 1.0).into()
+}
+
 type QuantityFn = fn(f32, &AggregateMeasures) -> Option<f32>;
 
 struct PlotQuantity {
@@ -118,22 +113,8 @@ impl Display for PlotQuantity {
     }
 }
 
-type PlotQuantityCategory = &'static [PlotQuantity];
-
 const fn quantity(name: &'static str, measure: QuantityFn) -> PlotQuantity {
     PlotQuantity { name, measure }
-}
-
-fn sum_if_any(items: &[Option<f32>]) -> Option<f32> {
-    let mut sum = 0.0;
-    let mut any = false;
-    for item in items {
-        if let Some(value) = item {
-            sum += value;
-            any = true;
-        }
-    }
-    if any { Some(sum) } else { None }
 }
 
 static PLOT_QUANTITIES: &[&[PlotQuantity]] = &[
@@ -172,46 +153,29 @@ static PLOT_QUANTITIES: &[&[PlotQuantity]] = &[
     ],
 ];
 
-/*static PLOT_QUANTITIES_2: () = &[
-    &[("Time", |time, _| time)],
-    |query| query.transform
-]*/
-
 impl Default for PlotWindow {
     fn default() -> Self {
         Self {
             quantities: vec![],
-            series: HashMap::from([(
-                PlotSeriesId::new(&PLOT_QUANTITIES[0][0], &PLOT_QUANTITIES[2][0]),
-                PlotSeries::new(),
-            )]),
+            series: vec![PlotSeries::new(
+                &PLOT_QUANTITIES[0][0],
+                &PLOT_QUANTITIES[2][0],
+            )],
             x: AxisSetting {
                 category: PLOT_QUANTITIES[0],
-                measures: HashSet::from([&PLOT_QUANTITIES[0][0]]),
+                measures: vec![&PLOT_QUANTITIES[0][0]],
             },
             y: AxisSetting {
                 category: PLOT_QUANTITIES[2],
-                measures: HashSet::from([&PLOT_QUANTITIES[2][0]]),
+                measures: vec![&PLOT_QUANTITIES[2][0]],
             },
             time: 0.0,
+            time_span: 30.0,
+            show_axes: true,
             sidebar: true,
         }
     }
 }
-
-impl Hash for &'static PlotQuantity {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        (*self as *const PlotQuantity).hash(state);
-    }
-}
-
-impl PartialEq for &'static PlotQuantity {
-    fn eq(&self, other: &Self) -> bool {
-        std::ptr::eq(*self, *other)
-    }
-}
-
-impl Eq for &'static PlotQuantity {}
 
 impl PlotWindow {
     pub(crate) fn show(
@@ -257,14 +221,14 @@ impl PlotWindow {
                 let cur_time = plot.time;
                 let aggregate =
                     aggregate_measures(targets.iter().copied(), &ents, &body_positions, gravity.0);
-                for (name, series) in plot.series.iter_mut() {
-                    let Some(x) = (name.x.measure)(cur_time, &aggregate) else {
+                for series in &mut plot.series {
+                    let Some(x) = (series.id.x.measure)(cur_time, &aggregate) else {
                         continue;
                     };
-                    let Some(y) = (name.y.measure)(cur_time, &aggregate) else {
+                    let Some(y) = (series.id.y.measure)(cur_time, &aggregate) else {
                         continue;
                     };
-                    series.values.push(PlotPoint::new(x, y));
+                    series.push(cur_time, PlotPoint::new(x, y));
                 }
                 plot.time += time.delta_secs();
             }
@@ -274,52 +238,6 @@ impl PlotWindow {
                 &mut initial_pos,
                 &mut commands,
                 |ui, _commands| {
-                    let series =
-                        unsafe { &*(&plot.series as *const HashMap<PlotSeriesId, PlotSeries>) };
-                    let fmt = |pos: &HoverPosition| {
-                        let HoverPosition::NearDataPoint {
-                            plot_name,
-                            position,
-                            index: _,
-                        } = pos
-                        else {
-                            return None;
-                        };
-                        if let HoverPosition::NearDataPoint {
-                            plot_name: name,
-                            position: value,
-                            index: _,
-                        } = pos
-                        {
-                            let (id, series) = series.get_key_value(*name).unwrap_or_else(|| {
-                                panic!("series {} not found, available: {:?}", name, series.keys())
-                            });
-                            let mut base = format!(
-                                "x = {:.2} ({})\ny = {:.2} ({})",
-                                value.x, id.x, value.y, id.y
-                            );
-                            let values = &series.values;
-                            let idx = values.binary_search_by(|probe| probe.x.total_cmp(&value.x));
-                            if let Ok(idx) = idx {
-                                if idx > 5 {
-                                    let prev = &values[idx - 5];
-                                    let slope = (value.y - prev.y) / (value.x - prev.x);
-                                    base += &format!("\ndy/dx = {:.2}", slope);
-                                }
-
-                                let integ = values
-                                    .windows(2)
-                                    .take(idx)
-                                    .map(|w| (w[0].y + w[1].y) * (w[1].x - w[0].x) / 2.0)
-                                    .sum::<f64>();
-                                base += &format!("\n∫dt = {:.2}", integ);
-                            }
-                            Some(base)
-                        } else {
-                            None
-                        }
-                    };
-
                     let plot = &mut *plot;
                     let switch_sidebar = egui::Panel::show_switched(
                         ui,
@@ -330,9 +248,10 @@ impl PlotWindow {
                             let mut switch = false;
                             if expanded {
                                 if ui
-                                    .add(egui::Button::image(
-                                        SizedTexture::new(gui_icons.arrow_left, [16.0, 16.0]),
-                                    ))
+                                    .add(egui::Button::image(SizedTexture::new(
+                                        gui_icons.arrow_left,
+                                        [16.0, 16.0],
+                                    )))
                                     .clicked()
                                 {
                                     switch = true;
@@ -344,8 +263,8 @@ impl PlotWindow {
                                     ))
                                     .clicked()
                                 {
-                                    for series in plot.series.values_mut() {
-                                        series.values.clear();
+                                    for series in &mut plot.series {
+                                        series.clear();
                                     }
                                 }
 
@@ -378,7 +297,9 @@ impl PlotWindow {
                                                 }
                                                 for measure in measures {
                                                     let mut existing =
-                                                        this.measures.contains(measure);
+                                                        this.measures.iter().any(|existing| {
+                                                            std::ptr::eq(*existing, *measure)
+                                                        });
                                                     if bool_checkbox(
                                                         ui,
                                                         &gui_icons,
@@ -401,23 +322,28 @@ impl PlotWindow {
                                                                 } else {
                                                                     (measure, other_measure)
                                                                 };
-                                                                series.insert(
-                                                                    PlotSeriesId::new(
-                                                                        x_measure, y_measure,
-                                                                    ),
-                                                                    PlotSeries::new(),
-                                                                );
+                                                                series.push(PlotSeries::new(
+                                                                    x_measure, y_measure,
+                                                                ));
                                                             }
-                                                            this.measures.insert(measure);
+                                                            this.measures.push(measure);
                                                         } else {
-                                                            series.retain(|id, _| {
+                                                            series.retain(|series| {
                                                                 if swap {
-                                                                    id.y != measure
+                                                                    !std::ptr::eq(
+                                                                        series.id.y,
+                                                                        *measure,
+                                                                    )
                                                                 } else {
-                                                                    id.x != measure
+                                                                    !std::ptr::eq(
+                                                                        series.id.x,
+                                                                        *measure,
+                                                                    )
                                                                 }
                                                             });
-                                                            this.measures.remove(measure);
+                                                            this.measures.retain(|existing| {
+                                                                !std::ptr::eq(*existing, *measure)
+                                                            });
                                                         }
                                                     }
                                                 }
@@ -427,47 +353,178 @@ impl PlotWindow {
 
                                 axis_("X", x, y, false);
                                 axis_("Y", y, x, true);
+                                drop(axis_);
+
+                                ui.separator();
+                                for (index, series) in plot.series.iter_mut().enumerate() {
+                                    bool_checkbox(
+                                        ui,
+                                        &gui_icons,
+                                        &mut series.visible,
+                                        egui::RichText::new(&series.id.name)
+                                            .strong()
+                                            .color(series_color(index)),
+                                    );
+                                }
+
+                                ui.separator();
+                                bool_checkbox(ui, &gui_icons, &mut plot.show_axes, "Show axes");
+                                ui.add(
+                                    egui::Slider::new(&mut plot.time_span, 1.0..=f32::INFINITY)
+                                        .logarithmic(true)
+                                        .largest_finite(100.0)
+                                        .text("Time span")
+                                        .suffix(" s")
+                                        .custom(),
+                                );
+                                let _ = ui.button("Save as CSV file");
                             } else {
                                 if ui
-                                    .add(egui::Button::image(
-                                        SizedTexture::new(gui_icons.arrow_right, [16.0, 16.0]),
-                                    ))
+                                    .add(egui::Button::image(SizedTexture::new(
+                                        gui_icons.arrow_right,
+                                        [16.0, 16.0],
+                                    )))
                                     .clicked()
                                 {
                                     switch = true;
                                 }
                                 if ui
-                                    .add(egui::Button::image(
-                                        SizedTexture::new(gui_icons.plot_clear, [16.0, 16.0]),
-                                    ))
+                                    .add(egui::Button::image(SizedTexture::new(
+                                        gui_icons.plot_clear,
+                                        [16.0, 16.0],
+                                    )))
                                     .clicked()
                                 {
-                                    for series in plot.series.values_mut() {
-                                        series.values.clear();
+                                    for series in &mut plot.series {
+                                        series.clear();
                                     }
                                 }
                             }
                             switch
                         },
-                    ).inner;
+                    )
+                    .inner;
 
                     if switch_sidebar {
                         plot.sidebar = !plot.sidebar;
                     }
 
-                    //ui.horizontal(|ui| {});
-                    egui::CentralPanel::default().show(ui, |ui| {
-                        Plot::new("plot").label_formatter(fmt).show(ui, |plot_ui| {
-                            for (name, series) in &plot.series {
-                                plot_ui.line(Line::new(
-                                    format!("{name:?}"),
-                                    PlotPoints::Owned(series.values.clone()),
-                                ));
+                    let current_time = plot.time;
+                    let time_span = plot.time_span;
+                    let show_axes = plot.show_axes;
+                    let series = &plot.series;
+                    let fmt = |pos: &HoverPosition| {
+                        let HoverPosition::NearDataPoint {
+                            plot_name,
+                            position,
+                            index,
+                        } = pos
+                        else {
+                            return None;
+                        };
+                        let series = series
+                            .iter()
+                            .find(|series| series.id.name.as_str() == *plot_name)?;
+                        let id = &series.id;
+                        let points = series.points_in_time_span(current_time, time_span);
+                        let index = *index;
+                        let mut label = format!(
+                            "x = {:.2} ({})\ny = {:.2} ({})",
+                            position.x, id.x, position.y, id.y
+                        );
+
+                        if index > 5 {
+                            if let Some(previous) = points.get(index - 5) {
+                                let delta_x = position.x - previous.x;
+                                if delta_x != 0.0 {
+                                    label += &format!(
+                                        "\ndy/dx = {:.2}",
+                                        (position.y - previous.y) / delta_x
+                                    );
+                                }
                             }
-                        });
+                        }
+
+                        let integral = points
+                            .windows(2)
+                            .take(index)
+                            .map(|values| {
+                                (values[0].y + values[1].y) * (values[1].x - values[0].x) / 2.0
+                            })
+                            .sum::<f64>();
+                        label += &format!("\nintegral = {:.2}", integral);
+                        Some(label)
+                    };
+
+                    egui::CentralPanel::default().show(ui, |ui| {
+                        Plot::new("plot")
+                            .show_axes(show_axes)
+                            .show_grid(show_axes)
+                            .label_formatter(fmt)
+                            .show(ui, |plot_ui| {
+                                for (index, series) in series.iter().enumerate() {
+                                    if !series.visible {
+                                        continue;
+                                    }
+                                    plot_ui.line(
+                                        Line::new(
+                                            series.id.to_string(),
+                                            PlotPoints::Borrowed(
+                                                series.points_in_time_span(current_time, time_span),
+                                            ),
+                                        )
+                                        .color(series_color(index)),
+                                    );
+                                }
+                            });
                     });
                 },
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn time_span_filters_without_discarding_samples() {
+        let mut series = PlotSeries::new(&PLOT_QUANTITIES[0][0], &PLOT_QUANTITIES[2][0]);
+        series.push(1.0, PlotPoint::new(1.0, 10.0));
+        series.push(5.0, PlotPoint::new(5.0, 50.0));
+        series.push(10.0, PlotPoint::new(10.0, 100.0));
+
+        let recent = series.points_in_time_span(10.0, 5.0);
+        assert_eq!(recent.len(), 2);
+        assert_eq!(recent[0].x, 5.0);
+        assert_eq!(series.points.len(), 3);
+        assert_eq!(series.points_in_time_span(10.0, f32::INFINITY).len(), 3);
+    }
+
+    #[test]
+    fn plot_display_defaults_match_the_sidebar_controls() {
+        let plot = PlotWindow::default();
+
+        assert!(plot.show_axes);
+        assert_eq!(plot.time_span, 30.0);
+        assert!(plot.series.iter().all(|series| series.visible));
+    }
+
+    #[test]
+    fn reinserted_series_moves_to_the_end() {
+        let mut series = vec![
+            PlotSeries::new(&PLOT_QUANTITIES[0][0], &PLOT_QUANTITIES[2][0]),
+            PlotSeries::new(&PLOT_QUANTITIES[0][0], &PLOT_QUANTITIES[2][1]),
+        ];
+
+        let first_series = series.remove(0);
+        series.push(first_series);
+
+        let names = series
+            .iter()
+            .map(|series| series.id.name.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(names, ["Velocity (x) / Time", "Speed / Time"]);
     }
 }
