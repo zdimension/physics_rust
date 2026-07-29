@@ -4,11 +4,11 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-bevy-inspector-egui = "0.37.0"
+#bevy-inspector-egui = "0.37.0"
 bevy = { version = "0.19", features = ["trace", "dynamic_linking"] }
 bevy_diagnostic = "0.19"
-bevy_egui = "0.40"
-egui_plot = "0.35"
+bevy_egui = "0.41"
+egui_plot = "0.36"
 bevy_prototype_lyon = "0.17.0"
 avian2d = { version = "0.7.0", features = ["debug-plugin"] }
 derivative = "2.2.0"
@@ -34,7 +34,7 @@ patches = [
 crates = ["egui"]
 
 [patch.crates-io]
-egui = { path = './target/patch/egui-0.34.3' }
+egui = { path = './target/patch/egui-0.35.0' }
 
 # native:
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]

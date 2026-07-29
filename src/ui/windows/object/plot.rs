@@ -11,7 +11,7 @@ use bevy_egui::{EguiContexts, egui};
 use egui::containers::PopupCloseBehavior;
 use egui::containers::menu::{MenuButton, MenuConfig};
 use egui::load::SizedTexture;
-use egui_plot::{Line, Plot, PlotPoint, PlotPoints};
+use egui_plot::{HoverPosition, Line, Plot, PlotPoint, PlotPoints};
 use itertools::Itertools;
 use paste::paste;
 use std::borrow::Borrow;
@@ -270,9 +270,12 @@ impl PlotWindow {
                 .resizable(true)
                 .subwindow(id, ctx, &mut initial_pos, &mut commands, |ui, _commands| {
                     let series = unsafe { &*(&plot.series as *const HashMap<PlotSeriesId, PlotSeries>) };
-                    let fmt = |name: &str, value: &PlotPoint| {
-                        if !name.is_empty() {
-                            let (id, series) = series.get_key_value(name).unwrap_or_else(|| panic!("series {} not found, available: {:?}", name, series.keys()));
+                    let fmt = |pos: &HoverPosition| {
+                        let HoverPosition::NearDataPoint { plot_name, position, index: _ } = pos else {
+                            return None;
+                        };
+                        if let HoverPosition::NearDataPoint { plot_name: name, position: value, index: _ } = pos {
+                            let (id, series) = series.get_key_value(*name).unwrap_or_else(|| panic!("series {} not found, available: {:?}", name, series.keys()));
                             let mut base = format!("x = {:.2} ({})\ny = {:.2} ({})", value.x, id.x, value.y, id.y);
                             let values = &series.values;
                             let idx = values.binary_search_by(|probe| probe.x.total_cmp(&value.x));
@@ -286,11 +289,14 @@ impl PlotWindow {
                                 let integ = values.windows(2).take(idx).map(|w| (w[0].y + w[1].y) * (w[1].x - w[0].x) / 2.0).sum::<f64>();
                                 base += &format!("\n∫dt = {:.2}", integ);
                             }
-                            base
+                            Some(base)
                         } else {
-                            String::from("")
+                            None
                         }
                     };
+
+                    //egui::Panel::show_swi
+
                     ui.horizontal(|ui| {
                         if ui.add(egui::Button::image_and_text(SizedTexture::new(gui_icons.plot_clear, [16.0, 16.0]), "Clear"))
                             .clicked() {

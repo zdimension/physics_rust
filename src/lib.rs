@@ -15,7 +15,7 @@ use bevy_egui::{
     EguiContexts, EguiPlugin, EguiPostUpdateSet, EguiPreUpdateSet, EguiStartupSet,
     egui::{self},
 };
-use bevy_inspector_egui::quick::WorldInspectorPlugin;
+//use bevy_inspector_egui::quick::WorldInspectorPlugin;
 //use bevy_prototype_lyon::prelude::{DrawMode, FillMode, ShapePlugin};
 use crate::config::AppConfig;
 use crate::skin::SkinConfig;
@@ -192,7 +192,7 @@ pub fn app_main() {
             ..Default::default()
         }))
         .add_plugins(EguiPlugin::default())
-        .add_plugins(WorldInspectorPlugin::new())
+        //.add_plugins(WorldInspectorPlugin::new())
         .init_asset::<PaletteList>()
         .init_asset_loader::<PaletteLoader>()
         .init_resource::<PaletteConfig>()
