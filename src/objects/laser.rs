@@ -1,8 +1,8 @@
 use std::fmt::{Debug, Formatter};
 
 use crate::lyon_compat::GeometryBuilder;
+use crate::lyon_compat::ShapeBundle;
 use crate::lyon_compat::shapes;
-use crate::lyon_compat::{Shape, ShapeBundle};
 use avian2d::prelude::*;
 use bevy::math::{Vec2, Vec3, Vec3Swizzles};
 use bevy::prelude::*;
@@ -468,18 +468,11 @@ pub fn draw_lasers(
 }
 
 pub(crate) fn sync_laser_size(
-    mut lasers: Query<
-        (&LaserSettings, &Children, &mut Collider, &mut Shape),
-        Changed<LaserSettings>,
-    >,
+    mut lasers: Query<(&LaserSettings, &Children, &mut Collider), Changed<LaserSettings>>,
     mut visuals: Query<&mut Transform, With<LaserVisual>>,
 ) {
-    for (settings, children, mut collider, mut shape) in &mut lasers {
+    for (settings, children, mut collider) in &mut lasers {
         *collider = Collider::rectangle(settings.size, settings.size * 0.5);
-        shape.path = GeometryBuilder::build_as(&shapes::Rectangle {
-            extents: Vec2::new(settings.size, settings.size * 0.5) * 1.1,
-            ..Default::default()
-        });
 
         for child in children.iter() {
             if let Ok(mut transform) = visuals.get_mut(child) {

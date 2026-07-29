@@ -93,6 +93,7 @@ struct BodyHit {
     entity: Entity,
     local_pos: Vec2,
     z: f32,
+    rotation: Quat,
 }
 
 #[derive(Copy, Clone)]
@@ -248,7 +249,12 @@ pub fn process_add_object(
 pub fn process_place_attachment(
     mut events: MessageReader<PlaceAttachmentEvent>,
     mut commands: Commands,
-    mut attachments: Query<(&AttachmentKind, Option<&AttachmentLinks>, &mut Transform)>,
+    mut attachments: Query<(
+        &AttachmentKind,
+        Option<&AttachmentLinks>,
+        &GlobalTransform,
+        &mut Transform,
+    )>,
     bodies: BodyQuery,
     spatial_query: SpatialQuery,
     fixes: Query<(&FixedJoint, &AttachmentJoint), With<FixObject>>,
@@ -264,9 +270,11 @@ pub fn process_place_attachment(
     )>,
 ) {
     for event in events.read().copied() {
-        let Ok((kind, links, mut transform)) = attachments.get_mut(event.entity) else {
+        let Ok((kind, links, global_transform, mut transform)) = attachments.get_mut(event.entity)
+        else {
             continue;
         };
+        let world_rotation = global_transform.rotation();
         clear_attachment_links(&mut commands, links.copied());
 
         if *kind == AttachmentKind::Laser {
@@ -274,12 +282,14 @@ pub fn process_place_attachment(
             match placement {
                 LaserPlacement::Body(placement) => {
                     *transform = attachment_pose(placement, z.next());
+                    transform.rotation = placement.body1.rotation.inverse() * world_rotation;
                     commands
                         .entity(event.entity)
                         .insert(ChildOf(placement.body1.entity));
                 }
                 LaserPlacement::Sky { pos } => {
                     *transform = sky_attachment_pose(pos, z.next());
+                    transform.rotation = world_rotation;
                     commands
                         .entity(event.entity)
                         .insert(ChildOf(scene_state.scene));
@@ -418,6 +428,7 @@ fn axle_placement(
                 entity,
                 local_pos: Vec2::ZERO,
                 z: transform.translation_vec3a().z,
+                rotation: transform.rotation(),
             };
             let body2 = body_hits_at(pos, bodies, spatial_query, Some(entity)).next();
             Some(AttachmentPlacement { body1, body2, pos })
@@ -466,6 +477,7 @@ fn body_hit(
         entity,
         local_pos: rotation.inverse() * (pos - position.0),
         z: transform.translation_vec3a().z,
+        rotation: transform.rotation(),
     }
 }
 
@@ -687,15 +699,8 @@ fn spawn_laser_attachment(
     };
     commands
         .spawn((
-            ShapeBundle::new(
-                GeometryBuilder::build_as(&shapes::Rectangle {
-                    extents: Vec2::new(scale, scale * 0.5) * 1.1,
-                    ..Default::default()
-                }),
-                transform,
-                Visibility::Inherited,
-            ),
-            crate::make_stroke(Color::srgba(0.0, 0.0, 0.0, 0.0), BORDER_THICKNESS),
+            transform,
+            Visibility::Inherited,
             LaserSettings {
                 size: scale,
                 fade_distance: 10.0,

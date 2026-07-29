@@ -17,7 +17,7 @@ use crate::ui::{PointerToolState, SceneState, Selected};
 use crate::{CustomForce, InvTransformPoint, UsedMouseButton};
 use avian2d::prelude::*;
 use bevy::ecs::system::SystemParam;
-use bevy::math::{Vec2, Vec3Swizzles};
+use bevy::math::{EulerRot, Vec2, Vec3Swizzles};
 use bevy::prelude::{
     ChildOf, Commands, Entity, GlobalTransform, Message, MessageReader, MessageWriter, Query, Res,
     ResMut, Transform, With, Without,
@@ -109,6 +109,12 @@ pub fn mouse_long_or_moved(
 
                 let should_select_under_mouse =
                     matches!(hover_tool, Drag(None) | Fix(()) | Axle(()) | Tracer(()))
+                        || matches!(hover_tool, Laser(()))
+                            && under_mouse.is_some_and(|entity| {
+                                query
+                                    .get(entity)
+                                    .is_ok_and(|(_, _, _, body)| body.is_none())
+                            })
                         || matches!(hover_tool, Move(None) | Rotate(None))
                             && under_mouse.is_none_or(|entity| !params.selected.contains(entity));
                 if should_select_under_mouse {
@@ -174,7 +180,8 @@ pub fn mouse_long_or_moved(
                         })));
                     }
                     (Rotate(None), Some(under)) => {
-                        let (_, _, Some(rot), _body) = query.get(under).unwrap() else {
+                        let (global_transform, _, Some(_rot), _body) = query.get(under).unwrap()
+                        else {
                             continue;
                         };
                         if !params.selected.contains(under) {
@@ -192,16 +199,21 @@ pub fn mouse_long_or_moved(
                         )
                         .unwrap_or_else(|| query.get(under).unwrap().0.translation_vec3a().xy());
                         *ui_button = Some(Rotate(Some(RotateState {
-                            current_angle: rot.as_radians(),
+                            current_angle: global_transform.rotation().to_euler(EulerRot::XYZ).2,
                             pivot,
                             targets: selected_entities
                                 .iter()
                                 .filter_map(|entity| {
-                                    let (_, pos, rot, _) = query.get(*entity).ok()?;
+                                    let (global_transform, _pos, rot, _) =
+                                        query.get(*entity).ok()?;
+                                    rot?;
                                     Some(crate::tools::rotate::RotateTarget {
                                         entity: *entity,
-                                        original_pos: pos?.0,
-                                        original_angle: rot?.as_radians(),
+                                        original_pos: global_transform.translation_vec3a().xy(),
+                                        original_angle: global_transform
+                                            .rotation()
+                                            .to_euler(EulerRot::XYZ)
+                                            .2,
                                     })
                                 })
                                 .collect(),

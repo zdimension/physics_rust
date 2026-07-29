@@ -11,6 +11,7 @@ use pan::PanState;
 use crate::mouse::r#move::MouseLongOrMoved;
 use crate::mouse::select::{
     SelectEnclosedEvent, SelectUnderMouseEvent, SelectionConfig, SelectionMode,
+    collider_under_point,
 };
 use crate::objects::spring::{FinishSpringEvent, UpdateSpringPreviewEvent};
 use crate::tools::add_object::{
@@ -43,6 +44,17 @@ pub struct AttachmentMoveCommit<'w, 's> {
     place_attachment: MessageWriter<'w, PlaceAttachmentEvent>,
 }
 
+#[derive(SystemParam)]
+pub struct LaserClickTargets<'w, 's> {
+    rigid_bodies: Query<'w, 's, (), With<RigidBody>>,
+    colliders: Query<
+        'w,
+        's,
+        (Entity, &'static Collider, &'static GlobalTransform),
+        Without<ColliderDisabled>,
+    >,
+}
+
 pub fn left_release(
     mouse_button_input: Res<ButtonInput<MouseButton>>,
     mut commands: Commands,
@@ -56,7 +68,7 @@ pub fn left_release(
     mut ev_spring_finish: MessageWriter<FinishSpringEvent>,
     mut overlay: ResMut<OverlayState>,
     selection_config: Res<SelectionConfig>,
-    rigid_bodies: Query<(), With<RigidBody>>,
+    laser_click_targets: LaserClickTargets,
     cameras: Query<&Transform, With<MainCamera>>,
     mut ev_zoom: MessageWriter<ZoomEvent>,
     mut attachment_move_commit: AttachmentMoveCommit,
@@ -142,14 +154,14 @@ pub fn left_release(
                                     entity,
                                     pos: pos + state.primary_delta,
                                 });
-                        } else if rigid_bodies.contains(entity) {
+                        } else if laser_click_targets.rigid_bodies.contains(entity) {
                             unfreeze.write(UnfreezeEntityEvent { entity });
                         }
                     }
                 }
                 Rotate(Some(_)) => {
                     for entity in selected_entities.iter().copied() {
-                        if rigid_bodies.contains(entity) {
+                        if laser_click_targets.rigid_bodies.contains(entity) {
                             unfreeze.write(UnfreezeEntityEvent { entity });
                         }
                     }
@@ -201,7 +213,14 @@ pub fn left_release(
                     add_obj.write(AddObjectEvent::Axle(AddAxleEvent::Mouse(pos)));
                 }
                 Laser(()) => {
-                    add_obj.write(AddObjectEvent::Laser(pos));
+                    let under_mouse = collider_under_point(pos, &laser_click_targets.colliders);
+                    let clicked_physical_object =
+                        under_mouse.map(|entity| laser_click_targets.rigid_bodies.contains(entity));
+                    if laser_click_should_place(clicked_physical_object) {
+                        add_obj.write(AddObjectEvent::Laser(pos));
+                    } else {
+                        select_mouse.write(sel_ev);
+                    }
                 }
                 Tracer(()) => {
                     add_obj.write(AddObjectEvent::Tracer(pos));
@@ -233,6 +252,10 @@ pub fn left_release(
             }
         }
     }
+}
+
+fn laser_click_should_place(clicked_physical_object: Option<bool>) -> bool {
+    clicked_physical_object.unwrap_or(true)
 }
 
 pub fn left_pressed(
@@ -413,5 +436,17 @@ pub fn left_pressed(
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::laser_click_should_place;
+
+    #[test]
+    fn laser_tool_places_only_on_sky_or_physical_objects() {
+        assert!(laser_click_should_place(None));
+        assert!(laser_click_should_place(Some(true)));
+        assert!(!laser_click_should_place(Some(false)));
     }
 }
