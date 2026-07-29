@@ -48,7 +48,7 @@ impl InformationWindow {
                             line(ui, "Mass", format!("{:.3} kg", mass));
                         }
                         if let Some(inertia) = aggregate.angular_inertia {
-                            line(ui, "Moment of inertia", format!("{:.3} kgÂ·mÂ²", inertia));
+                            line(ui, "Moment of inertia", format!("{:.3} kg·m²", inertia));
                         }
                         if let Some(pos) = aggregate.position {
                             line(ui, "Position", format!("[x={:.3}, y={:.3}] m", pos.x, pos.y));
@@ -64,11 +64,11 @@ impl InformationWindow {
                                 ui,
                                 "Momentum",
                                 format!(
-                                    "[x={:.3}, y={:.3}] NÂ·s",
+                                    "[x={:.3}, y={:.3}] N·s",
                                     momentum.linear.x, momentum.linear.y
                                 ),
                             );
-                            line(ui, "Angular momentum", format!("{:.3} JÂ·s", momentum.angular));
+                            line(ui, "Angular momentum", format!("{:.3} J·s", momentum.angular));
                         }
                     });
                     ui.separator();
