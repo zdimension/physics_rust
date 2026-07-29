@@ -703,7 +703,7 @@ fn spawn_laser_attachment(
             Visibility::Inherited,
             LaserSettings {
                 size: scale,
-                fade_distance: 10.0,
+                fade_distance: 300.0,
             },
             ColorComponent(color).update_from_this(),
             Collider::rectangle(scale * 0.5, scale * 0.25),
