@@ -1,0 +1,3 @@
+disallowed-methods = [
+    "egui::containers::window::Window::show",
+]

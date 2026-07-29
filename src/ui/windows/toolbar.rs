@@ -1,7 +1,7 @@
 use crate::tools::ToolIcons;
 use crate::ui::icon_button::IconButton;
 use crate::ui::images::GuiIcons;
-use crate::ui::{GravitySetting, RemoveTemporaryWindowsEvent, ToolboxState};
+use crate::ui::{GravitySetting, RemoveTemporaryWindowsEvent, ToolboxState, WindowExt};
 use bevy::math::Vec2;
 use bevy::prelude::{MessageWriter, Local, Res, ResMut, Time};
 use bevy_egui::egui::Align2;
@@ -25,7 +25,7 @@ pub fn draw_bottom_toolbar(
         .anchor(Align2::CENTER_BOTTOM, [0.0, -1.0])
         .title_bar(false)
         .resizable(false)
-        .show(egui_ctx.ctx_mut().expect("primary egui context"), |ui| {
+        .show_translucent(egui_ctx.ctx_mut().expect("primary egui context"), |ui| {
             ui.style_mut().spacing.item_spacing = egui::Vec2::new(3.0, 3.0);
             ui.horizontal(|ui| {
                 let toolbox_state = &mut *toolbox_state;

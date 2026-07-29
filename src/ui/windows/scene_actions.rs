@@ -6,7 +6,7 @@ use bevy_egui::{egui, EguiContexts};
 
 use crate::ui::icon_button::IconButton;
 use crate::ui::images::GuiIcons;
-use crate::ui::{InitialPos, SceneState, Subwindow};
+use crate::ui::{InitialPos, SceneState, Subwindow, WindowExt};
 
 egui_systems!(draw_scene_actions, NewSceneWindow::show);
 
@@ -21,7 +21,7 @@ pub fn draw_scene_actions(
         .title_bar(false)
         .resizable(false)
         .default_size(egui::Vec2::ZERO)
-        .show(egui_ctx.ctx_mut().expect("primary egui context"), |ui| {
+        .show_translucent(egui_ctx.ctx_mut().expect("primary egui context"), |ui| {
             ui.vertical(|ui| {
                 let btn = ui.add(IconButton::new(gui_icons.new, 32.0));
                 let ns = ns_window.single();

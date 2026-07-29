@@ -86,47 +86,50 @@ pub fn ui_example(
         *is_initialized = true;
     }
 
-    egui::Window::new("Debug").show(egui_ctx.ctx_mut().expect("primary egui context"), |ui| {
-        ui.collapsing("Mouse", |ui| {
-            ui.label(format!("World: {:.2} m", mouse.xy()));
-            ui.label(format!("Screen: {:.2} px", mouse_sc.xy()));
-        });
-        ui.collapsing("Laser", |ui| {
-            ui.monospace(&laser.single().unwrap().debug);
-        });
-        let Ok(tr) = cameras.single() else {
-            // dump all components
+    egui::Window::new("Debug").show_translucent(
+        egui_ctx.ctx_mut().expect("primary egui context"),
+        |ui| {
+            ui.collapsing("Mouse", |ui| {
+                ui.label(format!("World: {:.2} m", mouse.xy()));
+                ui.label(format!("Screen: {:.2} px", mouse_sc.xy()));
+            });
+            ui.collapsing("Laser", |ui| {
+                ui.monospace(&laser.single().unwrap().debug);
+            });
+            let Ok(tr) = cameras.single() else {
+                // dump all components
 
-            panic!("cams found={:#?}", mc.iter().count());
-        };
-        ui.collapsing("Camera", |ui| {
-            ui.monospace(format!(
-                "pos = {:.2} m\nscale = {:.2} m\n",
-                tr.translation, tr.scale
-            ));
-        });
-        ui.collapsing("UI state", |ui| {
-            ui.monospace(format!(
-                "{:#?}\n{:#?}\n{:#?}\n{:#?}",
-                selected.iter().collect::<Vec<_>>(),
-                toolbox_state,
-                pointer_state,
-                scene_state
-            ));
-        });
-        /*ui.collapsing("Rapier", |ui| {
-            ui.monospace(format!("{:#?}", rapier));
-        });*/
-        ui.collapsing("FPS", |ui| {
-            ui.monospace(format!(
-                "{:.2}",
-                diag.get(&FrameTimeDiagnosticsPlugin::FPS)
-                    .unwrap()
-                    .value()
-                    .unwrap_or(f64::NAN)
-            ));
-        });
-    });
+                panic!("cams found={:#?}", mc.iter().count());
+            };
+            ui.collapsing("Camera", |ui| {
+                ui.monospace(format!(
+                    "pos = {:.2} m\nscale = {:.2} m\n",
+                    tr.translation, tr.scale
+                ));
+            });
+            ui.collapsing("UI state", |ui| {
+                ui.monospace(format!(
+                    "{:#?}\n{:#?}\n{:#?}\n{:#?}",
+                    selected.iter().collect::<Vec<_>>(),
+                    toolbox_state,
+                    pointer_state,
+                    scene_state
+                ));
+            });
+            /*ui.collapsing("Rapier", |ui| {
+                ui.monospace(format!("{:#?}", rapier));
+            });*/
+            ui.collapsing("FPS", |ui| {
+                ui.monospace(format!(
+                    "{:.2}",
+                    diag.get(&FrameTimeDiagnosticsPlugin::FPS)
+                        .unwrap()
+                        .value()
+                        .unwrap_or(f64::NAN)
+                ));
+            });
+        },
+    );
 }
 
 trait AsPos2 {
@@ -540,7 +543,7 @@ impl<'a> Subwindow for egui::Window<'a> {
         };
         wnd.id_bevy(id)
             .open(&mut open)
-            .show(ctx, |ui| contents(ui, commands))
+            .show_translucent(ctx, |ui| contents(ui, commands))
             .map(|resp| {
                 *initial_pos = InitialPos::Pos(begin, resp.response.rect.left_top());
             });
@@ -649,5 +652,33 @@ impl FromWorld for SceneState {
                 ))
                 .id(),
         }
+    }
+}
+
+pub trait WindowExt {
+    fn show_translucent<R>(
+        self,
+        ctx: &egui::Context,
+        add_contents: impl FnOnce(&mut egui::Ui) -> R,
+    ) -> Option<egui::InnerResponse<Option<R>>>;
+}
+
+impl<'a> WindowExt for egui::Window<'a> {
+    fn show_translucent<R>(
+        self,
+        ctx: &egui::Context,
+        add_contents: impl FnOnce(&mut egui::Ui) -> R,
+    ) -> Option<egui::InnerResponse<Option<R>>> {
+        let opacity = 0.9;
+
+        let frame = egui::Frame::window(&ctx.global_style()).multiply_with_opacity(opacity);
+
+        #[allow(clippy::disallowed_methods)]
+        self.drag_area(egui::WindowDrag::Anywhere)
+            .frame(frame)
+            .show(ctx, |ui| {
+                ui.multiply_opacity(opacity);
+                add_contents(ui)
+            })
     }
 }

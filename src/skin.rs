@@ -18,7 +18,8 @@ impl Default for Skin {
                 a: 1.0,
             }
             .into(),
-            opacity: 0.98,
+            //opacity: 0.98,
+            opacity: 1.0,
         }
     }
 }

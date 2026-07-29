@@ -1,3 +1,5 @@
+#![deny(clippy::disallowed_methods)]
+
 use bevy::input::InputSystems;
 use bevy::math::Vec3Swizzles;
 use bevy::prelude::*;

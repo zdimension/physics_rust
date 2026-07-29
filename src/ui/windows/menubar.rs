@@ -5,7 +5,7 @@ use bevy_egui::egui::Align2;
 use bevy_egui::{egui, EguiContexts};
 use crate::ui::icon_button::IconButton;
 use crate::ui::images::GuiIcons;
-use crate::ui::InitialPos;
+use crate::ui::{InitialPos, WindowExt};
 
 
 use crate::ui::separator_custom::SeparatorCustom;
@@ -25,7 +25,7 @@ pub fn draw_menubar(
         .title_bar(false)
         .resizable(false)
         .default_size(egui::Vec2::ZERO)
-        .show(egui_ctx.ctx_mut().expect("primary egui context"), |ui| {
+        .show_translucent(egui_ctx.ctx_mut().expect("primary egui context"), |ui| {
             ui.horizontal(|ui| {
                 ui.add(TextButton::new("File"));
                 let opt = opt_window.single();

@@ -5,7 +5,7 @@ use crate::tools::{ToolEnum, ToolIcons};
 use crate::ui::icon_button::IconButton;
 use crate::ui::images::GuiIcons;
 use crate::ui::separator_custom::SeparatorCustom;
-use crate::ui::{RemoveTemporaryWindowsEvent, ToolboxState, bool_checkbox};
+use crate::ui::{RemoveTemporaryWindowsEvent, ToolboxState, WindowExt, bool_checkbox};
 use crate::update_changed;
 use bevy::prelude::{MessageWriter, Res, ResMut};
 use bevy_egui::egui::{Align2, Frame, Margin};
@@ -30,7 +30,7 @@ pub fn draw_toolbox(
             inner_margin: Margin::same(3),
             ..Frame::window(ctx.global_style().as_ref())
         })
-        .show(ctx, |ui| {
+        .show_translucent(ctx, |ui| {
             ui.vertical(|ui| {
                 ui.style_mut().spacing.item_spacing = egui::Vec2::new(1.0, 1.0);
                 let toolbox_state = &mut *toolbox_state;
@@ -72,7 +72,7 @@ pub fn draw_toolbox(
             inner_margin: Margin::same(3),
             ..Frame::window(ctx.global_style().as_ref())
         })
-        .show(ctx, |ui| {
+        .show_translucent(ctx, |ui| {
             ui.vertical(|ui| {
                 ui.style_mut().spacing.item_spacing = egui::Vec2::new(1.0, 1.0);
                 use ToolEnum::*;
