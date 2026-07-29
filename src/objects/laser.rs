@@ -475,7 +475,7 @@ pub(crate) fn sync_laser_size(
     mut visuals: Query<&mut Transform, With<LaserVisual>>,
 ) {
     for (settings, children, mut collider, mut shape) in &mut lasers {
-        *collider = Collider::rectangle(settings.size * 0.5, settings.size * 0.25);
+        *collider = Collider::rectangle(settings.size, settings.size * 0.5);
         shape.path = GeometryBuilder::build_as(&shapes::Rectangle {
             extents: Vec2::new(settings.size, settings.size * 0.5) * 1.1,
             ..Default::default()
