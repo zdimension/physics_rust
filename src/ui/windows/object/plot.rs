@@ -1,4 +1,3 @@
-use crate::egui_systems;
 use crate::measures::{AggregateMeasureData, AggregateMeasures, aggregate_measures};
 use crate::ui::images::GuiIcons;
 use crate::ui::{
@@ -6,8 +5,10 @@ use crate::ui::{
 };
 use avian2d::prelude::*;
 use bevy::prelude::ChildOf;
-use bevy::prelude::{Commands, Component, Entity, Query, Res, Time};
-use bevy_egui::{EguiContexts, egui};
+use bevy::prelude::{
+    App, Commands, Component, Entity, FixedPostUpdate, IntoScheduleConfigs, Query, Res, Time,
+};
+use bevy_egui::{EguiContexts, EguiPrimaryContextPass, egui};
 use egui::containers::PopupCloseBehavior;
 use egui::containers::menu::{MenuButton, MenuConfig};
 use egui::load::SizedTexture;
@@ -15,7 +16,13 @@ use egui_plot::{HoverPosition, Line, Plot, PlotPoint, PlotPoints};
 use itertools::Itertools;
 use std::fmt::{Display, Formatter};
 
-egui_systems!(PlotWindow::show);
+pub fn add_systems(app: &mut App) {
+    app.add_systems(EguiPrimaryContextPass, PlotWindow::show)
+        .add_systems(
+            FixedPostUpdate,
+            PlotWindow::sample.after(PhysicsSystems::Writeback),
+        );
+}
 
 struct AxisSetting {
     category: &'static [PlotQuantity],
@@ -178,6 +185,41 @@ impl Default for PlotWindow {
 }
 
 impl PlotWindow {
+    fn sample(
+        mut plots: Query<(
+            Option<&ChildOf>,
+            Option<&WindowSelectionTarget>,
+            &mut PlotWindow,
+        )>,
+        ents: Query<AggregateMeasureData>,
+        body_positions: Query<(&Position, &Rotation)>,
+        physics: Res<Time<Physics>>,
+        gravity: Res<Gravity>,
+    ) {
+        if physics.is_paused() || physics.delta().is_zero() {
+            return;
+        }
+
+        for (parent, target, mut plot) in &mut plots {
+            let targets = window_target_entities(target, parent);
+            let aggregate =
+                aggregate_measures(targets.iter().copied(), &ents, &body_positions, gravity.0);
+            let current_time = plot.time;
+
+            for series in &mut plot.series {
+                let Some(x) = (series.id.x.measure)(current_time, &aggregate) else {
+                    continue;
+                };
+                let Some(y) = (series.id.y.measure)(current_time, &aggregate) else {
+                    continue;
+                };
+                series.push(current_time, PlotPoint::new(x, y));
+            }
+
+            plot.time += physics.delta_secs();
+        }
+    }
+
     pub(crate) fn show(
         mut wnds: Query<(
             Entity,
@@ -190,17 +232,15 @@ impl PlotWindow {
         body_positions: Query<(&Position, &Rotation)>,
         mut egui_ctx: EguiContexts,
         mut commands: Commands,
-        time: Res<Time>,
         gui_icons: Res<GuiIcons>,
-        physics: Res<Time<Physics>>,
         gravity: Res<Gravity>,
     ) {
         let ctx = egui_ctx.ctx_mut().expect("primary egui context");
         for (id, parent, target, mut initial_pos, mut plot) in wnds.iter_mut() {
             let targets = window_target_entities(target, parent);
-            let aggregate =
-                aggregate_measures(targets.iter().copied(), &ents, &body_positions, gravity.0);
             if plot.quantities.is_empty() {
+                let aggregate =
+                    aggregate_measures(targets.iter().copied(), &ents, &body_positions, gravity.0);
                 plot.quantities = PLOT_QUANTITIES
                     .iter()
                     .filter_map(|&group| {
@@ -215,22 +255,6 @@ impl PlotWindow {
                         }
                     })
                     .collect();
-            }
-
-            if !physics.is_paused() {
-                let cur_time = plot.time;
-                let aggregate =
-                    aggregate_measures(targets.iter().copied(), &ents, &body_positions, gravity.0);
-                for series in &mut plot.series {
-                    let Some(x) = (series.id.x.measure)(cur_time, &aggregate) else {
-                        continue;
-                    };
-                    let Some(y) = (series.id.y.measure)(cur_time, &aggregate) else {
-                        continue;
-                    };
-                    series.push(cur_time, PlotPoint::new(x, y));
-                }
-                plot.time += time.delta_secs();
             }
             egui::Window::new("plot").resizable(true).subwindow(
                 id,
