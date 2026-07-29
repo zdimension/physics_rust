@@ -95,6 +95,7 @@ icon_set!(
     "gui/",
     [
         arrow_down,
+        arrow_left,
         arrow_right,
         arrow_up,
         checkbox_off => "checkbox-off.png",

@@ -37,6 +37,7 @@ pub struct PlotWindow {
     x: AxisSetting,
     y: AxisSetting,
     time: f32,
+    sidebar: bool,
 }
 
 struct PlotSeriesId {
@@ -193,6 +194,7 @@ impl Default for PlotWindow {
                 measures: HashSet::from([&PLOT_QUANTITIES[2][0]]),
             },
             time: 0.0,
+            sidebar: true,
         }
     }
 }
@@ -266,17 +268,36 @@ impl PlotWindow {
                 }
                 plot.time += time.delta_secs();
             }
-            egui::Window::new("plot")
-                .resizable(true)
-                .subwindow(id, ctx, &mut initial_pos, &mut commands, |ui, _commands| {
-                    let series = unsafe { &*(&plot.series as *const HashMap<PlotSeriesId, PlotSeries>) };
+            egui::Window::new("plot").resizable(true).subwindow(
+                id,
+                ctx,
+                &mut initial_pos,
+                &mut commands,
+                |ui, _commands| {
+                    let series =
+                        unsafe { &*(&plot.series as *const HashMap<PlotSeriesId, PlotSeries>) };
                     let fmt = |pos: &HoverPosition| {
-                        let HoverPosition::NearDataPoint { plot_name, position, index: _ } = pos else {
+                        let HoverPosition::NearDataPoint {
+                            plot_name,
+                            position,
+                            index: _,
+                        } = pos
+                        else {
                             return None;
                         };
-                        if let HoverPosition::NearDataPoint { plot_name: name, position: value, index: _ } = pos {
-                            let (id, series) = series.get_key_value(*name).unwrap_or_else(|| panic!("series {} not found, available: {:?}", name, series.keys()));
-                            let mut base = format!("x = {:.2} ({})\ny = {:.2} ({})", value.x, id.x, value.y, id.y);
+                        if let HoverPosition::NearDataPoint {
+                            plot_name: name,
+                            position: value,
+                            index: _,
+                        } = pos
+                        {
+                            let (id, series) = series.get_key_value(*name).unwrap_or_else(|| {
+                                panic!("series {} not found, available: {:?}", name, series.keys())
+                            });
+                            let mut base = format!(
+                                "x = {:.2} ({})\ny = {:.2} ({})",
+                                value.x, id.x, value.y, id.y
+                            );
                             let values = &series.values;
                             let idx = values.binary_search_by(|probe| probe.x.total_cmp(&value.x));
                             if let Ok(idx) = idx {
@@ -286,7 +307,11 @@ impl PlotWindow {
                                     base += &format!("\ndy/dx = {:.2}", slope);
                                 }
 
-                                let integ = values.windows(2).take(idx).map(|w| (w[0].y + w[1].y) * (w[1].x - w[0].x) / 2.0).sum::<f64>();
+                                let integ = values
+                                    .windows(2)
+                                    .take(idx)
+                                    .map(|w| (w[0].y + w[1].y) * (w[1].x - w[0].x) / 2.0)
+                                    .sum::<f64>();
                                 base += &format!("\n∫dt = {:.2}", integ);
                             }
                             Some(base)
@@ -295,74 +320,154 @@ impl PlotWindow {
                         }
                     };
 
-                    //egui::Panel::show_swi
+                    let plot = &mut *plot;
+                    let switch_sidebar = egui::Panel::show_switched(
+                        ui,
+                        &mut plot.sidebar,
+                        egui::Panel::left("left_collapsed").resizable(false),
+                        egui::Panel::left("left_expanded").resizable(false),
+                        |ui, expanded| {
+                            let mut switch = false;
+                            if expanded {
+                                if ui
+                                    .add(egui::Button::image(
+                                        SizedTexture::new(gui_icons.arrow_left, [16.0, 16.0]),
+                                    ))
+                                    .clicked()
+                                {
+                                    switch = true;
+                                }
+                                if ui
+                                    .add(egui::Button::image_and_text(
+                                        SizedTexture::new(gui_icons.plot_clear, [16.0, 16.0]),
+                                        "Clear",
+                                    ))
+                                    .clicked()
+                                {
+                                    for series in plot.series.values_mut() {
+                                        series.values.clear();
+                                    }
+                                }
 
-                    ui.horizontal(|ui| {
-                        if ui.add(egui::Button::image_and_text(SizedTexture::new(gui_icons.plot_clear, [16.0, 16.0]), "Clear"))
-                            .clicked() {
-                            for series in plot.series.values_mut() {
-                                series.values.clear();
-                            }
-                        }
+                                let quants = plot.quantities.clone();
 
-                        let quants = plot.quantities.clone();
+                                let (x, y, series) = (&mut plot.x, &mut plot.y, &mut plot.series);
 
-                        let plot = &mut *plot;
-                        let (x, y, series) = (&mut plot.x, &mut plot.y, &mut plot.series);
-
-                        let mut axis_ = |name, this: &mut AxisSetting, other: &mut AxisSetting, swap: bool| {
-                            MenuButton::new(format!("{}-axis: {}", name, this.measures.iter().map(|m| m.name).sorted().join(", ")))
-                                .config(MenuConfig::new().close_behavior(PopupCloseBehavior::CloseOnClickOutside))
-                                .ui(ui, |ui| {
-                                    for (i, (group, measures)) in quants.iter().enumerate() {
-                                        if i > 0 {
-                                            ui.separator();
-                                        }
-                                        for measure in measures {
-                                            let mut existing = this.measures.contains(measure);
-                                            if bool_checkbox(ui, &gui_icons, &mut existing, measure.name) {
-                                                if existing {
-                                                    if !std::ptr::eq(*group, this.category) {
-                                                        this.category = group;
-                                                        this.measures.clear();
-                                                        series.clear();
-                                                    }
-                                                    for other_measure in other.measures.iter() {
-                                                        let (x_measure, y_measure) = if swap {
-                                                            (other_measure, measure)
+                                let mut axis_ =
+                                    |name,
+                                     this: &mut AxisSetting,
+                                     other: &mut AxisSetting,
+                                     swap: bool| {
+                                        MenuButton::new(format!(
+                                            "{}-axis: {}",
+                                            name,
+                                            this.measures
+                                                .iter()
+                                                .map(|m| m.name)
+                                                .sorted()
+                                                .join(", ")
+                                        ))
+                                        .config(MenuConfig::new().close_behavior(
+                                            PopupCloseBehavior::CloseOnClickOutside,
+                                        ))
+                                        .ui(ui, |ui| {
+                                            for (i, (group, measures)) in quants.iter().enumerate()
+                                            {
+                                                if i > 0 {
+                                                    ui.separator();
+                                                }
+                                                for measure in measures {
+                                                    let mut existing =
+                                                        this.measures.contains(measure);
+                                                    if bool_checkbox(
+                                                        ui,
+                                                        &gui_icons,
+                                                        &mut existing,
+                                                        measure.name,
+                                                    ) {
+                                                        if existing {
+                                                            if !std::ptr::eq(*group, this.category)
+                                                            {
+                                                                this.category = group;
+                                                                this.measures.clear();
+                                                                series.clear();
+                                                            }
+                                                            for other_measure in
+                                                                other.measures.iter()
+                                                            {
+                                                                let (x_measure, y_measure) = if swap
+                                                                {
+                                                                    (other_measure, measure)
+                                                                } else {
+                                                                    (measure, other_measure)
+                                                                };
+                                                                series.insert(
+                                                                    PlotSeriesId::new(
+                                                                        x_measure, y_measure,
+                                                                    ),
+                                                                    PlotSeries::new(),
+                                                                );
+                                                            }
+                                                            this.measures.insert(measure);
                                                         } else {
-                                                            (measure, other_measure)
-                                                        };
-                                                        series.insert(PlotSeriesId::new(x_measure, y_measure), PlotSeries::new());
-                                                    }
-                                                    this.measures.insert(measure);
-                                                } else {
-                                                    series.retain(|id, _| {
-                                                        if swap {
-                                                            id.y != measure
-                                                        } else {
-                                                            id.x != measure
+                                                            series.retain(|id, _| {
+                                                                if swap {
+                                                                    id.y != measure
+                                                                } else {
+                                                                    id.x != measure
+                                                                }
+                                                            });
+                                                            this.measures.remove(measure);
                                                         }
-                                                    });
-                                                    this.measures.remove(measure);
+                                                    }
                                                 }
                                             }
-                                        }
-                                    }
-                                });
-                        };
+                                        });
+                                    };
 
-                        axis_("X", x, y, false);
-                        axis_("Y", y, x, true);
-                    });
-                    Plot::new("plot")
-                        .label_formatter(fmt)
-                        .show(ui, |plot_ui| {
+                                axis_("X", x, y, false);
+                                axis_("Y", y, x, true);
+                            } else {
+                                if ui
+                                    .add(egui::Button::image(
+                                        SizedTexture::new(gui_icons.arrow_right, [16.0, 16.0]),
+                                    ))
+                                    .clicked()
+                                {
+                                    switch = true;
+                                }
+                                if ui
+                                    .add(egui::Button::image(
+                                        SizedTexture::new(gui_icons.plot_clear, [16.0, 16.0]),
+                                    ))
+                                    .clicked()
+                                {
+                                    for series in plot.series.values_mut() {
+                                        series.values.clear();
+                                    }
+                                }
+                            }
+                            switch
+                        },
+                    ).inner;
+
+                    if switch_sidebar {
+                        plot.sidebar = !plot.sidebar;
+                    }
+
+                    //ui.horizontal(|ui| {});
+                    egui::CentralPanel::default().show(ui, |ui| {
+                        Plot::new("plot").label_formatter(fmt).show(ui, |plot_ui| {
                             for (name, series) in &plot.series {
-                                plot_ui.line(Line::new(format!("{name:?}"), PlotPoints::Owned(series.values.clone())));
+                                plot_ui.line(Line::new(
+                                    format!("{name:?}"),
+                                    PlotPoints::Owned(series.values.clone()),
+                                ));
                             }
                         });
-                });
+                    });
+                },
+            );
         }
     }
 }
