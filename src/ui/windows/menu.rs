@@ -2,6 +2,7 @@ use crate::mouse_tracking::MainCamera;
 use crate::objects::laser::LaserSettings;
 use crate::objects::spring::{SpringEndHandle, SpringObject};
 use crate::objects::tracer::TracerSettings;
+use crate::objects::thruster::ThrusterSettings;
 use crate::objects::{ColorComponent, MotorComponent};
 use crate::tools::ToolIcons;
 use crate::tools::add_object::{AttachmentLinks, despawn_attachment_links};
@@ -31,6 +32,7 @@ use crate::ui::windows::object::script::ScriptMenuWindow;
 use crate::ui::windows::object::selection::SelectionWindow;
 use crate::ui::windows::object::spring::SpringWindow;
 use crate::ui::windows::object::tracer::TracerWindow;
+use crate::ui::windows::object::thruster::ThrusterWindow;
 
 use crate::ui::windows::object::velocities::VelocitiesWindow;
 
@@ -77,6 +79,7 @@ impl MenuWindow {
             Option<&SpringEndHandle>,
             Option<&AttachmentLinks>,
             Option<&TracerSettings>,
+            Option<&ThrusterSettings>,
         )>,
         mut cameras: Query<&mut Transform, With<MainCamera>>,
         mut zoom2scene: MessageWriter<ZoomToScene>,
@@ -167,6 +170,7 @@ impl MenuWindow {
                             Option<&SpringEndHandle>,
                             Option<&AttachmentLinks>,
                             Option<&TracerSettings>,
+                            Option<&ThrusterSettings>,
                         )) -> bool>| {
                             targets.iter().copied().any(|id| {
                                 entity_info.get(id).ok().is_some_and(|info| f(&info))
@@ -215,7 +219,9 @@ impl MenuWindow {
                         if has(Box::new(|info| info.3.is_some())) {
                             menu!("Laser pens", lasermenu, LaserWindow);
                         }
-                        // todo: thrusters menu here
+                        if has(Box::new(|info| info.10.is_some())) {
+                            menu!("Thrusters", tool_icons.egui_icon_thruster, ThrusterWindow);
+                        }
                         menu!("Information", info, InformationWindow);
                         if has(Box::new(|info| info.2.is_some())) {
                             menu!("Collision layers", collisions, CollisionsWindow);

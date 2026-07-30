@@ -109,7 +109,7 @@ pub fn mouse_long_or_moved(
 
                 let should_select_under_mouse =
                     matches!(hover_tool, Drag(None) | Fix(()) | Axle(()) | Tracer(()))
-                        || matches!(hover_tool, Laser(()))
+                        || matches!(hover_tool, Laser(()) | Thruster(()))
                             && under_mouse.is_some_and(|entity| {
                                 query
                                     .get(entity)

@@ -5,6 +5,7 @@ use bevy::prelude::{
 };
 
 use crate::InvTransformPoint;
+use crate::objects::thruster::ThrusterSettings;
 use crate::tools::add_object::AttachmentKind;
 
 #[derive(Clone, Message)]
@@ -26,6 +27,7 @@ pub fn process_rotate(
         With<AttachmentKind>,
     >,
     parents: Query<&GlobalTransform, Without<AttachmentKind>>,
+    mut thrusters: Query<&mut ThrusterSettings>,
     mut bodies: Query<(&mut Position, &mut Rotation, &mut Transform), Without<AttachmentKind>>,
 ) {
     for RotateEvent {
@@ -53,6 +55,11 @@ pub fn process_rotate(
                 transform.translation.x = local_pos.x;
                 transform.translation.y = local_pos.y;
                 transform.rotation = local_rotation;
+                if let Ok(mut settings) = thrusters.get_mut(target.entity)
+                    && !settings.follow_geometry_rotation
+                {
+                    settings.fixed_angle = angle;
+                }
                 continue;
             }
 

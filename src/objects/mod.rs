@@ -12,6 +12,7 @@ use bevy_egui::egui::ecolor::Hsva;
 pub(crate) mod axle;
 pub(crate) mod laser;
 pub(crate) mod phy_obj;
+pub(crate) mod thruster;
 
 pub trait SettingComponent: Component + Sized {
     type Value;
@@ -51,6 +52,7 @@ pub mod tracer;
 
 pub fn add_systems(app: &mut App) {
     spring::add_systems(app);
+    thruster::add_systems(app);
     tracer::add_systems(app);
 
     app.add_systems(

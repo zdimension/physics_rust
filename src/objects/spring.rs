@@ -429,7 +429,7 @@ fn update_spring_visuals(
     }
 }
 
-fn apply_spring_forces(
+pub(crate) fn apply_spring_forces(
     springs: Query<&SpringObject, Without<SpringPreview>>,
     mut bodies: ParamSet<(
         Query<RigidBodyQueryReadOnly, Without<RigidBodyDisabled>>,

@@ -203,8 +203,17 @@ pub fn left_release(
                 Spring(Some(state)) => {
                     commands.entity(state.preview).despawn();
                 }
-                Thruster(_) => {
-                    todo!()
+                Thruster(()) => {
+                    let under_mouse = collider_under_point(pos, &laser_click_targets.colliders);
+                    match under_mouse {
+                        Some(entity) if laser_click_targets.rigid_bodies.contains(entity) => {
+                            add_obj.write(AddObjectEvent::Thruster(pos));
+                        }
+                        Some(_) => {
+                            select_mouse.write(sel_ev);
+                        }
+                        None => {}
+                    }
                 }
                 Fix(()) => {
                     add_obj.write(AddObjectEvent::Fix(pos));

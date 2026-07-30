@@ -141,6 +141,9 @@ image_set!(
         laserpen,
         spring,
         spring_attachment,
+        thruster_inner,
+        thruster_outer,
+        thruster_thrust,
         tracer
     ]
 );

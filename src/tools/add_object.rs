@@ -10,6 +10,7 @@ use crate::objects::axle::{
 };
 use crate::objects::laser::{LaserSettings, LaserVisual};
 use crate::objects::phy_obj::PhysicalObject;
+use crate::objects::thruster::{ThrusterInner, ThrusterSettings};
 use crate::objects::tracer::{TracerObject, TracerSettings, TracerVisual};
 use crate::objects::{ColorComponent, MotorComponent, SettingComponent, SpriteOnly};
 use crate::palette::PaletteConfig;
@@ -44,6 +45,7 @@ pub enum AddObjectEvent {
     Circle { center: Vec2, radius: f32 },
     Box { pos: Vec2, size: Vec2 },
     Laser(Vec2),
+    Thruster(Vec2),
     Tracer(Vec2),
     Polygon { pos: Vec2, points: Vec<Vec2> },
 }
@@ -53,6 +55,7 @@ pub enum AttachmentKind {
     Fix,
     Axle,
     Laser,
+    Thruster,
     Tracer,
 }
 
@@ -229,6 +232,18 @@ pub fn process_add_object(
                     scene_state.scene,
                 );
             }
+            Thruster(pos) => {
+                let Some(placement) = single_body_placement(pos, &query, &spatial_query) else {
+                    continue;
+                };
+                spawn_thruster_attachment(
+                    &mut commands,
+                    placement,
+                    &images,
+                    cameras.single_mut().unwrap().scale.x,
+                    &mut z,
+                );
+            }
             Tracer(pos) => {
                 let Some(placement) = single_body_placement(pos, &query, &spatial_query) else {
                     continue;
@@ -265,6 +280,7 @@ pub fn process_place_attachment(
         Entity,
         &ChildOf,
         Option<&AxleBodyColor>,
+        Option<&ThrusterInner>,
         Option<&AttachmentSupportColor>,
         Option<&mut Sprite>,
     )>,
@@ -298,6 +314,28 @@ pub fn process_place_attachment(
             commands
                 .entity(event.entity)
                 .insert(AttachmentLinks::default());
+            continue;
+        }
+
+        if *kind == AttachmentKind::Thruster {
+            let Some(placement) = single_body_placement(event.pos, &bodies, &spatial_query) else {
+                commands.entity(event.entity).despawn();
+                continue;
+            };
+            *transform = attachment_pose(placement, z.next());
+            transform.rotation = placement.body1.rotation.inverse() * world_rotation;
+            commands
+                .entity(event.entity)
+                .insert(ChildOf(placement.body1.entity))
+                .insert(AttachmentLinks::default());
+            update_attachment_color_sources(
+                event.entity,
+                placement.body1.entity,
+                None,
+                palette_config.current_palette.sky_color,
+                &mut commands,
+                &mut attachment_colors,
+            );
             continue;
         }
 
@@ -356,6 +394,7 @@ pub fn process_place_attachment(
                 spawn_axle_joint(&mut commands, event.entity, placement, scene_state.scene)
             }
             AttachmentKind::Laser => AttachmentLinks::default(),
+            AttachmentKind::Thruster => AttachmentLinks::default(),
             AttachmentKind::Tracer => AttachmentLinks::default(),
         };
         commands.entity(event.entity).insert(links);
@@ -725,6 +764,58 @@ fn spawn_laser_attachment(
         .id()
 }
 
+fn spawn_thruster_attachment(
+    commands: &mut Commands,
+    placement: AttachmentPlacement,
+    images: &AppIcons,
+    camera_scale: f32,
+    z: &mut DepthSorter,
+) -> Entity {
+    let scale = camera_scale * DEFAULT_OBJ_SIZE * 2.0;
+    let sprite_scale = Vec3::new(scale / 256.0, scale / 256.0, 1.0);
+    commands
+        .spawn((
+            attachment_pose(placement, z.next()),
+            Visibility::Inherited,
+            ThrusterSettings::default(),
+            ColorComponent(bevy_egui::egui::ecolor::Hsva::new(0.0, 0.0, 1.0, 1.0))
+                .update_from_this(),
+            Collider::rectangle(scale, scale * 0.5),
+            VIRTUAL_LAYER_OBJ,
+            Sensor,
+            AttachmentKind::Thruster,
+            AttachmentLinks::default(),
+            ChildOf(placement.body1.entity),
+        ))
+        .with_children(|builder| {
+            builder.spawn((
+                ThrusterInner,
+                Sprite {
+                    image: images.thruster_inner.clone(),
+                    ..Default::default()
+                },
+                Transform::from_scale(sprite_scale),
+                UpdateFrom::<ColorComponent>::entity(placement.body1.entity),
+            ));
+            builder.spawn((
+                Sprite {
+                    image: images.thruster_thrust.clone(),
+                    ..Default::default()
+                },
+                Transform::from_translation(Vec3::Z * 0.01).with_scale(sprite_scale),
+            ));
+            builder.spawn((
+                Sprite {
+                    image: images.thruster_outer.clone(),
+                    ..Default::default()
+                },
+                Transform::from_translation(Vec3::Z * 0.02).with_scale(sprite_scale),
+                UpdateFrom::<ColorComponent>::This,
+            ));
+        })
+        .id()
+}
+
 fn spawn_tracer_attachment(
     commands: &mut Commands,
     placement: AttachmentPlacement,
@@ -867,15 +958,16 @@ fn update_attachment_color_sources(
         Entity,
         &ChildOf,
         Option<&AxleBodyColor>,
+        Option<&ThrusterInner>,
         Option<&AttachmentSupportColor>,
         Option<&mut Sprite>,
     )>,
 ) {
-    for (entity, parent, is_body, is_other, sprite) in colors.iter_mut() {
+    for (entity, parent, is_body, is_thruster_inner, is_other, sprite) in colors.iter_mut() {
         if parent.parent() != visual {
             continue;
         }
-        if is_body.is_some() {
+        if is_body.is_some() || is_thruster_inner.is_some() {
             commands
                 .entity(entity)
                 .insert(UpdateFrom::<ColorComponent>::entity(body1));
