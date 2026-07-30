@@ -34,6 +34,11 @@ pub struct OverlayState {
 #[derive(Component)]
 pub(crate) struct SelectionHighlight;
 
+#[derive(Component)]
+pub(crate) struct RotationOriginIcon {
+    pub(crate) origin_angle: f32,
+}
+
 pub fn sync_selection_highlights(
     mut commands: Commands,
     selected: Query<Entity, With<Selected>>,
@@ -151,22 +156,28 @@ pub fn process_draw_overlay(
     mut commands: Commands,
     mouse: Res<MousePosWorld>,
     mut gizmos: Gizmos,
-    mut root_shapes: Query<
-        (
-            &mut Shape,
-            &mut Transform,
-            Option<&mut Fill>,
-            Option<&mut Stroke>,
-        ),
-        (With<crate::DrawObject>, Without<MainCamera>),
-    >,
+    mut overlay_queries: ParamSet<(
+        Query<
+            (
+                &mut Shape,
+                &mut Transform,
+                Option<&mut Fill>,
+                Option<&mut Stroke>,
+            ),
+            (With<crate::DrawObject>, Without<MainCamera>),
+        >,
+        Query<
+            (&ChildOf, &RotationOriginIcon, &mut Transform),
+            (Without<crate::DrawObject>, Without<MainCamera>),
+        >,
+    )>,
     mut last_overlay: Local<Option<(Entity, Overlay, Vec2, f32)>>,
     mut active_overlay: Local<Option<Entity>>,
 ) {
     let Some((draw_ent, shape, pos)) = overlay.draw_ent else {
         *last_overlay = None;
         if let Some(active_overlay) = active_overlay.take() {
-            clear_overlay_shape(active_overlay, &mut root_shapes);
+            clear_overlay_shape(active_overlay, &mut overlay_queries.p0());
         }
         return;
     };
@@ -189,11 +200,21 @@ pub fn process_draw_overlay(
     }
 
     if active_overlay.is_some_and(|active_overlay| active_overlay != draw_ent) {
-        clear_overlay_shape(active_overlay.unwrap(), &mut root_shapes);
+        clear_overlay_shape(active_overlay.unwrap(), &mut overlay_queries.p0());
     }
     *active_overlay = Some(draw_ent);
 
     if let Overlay::Rotate(current_rot, scale, original_rot, click) = shape {
+        {
+            let mut rotation_origin_icons = overlay_queries.p1();
+            for (parent, icon, mut transform) in &mut rotation_origin_icons {
+                if parent.parent() == draw_ent {
+                    transform.rotation = Quat::from_rotation_z(
+                        icon.origin_angle + rotation_overlay_delta(current_rot, original_rot),
+                    );
+                }
+            }
+        }
         let path = draw_rotate_overlay(
             &mut gizmos,
             pos,
@@ -204,15 +225,18 @@ pub fn process_draw_overlay(
             mouse.xy(),
         );
         let pink = Color::srgba_u8(255, 64, 255, 127);
-        upsert_overlay_shape(
-            draw_ent,
-            pos,
-            path,
-            crate::make_fill(pink),
-            crate::make_stroke(pink, 0.0),
-            &mut commands,
-            &mut root_shapes,
-        );
+        {
+            let mut root_shapes = overlay_queries.p0();
+            upsert_overlay_shape(
+                draw_ent,
+                pos,
+                path,
+                crate::make_fill(pink),
+                crate::make_stroke(pink, 0.0),
+                &mut commands,
+                &mut root_shapes,
+            );
+        }
         *last_overlay = None;
         return;
     }
@@ -243,17 +267,24 @@ pub fn process_draw_overlay(
         Overlay::Rotate(..) => unreachable!(),
     };
 
-    upsert_overlay_shape(
-        draw_ent,
-        pos,
-        path,
-        crate::make_fill(Color::srgba(0.0, 0.0, 0.0, 0.0)),
-        crate::make_stroke(color, thickness * camera.scale.x),
-        &mut commands,
-        &mut root_shapes,
-    );
+    {
+        let mut root_shapes = overlay_queries.p0();
+        upsert_overlay_shape(
+            draw_ent,
+            pos,
+            path,
+            crate::make_fill(Color::srgba(0.0, 0.0, 0.0, 0.0)),
+            crate::make_stroke(color, thickness * camera.scale.x),
+            &mut commands,
+            &mut root_shapes,
+        );
+    }
 
     *last_overlay = Some(current);
+}
+
+fn rotation_overlay_delta(current_rotation: f32, original_rotation: f32) -> f32 {
+    current_rotation - original_rotation
 }
 
 fn clear_overlay_shape(
@@ -410,5 +441,22 @@ fn draw_absolute_rotation_arc(
             (center + Vec2::from_angle(angle) * radius).extend(FOREGROUND_Z)
         });
         gizmos.linestrip(points, color);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rotation_origin_follows_the_interaction_delta() {
+        let initial_origin_angle = 35.0_f32.to_radians();
+        let interaction_start = -20.0_f32.to_radians();
+        let interaction_current = 40.0_f32.to_radians();
+
+        let angle =
+            initial_origin_angle + rotation_overlay_delta(interaction_current, interaction_start);
+
+        assert!((angle - 95.0_f32.to_radians()).abs() < 1.0e-6);
     }
 }

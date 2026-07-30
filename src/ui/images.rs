@@ -139,6 +139,7 @@ image_set!(
         hinge_motor_ccw,
         hinge_motor_cw,
         laserpen,
+        rotate_origo,
         spring,
         spring_attachment,
         thruster_inner,

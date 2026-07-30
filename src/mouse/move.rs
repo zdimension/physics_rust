@@ -13,14 +13,15 @@ use crate::tools::pan::PanState;
 use crate::tools::rotate::RotateState;
 use crate::tools::zoom::ZoomState;
 use crate::ui::images::AppIcons;
+use crate::ui::selection_overlay::RotationOriginIcon;
 use crate::ui::{PointerToolState, SceneState, Selected};
 use crate::{CustomForce, InvTransformPoint, UsedMouseButton};
 use avian2d::prelude::*;
 use bevy::ecs::system::SystemParam;
-use bevy::math::{EulerRot, Vec2, Vec3Swizzles};
+use bevy::math::{EulerRot, Vec2, Vec3, Vec3Swizzles};
 use bevy::prelude::{
     ChildOf, Commands, Entity, GlobalTransform, Message, MessageReader, MessageWriter, Query, Res,
-    ResMut, Transform, With, Without,
+    ResMut, Sprite, Transform, Visibility, With, Without,
 };
 
 #[derive(Message)]
@@ -198,27 +199,37 @@ pub fn mouse_long_or_moved(
                             &params.rotation_pivots.fix_joints,
                         )
                         .unwrap_or_else(|| query.get(under).unwrap().0.translation_vec3a().xy());
+                        let targets = selected_entities
+                            .iter()
+                            .filter_map(|entity| {
+                                let (global_transform, _pos, rot, _) = query.get(*entity).ok()?;
+                                rot?;
+                                Some(crate::tools::rotate::RotateTarget {
+                                    entity: *entity,
+                                    original_pos: global_transform.translation_vec3a().xy(),
+                                    original_angle: global_transform
+                                        .rotation()
+                                        .to_euler(EulerRot::XYZ)
+                                        .2,
+                                })
+                            })
+                            .collect::<Vec<_>>();
+                        let origin_angle =
+                            rotation_origin_initial_angle(selected_entities.len(), &targets);
+                        let scale = params.cameras.single_mut().unwrap().scale.x;
+                        let overlay_ent = spawn_rotate_draw_object(
+                            &mut commands,
+                            &params.draw_objects,
+                            &params.images,
+                            scale,
+                            origin_angle,
+                        );
                         *ui_button = Some(Rotate(Some(RotateState {
                             current_angle: global_transform.rotation().to_euler(EulerRot::XYZ).2,
                             pivot,
-                            targets: selected_entities
-                                .iter()
-                                .filter_map(|entity| {
-                                    let (global_transform, _pos, rot, _) =
-                                        query.get(*entity).ok()?;
-                                    rot?;
-                                    Some(crate::tools::rotate::RotateTarget {
-                                        entity: *entity,
-                                        original_pos: global_transform.translation_vec3a().xy(),
-                                        original_angle: global_transform
-                                            .rotation()
-                                            .to_euler(EulerRot::XYZ)
-                                            .2,
-                                    })
-                                })
-                                .collect(),
-                            overlay_ent: spawn_draw_object(&mut commands, &params.draw_objects),
-                            scale: params.cameras.single_mut().unwrap().scale.x,
+                            targets,
+                            overlay_ent,
+                            scale,
                         })));
                         for entity in &selected_entities {
                             if query
@@ -495,6 +506,40 @@ fn spawn_draw_object(
     commands.spawn(crate::DrawObject).id()
 }
 
+const ROTATION_ORIGIN_SCREEN_SIZE: f32 = 32.0;
+
+fn rotation_origin_initial_angle(
+    selected_entity_count: usize,
+    targets: &[crate::tools::rotate::RotateTarget],
+) -> f32 {
+    if selected_entity_count == 1 && targets.len() == 1 {
+        targets[0].original_angle
+    } else {
+        0.0
+    }
+}
+
+fn spawn_rotate_draw_object(
+    commands: &mut Commands,
+    draw_objects: &Query<Entity, With<crate::DrawObject>>,
+    images: &AppIcons,
+    camera_scale: f32,
+    origin_angle: f32,
+) -> Entity {
+    let draw_entity = spawn_draw_object(commands, draw_objects);
+    commands.entity(draw_entity).with_child((
+        Sprite {
+            image: images.rotate_origo.clone(),
+            custom_size: Some(Vec2::splat(ROTATION_ORIGIN_SCREEN_SIZE * camera_scale)),
+            ..Default::default()
+        },
+        Transform::from_translation(Vec3::Z * 0.01),
+        Visibility::Inherited,
+        RotationOriginIcon { origin_angle },
+    ));
+    draw_entity
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -508,6 +553,19 @@ mod tests {
             entity,
             local_anchor,
         }
+    }
+
+    #[test]
+    fn rotation_origin_uses_object_angle_only_for_a_single_selection() {
+        let object_angle = 42.0_f32.to_radians();
+        let target = crate::tools::rotate::RotateTarget {
+            entity: entity(1),
+            original_pos: Vec2::ZERO,
+            original_angle: object_angle,
+        };
+
+        assert_eq!(rotation_origin_initial_angle(1, &[target]), object_angle);
+        assert_eq!(rotation_origin_initial_angle(2, &[target]), 0.0);
     }
 
     #[test]
