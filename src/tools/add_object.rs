@@ -117,7 +117,7 @@ pub fn process_add_object(
     query: BodyQuery,
     images: Res<AppIcons>,
     mut commands: Commands,
-    mut cameras: Query<&mut Transform, With<MainCamera>>,
+    cameras: Query<&Transform, With<MainCamera>>,
     palette_config: Res<PaletteConfig>,
     mut z: ResMut<DepthSorter>,
     mut rng: Query<&mut RngComponent>,
@@ -128,6 +128,9 @@ pub fn process_add_object(
     fixes: Query<(&FixedJoint, &AttachmentJoint), With<FixObject>>,
 ) {
     let palette = &palette_config.current_palette;
+    let camera = cameras.single().unwrap();
+    let camera_scale = camera.scale.x;
+    let camera_rotation = camera.rotation;
 
     for ev in events.read() {
         use AddObjectEvent::*;
@@ -189,7 +192,8 @@ pub fn process_add_object(
                     &images,
                     palette.get_color_hsva_opaque(&mut *rng.single_mut().unwrap()),
                     palette.sky_color,
-                    cameras.single_mut().unwrap().scale.x,
+                    camera_scale,
+                    camera_rotation,
                     &mut z,
                     scene_state.scene,
                 );
@@ -215,7 +219,8 @@ pub fn process_add_object(
                     &images,
                     palette.get_color_hsva_opaque(&mut *rng.single_mut().unwrap()),
                     palette.sky_color,
-                    cameras.single_mut().unwrap().scale.x,
+                    camera_scale,
+                    camera_rotation,
                     &mut z,
                     scene_state.scene,
                 );
@@ -227,7 +232,8 @@ pub fn process_add_object(
                     placement,
                     &images,
                     palette.get_color_hsva_opaque(&mut *rng.single_mut().unwrap()),
-                    cameras.single_mut().unwrap().scale.x,
+                    camera_scale,
+                    camera_rotation,
                     &mut z,
                     scene_state.scene,
                 );
@@ -240,7 +246,8 @@ pub fn process_add_object(
                     &mut commands,
                     placement,
                     &images,
-                    cameras.single_mut().unwrap().scale.x,
+                    camera_scale,
+                    camera_rotation,
                     &mut z,
                 );
             }
@@ -253,7 +260,8 @@ pub fn process_add_object(
                     placement,
                     &images,
                     palette.get_color_hsva_opaque(&mut *rng.single_mut().unwrap()),
-                    cameras.single_mut().unwrap().scale.x,
+                    camera_scale,
+                    camera_rotation,
                     &mut z,
                 );
             }
@@ -543,6 +551,35 @@ fn sky_attachment_pose(pos: Vec2, z: f32) -> Transform {
     Transform::from_translation(pos.extend(z))
 }
 
+fn screen_aligned_attachment_transform(
+    placement: AttachmentPlacement,
+    scale: f32,
+    z: f32,
+    camera_rotation: Quat,
+) -> Transform {
+    screen_aligned_attachment_pose(placement, z, camera_rotation)
+        .with_scale(Vec3::new(scale, scale, 1.0))
+}
+
+fn screen_aligned_attachment_pose(
+    placement: AttachmentPlacement,
+    z: f32,
+    camera_rotation: Quat,
+) -> Transform {
+    attachment_pose(placement, z).with_rotation(screen_aligned_local_rotation(
+        placement.body1.rotation,
+        camera_rotation,
+    ))
+}
+
+fn screen_aligned_sky_attachment_pose(pos: Vec2, z: f32, camera_rotation: Quat) -> Transform {
+    sky_attachment_pose(pos, z).with_rotation(camera_rotation)
+}
+
+fn screen_aligned_local_rotation(parent_rotation: Quat, camera_rotation: Quat) -> Quat {
+    parent_rotation.inverse() * camera_rotation
+}
+
 pub(crate) fn despawn_attachment_links(commands: &mut Commands, links: Option<&AttachmentLinks>) {
     let Some(links) = links else {
         return;
@@ -566,6 +603,7 @@ fn spawn_fix_attachment(
     color: bevy_egui::egui::ecolor::Hsva,
     sky_color: Color,
     camera_scale: f32,
+    camera_rotation: Quat,
     z: &mut DepthSorter,
     scene: Entity,
 ) -> Entity {
@@ -577,7 +615,7 @@ fn spawn_fix_attachment(
                     radius: 0.5 * 1.1,
                     ..Default::default()
                 }),
-                attachment_transform(placement, scale, z.next()),
+                screen_aligned_attachment_transform(placement, scale, z.next(), camera_rotation),
                 Visibility::Inherited,
             ),
             crate::make_stroke(Color::srgba(0.0, 0.0, 0.0, 0.0), BORDER_THICKNESS),
@@ -624,6 +662,7 @@ fn spawn_axle_attachment(
     color: bevy_egui::egui::ecolor::Hsva,
     sky_color: Color,
     camera_scale: f32,
+    camera_rotation: Quat,
     z: &mut DepthSorter,
     scene: Entity,
 ) -> Entity {
@@ -638,7 +677,7 @@ fn spawn_axle_attachment(
                     radius: hinge_selection_radius(false),
                     ..Default::default()
                 }),
-                attachment_transform(placement, scale, z.next()),
+                screen_aligned_attachment_transform(placement, scale, z.next(), camera_rotation),
                 Visibility::Inherited,
             ),
             crate::make_stroke(Color::srgba(0.0, 0.0, 0.0, 0.0), BORDER_THICKNESS),
@@ -726,15 +765,20 @@ fn spawn_laser_attachment(
     images: &AppIcons,
     color: bevy_egui::egui::ecolor::Hsva,
     camera_scale: f32,
+    camera_rotation: Quat,
     z: &mut DepthSorter,
     scene: Entity,
 ) -> Entity {
     let scale = camera_scale * DEFAULT_OBJ_SIZE;
     let (transform, parent) = match placement {
-        LaserPlacement::Body(placement) => {
-            (attachment_pose(placement, z.next()), placement.body1.entity)
-        }
-        LaserPlacement::Sky { pos } => (sky_attachment_pose(pos, z.next()), scene),
+        LaserPlacement::Body(placement) => (
+            screen_aligned_attachment_pose(placement, z.next(), camera_rotation),
+            placement.body1.entity,
+        ),
+        LaserPlacement::Sky { pos } => (
+            screen_aligned_sky_attachment_pose(pos, z.next(), camera_rotation),
+            scene,
+        ),
     };
     commands
         .spawn((
@@ -769,13 +813,14 @@ fn spawn_thruster_attachment(
     placement: AttachmentPlacement,
     images: &AppIcons,
     camera_scale: f32,
+    camera_rotation: Quat,
     z: &mut DepthSorter,
 ) -> Entity {
     let scale = camera_scale * DEFAULT_OBJ_SIZE * 2.0;
     let sprite_scale = Vec3::new(scale / 256.0, scale / 256.0, 1.0);
     commands
         .spawn((
-            attachment_pose(placement, z.next()),
+            screen_aligned_attachment_pose(placement, z.next(), camera_rotation),
             Visibility::Inherited,
             ThrusterSettings::default(),
             ColorComponent(bevy_egui::egui::ecolor::Hsva::new(0.0, 0.0, 1.0, 1.0))
@@ -822,6 +867,7 @@ fn spawn_tracer_attachment(
     images: &AppIcons,
     color: bevy_egui::egui::ecolor::Hsva,
     camera_scale: f32,
+    camera_rotation: Quat,
     z: &mut DepthSorter,
 ) -> Entity {
     let scale = camera_scale * DEFAULT_OBJ_SIZE;
@@ -832,7 +878,7 @@ fn spawn_tracer_attachment(
                     radius: scale * 0.55,
                     ..Default::default()
                 }),
-                attachment_pose(placement, z.next()),
+                screen_aligned_attachment_pose(placement, z.next(), camera_rotation),
                 Visibility::Inherited,
             ),
             crate::make_stroke(Color::srgba(0.0, 0.0, 0.0, 0.0), BORDER_THICKNESS),
@@ -1005,5 +1051,32 @@ impl DepthSorter {
 
     pub fn include(&mut self, z: f32) {
         self.current_depth = self.current_depth.max(z);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn body_attachment_starts_horizontal_on_a_rotated_camera() {
+        let parent_rotation = Quat::from_rotation_z(45.0_f32.to_radians());
+        let camera_rotation = Quat::from_rotation_z(-30.0_f32.to_radians());
+        let local_rotation = screen_aligned_local_rotation(parent_rotation, camera_rotation);
+
+        let screen_rotation = camera_rotation.inverse() * parent_rotation * local_rotation;
+
+        assert!((screen_rotation * Vec3::X).distance(Vec3::X) < 1.0e-5);
+    }
+
+    #[test]
+    fn sky_attachment_starts_horizontal_on_a_rotated_camera() {
+        let camera_rotation = Quat::from_rotation_z(60.0_f32.to_radians());
+        let transform =
+            screen_aligned_sky_attachment_pose(Vec2::new(4.0, 7.0), 2.0, camera_rotation);
+
+        let screen_rotation = camera_rotation.inverse() * transform.rotation;
+
+        assert!((screen_rotation * Vec3::X).distance(Vec3::X) < 1.0e-5);
     }
 }
