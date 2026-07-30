@@ -156,86 +156,87 @@ impl MenuWindow {
                         }
 
                     if !targets.is_empty() {
-                            let has = |mut f: Box<dyn FnMut(&(
-                                Option<&ColorComponent>,
-                                Option<&LinearVelocity>,
-                                Option<&CollisionLayers>,
-                                Option<&LaserSettings>,
-                                Option<&RigidBody>,
-                                Option<&MotorComponent>,
-                                Option<&SpringObject>,
-                                Option<&SpringEndHandle>,
-                                Option<&AttachmentLinks>,
-                                Option<&TracerSettings>,
-                            )) -> bool>| {
-                                targets.iter().copied().any(|id| {
-                                    entity_info.get(id).ok().is_some_and(|info| f(&info))
-                                })
-                            };
+                        let has = |mut f: Box<dyn FnMut(&(
+                            Option<&ColorComponent>,
+                            Option<&LinearVelocity>,
+                            Option<&CollisionLayers>,
+                            Option<&LaserSettings>,
+                            Option<&RigidBody>,
+                            Option<&MotorComponent>,
+                            Option<&SpringObject>,
+                            Option<&SpringEndHandle>,
+                            Option<&AttachmentLinks>,
+                            Option<&TracerSettings>,
+                        )) -> bool>| {
+                            targets.iter().copied().any(|id| {
+                                entity_info.get(id).ok().is_some_and(|info| f(&info))
+                            })
+                        };
 
-                            if item!("Erase", erase) {
-                                for id in targets.iter().copied() {
-                                    if let Ok(info) = entity_info.get(id) {
-                                        despawn_attachment_links(commands, info.8);
-                                    }
-                                    commands.entity(id).despawn();
+                        if item!("Erase", erase) {
+                            for id in targets.iter().copied() {
+                                if let Ok(info) = entity_info.get(id) {
+                                    despawn_attachment_links(commands, info.8);
                                 }
+                                commands.entity(id).despawn();
                             }
-                            if item!("Mirror", mirror) {}
-                            if item!("Show plot", plot) {
-                                commands.spawn((
-                                    PlotWindow::default(),
-                                    WindowSelectionTarget::from_entities(targets.iter().copied()),
-                                    InitialPos::persistent(pos2(100.0, 100.0)),
-                                ));
-                                commands.entity(wnd_id).despawn();
-                            }
-                            ui.add(Separator::default().horizontal());
+                        }
+                        if item!("Mirror", mirror) {}
+                        if item!("Show plot", plot) {
+                            commands.spawn((
+                                PlotWindow::default(),
+                                WindowSelectionTarget::from_entities(targets.iter().copied()),
+                                InitialPos::persistent(pos2(100.0, 100.0)),
+                            ));
+                            commands.entity(wnd_id).despawn();
+                        }
+                        ui.add(Separator::default().horizontal());
 
-                            menu!("Selection", /, SelectionWindow);
-                            if has(Box::new(|info| info.0.is_some())) {
-                                menu!("Appearance", color, AppearanceWindow);
-                            }
-                            //menu!("Text", text, TextWindow);
-                            if has(Box::new(|info| info.4.is_some())) {
-                                menu!("Material", material, MaterialWindow);
-                            }
-                            if has(Box::new(|info| info.1.is_some())) {
-                                menu!("Velocities", velocity, VelocitiesWindow);
-                            }
-                            if has(Box::new(|info| info.5.is_some())) {
-                                menu!("Axles", hinge, AxleWindow);
-                            }
-                            if has(Box::new(|info| info.6.is_some())) {
-                                menu!("Springs", /, SpringWindow);
-                            }
-                            if has(Box::new(|info| info.3.is_some())) {
-                                menu!("Laser pens", lasermenu, LaserWindow);
-                            }
-                            if has(Box::new(|info| info.9.is_some())) {
-                                menu!("Tracers", tool_icons.egui_icon_tracer, TracerWindow);
-                            }
-                            menu!("Information", info, InformationWindow);
-                            if has(Box::new(|info| info.2.is_some())) {
-                                menu!("Collision layers", collisions, CollisionsWindow);
-                            }
-                            if has(Box::new(|info| info.4.is_some())) {
-                                menu!("Geometry actions", /, GeometryActionsWindow);
-                            }
-                            menu!("Combine shapes", csg, CombineShapesWindow);
-                            menu!("Controller", controller, ControllerWindow);
-                            menu!("Script menu", /, ScriptMenuWindow);
+                        menu!("Selection", /, SelectionWindow);
+                        if has(Box::new(|info| info.0.is_some())) {
+                            menu!("Appearance", color, AppearanceWindow);
+                        }
+                        //menu!("Text", text, TextWindow);
+                        if has(Box::new(|info| info.4.is_some())) {
+                            menu!("Material", material, MaterialWindow);
+                        }
+                        if has(Box::new(|info| info.1.is_some())) {
+                            menu!("Velocities", velocity, VelocitiesWindow);
+                        }
+                        if has(Box::new(|info| info.6.is_some())) {
+                            menu!("Springs", /, SpringWindow);
+                        }
+                        if has(Box::new(|info| info.5.is_some())) {
+                            menu!("Axles", hinge, AxleWindow);
+                        }
+                        if has(Box::new(|info| info.9.is_some())) {
+                            menu!("Tracers", tool_icons.egui_icon_tracer, TracerWindow);
+                        }
+                        if has(Box::new(|info| info.3.is_some())) {
+                            menu!("Laser pens", lasermenu, LaserWindow);
+                        }
+                        // todo: thrusters menu here
+                        menu!("Information", info, InformationWindow);
+                        if has(Box::new(|info| info.2.is_some())) {
+                            menu!("Collision layers", collisions, CollisionsWindow);
+                        }
+                        if has(Box::new(|info| info.4.is_some())) {
+                            menu!("Geometry actions", /, GeometryActionsWindow);
+                        }
+                        menu!("Combine shapes", csg, CombineShapesWindow);
+                        menu!("Controller", controller, ControllerWindow);
+                        menu!("Script menu", /, ScriptMenuWindow);
                     } else {
-                            if item!("Zoom to scene", zoom2scene) {
-                                zoom2scene.write(ZoomToScene);
-                            }
-                            if item!("Default view") {
-                                let mut camera = cameras.single_mut().unwrap();
-                                camera.translation = Vec3::new(0.0, 2.0, CAMERA_Z);
-                                let scale = 1.0 / 182.0; // todo: depends on window size
-                                camera.scale = Vec3::new(scale, scale, 1.0);
-                            }
-                            menu!("Background", color, BackgroundWindow);
+                        if item!("Zoom to scene", zoom2scene) {
+                            zoom2scene.write(ZoomToScene);
+                        }
+                        if item!("Default view") {
+                            let mut camera = cameras.single_mut().unwrap();
+                            camera.translation = Vec3::new(0.0, 2.0, CAMERA_Z);
+                            let scale = 1.0 / 182.0; // todo: depends on window size
+                            camera.scale = Vec3::new(scale, scale, 1.0);
+                        }
+                        menu!("Background", color, BackgroundWindow);
                     }
                 });
         }
