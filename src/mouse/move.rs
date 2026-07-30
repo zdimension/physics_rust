@@ -314,7 +314,7 @@ pub struct RotationPivotQueries<'w, 's> {
         ),
     >,
     body_positions: Query<'w, 's, (&'static Position, &'static Rotation)>,
-    springs: Query<'w, 's, &'static SpringObject>,
+    springs: Query<'w, 's, (Entity, &'static SpringObject)>,
     attachment_visuals: Query<'w, 's, &'static GlobalTransform>,
     axle_joints: Query<'w, 's, (&'static RevoluteJoint, &'static AttachmentJoint)>,
     fix_joints: Query<'w, 's, (&'static FixedJoint, &'static AttachmentJoint)>,
@@ -324,7 +324,7 @@ fn rotation_pivot(
     selected: &[Entity],
     body_masses: &Query<(&Position, &Rotation, &ColliderMassProperties)>,
     body_positions: &Query<(&Position, &Rotation)>,
-    springs: &Query<&SpringObject>,
+    springs: &Query<(Entity, &SpringObject)>,
     attachment_visuals: &Query<&GlobalTransform>,
     axle_joints: &Query<(&RevoluteJoint, &AttachmentJoint)>,
     fix_joints: &Query<(&FixedJoint, &AttachmentJoint)>,
@@ -362,7 +362,7 @@ fn center_of_mass(
 fn external_attachment_pivots(
     selected: &[Entity],
     body_positions: &Query<(&Position, &Rotation)>,
-    springs: &Query<&SpringObject>,
+    springs: &Query<(Entity, &SpringObject)>,
     attachment_visuals: &Query<&GlobalTransform>,
     axle_joints: &Query<(&RevoluteJoint, &AttachmentJoint)>,
     fix_joints: &Query<(&FixedJoint, &AttachmentJoint)>,
@@ -390,9 +390,10 @@ fn external_attachment_pivots(
         );
     }
 
-    for spring in springs.iter() {
+    for (spring_entity, spring) in springs.iter() {
         push_spring_pivot(
             selected,
+            spring_entity,
             spring.end_a,
             spring.end_b,
             body_positions,
@@ -400,6 +401,7 @@ fn external_attachment_pivots(
         );
         push_spring_pivot(
             selected,
+            spring_entity,
             spring.end_b,
             spring.end_a,
             body_positions,
@@ -428,25 +430,45 @@ fn push_joint_pivot(
 
 fn push_spring_pivot(
     selected: &[Entity],
+    spring_entity: Entity,
     selected_end: SpringEnd,
     other_end: SpringEnd,
     body_positions: &Query<(&Position, &Rotation)>,
     pivots: &mut Vec<Vec2>,
 ) {
-    let SpringEnd::Body { entity, .. } = selected_end else {
+    let Some(pivot_end) =
+        spring_boundary_pivot_end(selected, spring_entity, selected_end, other_end)
+    else {
         return;
     };
-    if !selected.contains(&entity) {
-        return;
+    if let Some(pivot) = pivot_end.world_pos(body_positions) {
+        push_unique_pivot(pivots, pivot);
     }
+}
+
+fn spring_boundary_pivot_end(
+    selected: &[Entity],
+    spring_entity: Entity,
+    selected_end: SpringEnd,
+    other_end: SpringEnd,
+) -> Option<SpringEnd> {
+    let SpringEnd::Body { entity, .. } = selected_end else {
+        return None;
+    };
+    if !selected.contains(&entity) {
+        return None;
+    }
+
+    if !selected.contains(&spring_entity) {
+        return Some(selected_end);
+    }
+
     if let SpringEnd::Body { entity: other, .. } = other_end
         && selected.contains(&other)
     {
-        return;
+        return None;
     }
-    if let Some(pivot) = other_end.world_pos(body_positions) {
-        push_unique_pivot(pivots, pivot);
-    }
+    Some(other_end)
 }
 
 fn push_unique_pivot(pivots: &mut Vec<Vec2>, pivot: Vec2) {
@@ -471,4 +493,107 @@ fn spawn_draw_object(
         }
     }
     commands.spawn(crate::DrawObject).id()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn entity(index: u32) -> Entity {
+        Entity::from_raw_u32(index).unwrap()
+    }
+
+    fn body_end(entity: Entity, local_anchor: Vec2) -> SpringEnd {
+        SpringEnd::Body {
+            entity,
+            local_anchor,
+        }
+    }
+
+    #[test]
+    fn unselected_spring_pivots_at_its_end_on_the_selected_body() {
+        let body = entity(1);
+        let spring = entity(2);
+        let body_anchor = Vec2::new(3.0, 4.0);
+
+        let pivot = spring_boundary_pivot_end(
+            &[body],
+            spring,
+            body_end(body, body_anchor),
+            SpringEnd::sky(Vec2::new(20.0, 10.0)),
+        );
+
+        assert!(matches!(
+            pivot,
+            Some(SpringEnd::Body {
+                entity,
+                local_anchor,
+            }) if entity == body && local_anchor == body_anchor
+        ));
+    }
+
+    #[test]
+    fn selected_spring_extends_the_pivot_to_its_sky_end() {
+        let body = entity(1);
+        let spring = entity(2);
+        let sky_anchor = Vec2::new(20.0, 10.0);
+
+        let pivot = spring_boundary_pivot_end(
+            &[body, spring],
+            spring,
+            body_end(body, Vec2::new(3.0, 4.0)),
+            SpringEnd::sky(sky_anchor),
+        );
+
+        assert!(matches!(
+            pivot,
+            Some(SpringEnd::Sky { world_anchor }) if world_anchor == sky_anchor
+        ));
+    }
+
+    #[test]
+    fn spring_chain_pivot_moves_across_each_selected_spring() {
+        let body_a = entity(1);
+        let spring_a_b = entity(2);
+        let body_b = entity(3);
+        let spring_b_sky = entity(4);
+        let body_b_anchor = Vec2::new(5.0, 6.0);
+        let sky_anchor = Vec2::new(30.0, 40.0);
+
+        let selected_through_body_b = [body_a, spring_a_b, body_b];
+        let internal_link = spring_boundary_pivot_end(
+            &selected_through_body_b,
+            spring_a_b,
+            body_end(body_a, Vec2::X),
+            body_end(body_b, -Vec2::X),
+        );
+        let boundary = spring_boundary_pivot_end(
+            &selected_through_body_b,
+            spring_b_sky,
+            body_end(body_b, body_b_anchor),
+            SpringEnd::sky(sky_anchor),
+        );
+
+        assert!(internal_link.is_none());
+        assert!(matches!(
+            boundary,
+            Some(SpringEnd::Body {
+                entity,
+                local_anchor,
+            }) if entity == body_b && local_anchor == body_b_anchor
+        ));
+
+        let selected_through_sky = [body_a, spring_a_b, body_b, spring_b_sky];
+        let boundary = spring_boundary_pivot_end(
+            &selected_through_sky,
+            spring_b_sky,
+            body_end(body_b, body_b_anchor),
+            SpringEnd::sky(sky_anchor),
+        );
+
+        assert!(matches!(
+            boundary,
+            Some(SpringEnd::Sky { world_anchor }) if world_anchor == sky_anchor
+        ));
+    }
 }
