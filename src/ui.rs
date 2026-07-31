@@ -724,3 +724,13 @@ impl<'a> WindowExt for egui::Window<'a> {
             })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sliders_allow_out_of_range_text_values_by_default() {
+        assert_eq!(egui::SliderClamping::default(), egui::SliderClamping::Never);
+    }
+}

@@ -70,6 +70,7 @@ impl OptionsWindow {
                             pending_ui_scale.unwrap_or(app_obj.ui_scale);
                         let ui_scale_response = ui.add(
                             egui::Slider::new(&mut displayed_ui_scale, 50..=250)
+                                .clamping(egui::SliderClamping::Always)
                                 .text("Menu scale:")
                                 .suffix("%")
                                 .step_by(1.0)
@@ -116,7 +117,9 @@ impl OptionsWindow {
 
                         if ui
                             .add(
-                                egui::Slider::new(&mut skin_obj.opacity, 0.0..=1.0).text("Opacity"),
+                                egui::Slider::new(&mut skin_obj.opacity, 0.0..=1.0)
+                                    .clamping(egui::SliderClamping::Always)
+                                    .text("Opacity"),
                             )
                             .changed()
                         {
