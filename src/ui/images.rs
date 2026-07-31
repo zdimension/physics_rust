@@ -141,6 +141,8 @@ icon_set!(
         play,
         plot,
         plot_clear,
+        radio_off => "radio-off.png",
+        radio_on => "radio-on.png",
         save,
         text,
         velocity,

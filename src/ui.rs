@@ -428,13 +428,37 @@ pub(crate) fn image_checkbox(
         TriState::On => icons.checkbox_on,
         TriState::Mixed => icons.checkbox_unknown,
     };
-    let clicked = ui
-        .add(egui::Button::image_and_text(
-            SizedTexture::new(icon, [16.0, 16.0]),
-            label,
-        ))
-        .clicked();
+    let clicked = image_labeled_button(ui, icon, label);
     clicked.then_some(!matches!(state, TriState::On))
+}
+
+fn image_labeled_button(
+    ui: &mut Ui,
+    icon: egui::TextureId,
+    label: impl Into<egui::WidgetText>,
+) -> bool {
+    ui.add(egui::Button::image_and_text(
+        SizedTexture::new(icon, [16.0, 16.0]),
+        label,
+    ))
+    .clicked()
+}
+
+pub(crate) fn image_radio(
+    ui: &mut Ui,
+    icons: &GuiIcons,
+    selected: bool,
+    label: impl Into<egui::WidgetText>,
+) -> bool {
+    image_labeled_button(
+        ui,
+        if selected {
+            icons.radio_on
+        } else {
+            icons.radio_off
+        },
+        label,
+    )
 }
 
 pub(crate) fn bool_checkbox(

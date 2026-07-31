@@ -8,6 +8,7 @@ use crate::lyon_compat::ShapeBundle;
 use crate::lyon_compat::shapes;
 use avian2d::prelude::*;
 
+use crate::objects::attraction::Attraction;
 use crate::objects::{CircleAngleMarker, ColorComponent};
 use crate::update_from::UpdateFrom;
 use crate::{BORDER_THICKNESS, FillStroke};
@@ -33,6 +34,7 @@ pub struct PhysicalObject {
     sleeping: SleepingDisabled,
     pos: Position,
     circle_visual: CircleVisual,
+    attraction: Attraction,
 }
 
 impl PhysicalObject {
@@ -54,6 +56,7 @@ impl PhysicalObject {
             sleeping: SleepingDisabled, // todo: better
             pos,
             circle_visual: CircleVisual(0.0),
+            attraction: Attraction::default(),
         }
     }
 

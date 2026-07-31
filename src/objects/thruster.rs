@@ -50,7 +50,7 @@ fn sync_independent_rotation(
     }
 }
 
-fn apply_thruster_forces(
+pub(crate) fn apply_thruster_forces(
     thrusters: Query<(&ThrusterSettings, &Transform, &ChildOf)>,
     mut bodies: Query<(&Position, &Rotation, Forces), Without<RigidBodyDisabled>>,
 ) {
