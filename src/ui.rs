@@ -607,7 +607,7 @@ impl Default for ToolboxState {
         Self {
             toolbox: vec![
                 vec![tool!(Move), tool!(Drag), tool!(Rotate)],
-                vec![tool!(Box), tool!(Circle)],
+                vec![tool!(Box), tool!(Circle), tool!(Plane)],
                 vec![
                     tool!(Spring),
                     tool!(Fix),

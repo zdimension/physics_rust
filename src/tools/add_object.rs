@@ -10,6 +10,7 @@ use crate::objects::axle::{
 };
 use crate::objects::laser::{LaserSettings, LaserVisual};
 use crate::objects::phy_obj::PhysicalObject;
+use crate::objects::plane::spawn_plane;
 use crate::objects::thruster::{ThrusterInner, ThrusterSettings};
 use crate::objects::tracer::{TracerObject, TracerSettings, TracerVisual};
 use crate::objects::{ColorComponent, MotorComponent, SettingComponent, SpriteOnly};
@@ -42,12 +43,26 @@ pub enum AddAxleEvent {
 pub enum AddObjectEvent {
     Axle(AddAxleEvent),
     Fix(Vec2),
-    Circle { center: Vec2, radius: f32 },
-    Box { pos: Vec2, size: Vec2 },
+    Circle {
+        center: Vec2,
+        radius: f32,
+    },
+    Plane {
+        point: Vec2,
+        outward_normal: Vec2,
+        color: bevy_egui::egui::ecolor::Hsva,
+    },
+    Box {
+        pos: Vec2,
+        size: Vec2,
+    },
     Laser(Vec2),
     Thruster(Vec2),
     Tracer(Vec2),
-    Polygon { pos: Vec2, points: Vec<Vec2> },
+    Polygon {
+        pos: Vec2,
+        points: Vec<Vec2>,
+    },
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Component)]
@@ -154,6 +169,19 @@ pub fn process_add_object(
                             .update_from_this(),
                     )
                     .log_components();
+            }
+            Plane {
+                point,
+                outward_normal,
+                color,
+            } => {
+                spawn_plane(
+                    &mut commands,
+                    scene_state.scene,
+                    point,
+                    outward_normal,
+                    color,
+                );
             }
             Polygon { pos, ref points } => {
                 commands

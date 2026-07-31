@@ -1,3 +1,4 @@
+use crate::objects::plane::PlaneObject;
 use crate::objects::spring::SpringObject;
 use avian2d::prelude::*;
 use bevy::{ecs::query::QueryData, prelude::*};
@@ -117,6 +118,7 @@ pub struct AggregateMeasureData {
     pub linear: Option<&'static LinearVelocity>,
     pub angular: Option<&'static AngularVelocity>,
     pub spring: Option<&'static SpringObject>,
+    pub plane: Option<&'static PlaneObject>,
 }
 
 pub fn aggregate_measures(
@@ -142,13 +144,20 @@ pub fn aggregate_measures(
     let mut has_kinetic = false;
     let mut has_gravity = false;
     let mut has_spring = false;
+    let mut plane_position_sum = Vec2::ZERO;
+    let mut plane_count = 0usize;
 
     for entity in targets {
         let Ok(item) = query.get(entity) else {
             continue;
         };
 
-        if let (Some(_), Some(mass), Some(position), Some(rotation)) =
+        if item.plane.is_some() {
+            if let Some(position) = item.position {
+                plane_position_sum += position.0;
+                plane_count += 1;
+            }
+        } else if let (Some(_), Some(mass), Some(position), Some(rotation)) =
             (item.rigid_body, item.mass, item.position, item.rotation)
             && mass.mass > 0.0
         {
@@ -196,7 +205,13 @@ pub fn aggregate_measures(
     AggregateMeasures {
         mass: has_mass.then_some(total_mass),
         angular_inertia: has_mass.then_some(total_inertia),
-        position: (has_mass && total_mass > 0.0).then_some(weighted_pos / total_mass),
+        position: if has_mass && total_mass > 0.0 {
+            Some(weighted_pos / total_mass)
+        } else if plane_count > 0 {
+            Some(plane_position_sum / plane_count as f32)
+        } else {
+            None
+        },
         velocity: (has_velocity && total_mass > 0.0).then_some(weighted_vel / total_mass),
         angular_velocity: (has_angular_velocity && total_inertia > 0.0)
             .then_some(weighted_ang_vel / total_inertia),
@@ -221,6 +236,41 @@ fn sum_if_any(items: impl IntoIterator<Item = Option<f32>>) -> Option<f32> {
         }
     }
     any.then_some(sum)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bevy::ecs::system::SystemState;
+
+    #[test]
+    fn plane_exposes_position_but_not_mass_or_energy() {
+        let mut world = World::new();
+        let position = Vec2::new(3.0, -2.0);
+        let plane = world
+            .spawn((
+                PlaneObject,
+                RigidBody::Static,
+                Position(position),
+                Rotation::default(),
+                ColliderMassProperties::from_shape(&Collider::circle(2.0), 1.0),
+                LinearVelocity(Vec2::X),
+                AngularVelocity(2.0),
+            ))
+            .id();
+
+        let mut state: SystemState<(Query<AggregateMeasureData>, Query<(&Position, &Rotation)>)> =
+            SystemState::new(&mut world);
+        let (measure_query, positions) = state.get(&world).unwrap();
+        let aggregate = aggregate_measures([plane], &measure_query, &positions, Vec2::NEG_Y);
+
+        assert_eq!(aggregate.position, Some(position));
+        assert!(aggregate.mass.is_none());
+        assert!(aggregate.angular_inertia.is_none());
+        assert!(aggregate.velocity.is_none());
+        assert!(aggregate.kinetic_total().is_none());
+        assert!(aggregate.gravity_energy.is_none());
+    }
 }
 
 pub enum ForceKind {

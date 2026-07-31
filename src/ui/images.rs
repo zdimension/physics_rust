@@ -161,6 +161,7 @@ image_set!(
         hinge_motor_ccw,
         hinge_motor_cw,
         laserpen,
+        force_arrow,
         rotate_origo,
         spring,
         spring_attachment,

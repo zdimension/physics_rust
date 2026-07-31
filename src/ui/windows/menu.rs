@@ -255,7 +255,10 @@ struct ZoomToScene;
 fn handle_zoom_to_scene(
     mut events: MessageReader<ZoomToScene>,
     mut cameras: Query<&mut Transform, With<MainCamera>>,
-    bboxes: Query<(&Position, &Aabb), Without<MainCamera>>,
+    bboxes: Query<
+        (&Position, &Aabb),
+        (Without<MainCamera>, Without<crate::objects::plane::PlaneObject>),
+    >,
     windows: Query<&Window, With<PrimaryWindow>>,
 ) {
     let prim = windows.single().unwrap();

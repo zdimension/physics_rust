@@ -11,10 +11,11 @@ use crate::tools::add_object::{AttachmentJoint, DepthSorter};
 use crate::tools::drag::{DragObject, DragState, DragTarget};
 use crate::tools::r#move::MoveState;
 use crate::tools::pan::PanState;
+use crate::tools::plane::PlanePlacementState;
 use crate::tools::rotate::RotateState;
 use crate::tools::zoom::ZoomState;
 use crate::ui::images::AppIcons;
-use crate::ui::selection_overlay::RotationOriginIcon;
+use crate::ui::selection_overlay::{PlaneNormalIcon, RotationOriginIcon};
 use crate::ui::{PointerToolState, SceneState, Selected};
 use crate::{CustomForce, InvTransformPoint, UsedMouseButton};
 use avian2d::prelude::*;
@@ -284,6 +285,45 @@ pub fn mouse_long_or_moved(
                             &params.draw_objects,
                         ))));
                     }
+                    (Plane(None), _) => {
+                        let camera = params.cameras.single_mut().unwrap();
+                        let scale = camera.scale.x * params.app_config.ui_scale_factor();
+                        let color = params
+                            .palette
+                            .current_palette
+                            .get_color_hsva(&mut *params.rng.single_mut().unwrap());
+                        let overlay_ent = spawn_draw_object(&mut commands, &params.draw_objects);
+                        crate::objects::plane::insert_plane_preview(
+                            &mut commands,
+                            overlay_ent,
+                            clickpos,
+                            color,
+                        );
+                        commands.entity(overlay_ent).with_children(|parent| {
+                            parent.spawn((
+                                PlaneNormalIcon,
+                                Sprite {
+                                    image: params.images.force_arrow.clone(),
+                                    custom_size: Some(Vec2::splat(
+                                        crate::tools::rotate::ROTATE_HELPER_RADIUS * scale,
+                                    )),
+                                    ..Default::default()
+                                },
+                                Transform::from_translation(
+                                    (Vec2::Y
+                                        * crate::tools::rotate::ROTATE_HELPER_RADIUS
+                                        * scale
+                                        * 0.5)
+                                        .extend(crate::FOREGROUND_Z),
+                                ),
+                            ));
+                        });
+                        *ui_button = Some(Plane(Some(PlanePlacementState {
+                            overlay_ent,
+                            scale,
+                            color,
+                        })));
+                    }
                     (tool, _) => {
                         dbg!(tool);
                         //todo!()
@@ -354,7 +394,14 @@ fn rotation_pivot(
     if external.len() == 1 {
         return external.first().copied();
     }
-    center_of_mass(selected, body_masses)
+    center_of_mass(selected, body_masses).or_else(|| {
+        let positions = selected
+            .iter()
+            .filter_map(|entity| body_positions.get(*entity).ok().map(|(pos, _)| pos.0))
+            .collect::<Vec<_>>();
+        (!positions.is_empty())
+            .then(|| positions.iter().copied().sum::<Vec2>() / positions.len() as f32)
+    })
 }
 
 fn center_of_mass(

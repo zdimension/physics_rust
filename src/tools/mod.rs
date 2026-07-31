@@ -2,6 +2,7 @@ pub(crate) mod add_object;
 pub(crate) mod drag;
 pub(crate) mod r#move;
 pub(crate) mod pan;
+pub(crate) mod plane;
 pub(crate) mod rotate;
 pub(crate) mod zoom;
 
@@ -105,6 +106,7 @@ use crate::objects::spring::SpringPlacementState;
 use crate::tools::drag::DragState;
 use crate::tools::r#move::MoveState;
 use crate::tools::pan::PanState;
+use crate::tools::plane::PlanePlacementState;
 use crate::tools::rotate::RotateState;
 use crate::tools::zoom::ZoomState;
 use bevy::prelude::*;
@@ -117,6 +119,7 @@ tools_enum! {
 
     box => Box(Option<Entity>),
     circle => Circle(Option<Entity>),
+    plane => Plane(Option<PlanePlacementState>),
 
     spring => Spring(Option<SpringPlacementState>),
     fixjoint => Fix(()),

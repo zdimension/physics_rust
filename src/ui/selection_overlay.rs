@@ -24,6 +24,7 @@ const SELECTION_COLOR: Color = Color::WHITE;
 pub enum Overlay {
     Rectangle(Vec2),
     Circle(f32),
+    Plane(Vec2, f32),
     Rotate(f32, f32, f32, Vec2),
 }
 
@@ -39,6 +40,9 @@ pub(crate) struct SelectionHighlight;
 pub(crate) struct RotationOriginIcon {
     pub(crate) origin_angle: f32,
 }
+
+#[derive(Component)]
+pub(crate) struct PlaneNormalIcon;
 
 pub fn sync_selection_highlights(
     mut commands: Commands,
@@ -143,6 +147,11 @@ fn collider_path(collider: &Collider) -> bevy_prototype_lyon::prelude::tess::pat
                 .collect(),
             closed: true,
         }),
+        TypedShape::HalfSpace(_) => GeometryBuilder::new()
+            .begin(Vec2::new(-100_000.0, 0.0))
+            .line_to(Vec2::new(100_000.0, 0.0))
+            .end(false)
+            .build(),
         _ => {
             let aabb = collider.shape().compute_local_aabb();
             GeometryBuilder::new()
@@ -174,7 +183,12 @@ pub fn process_draw_overlay(
             (With<crate::DrawObject>, Without<MainCamera>),
         >,
         Query<
-            (&ChildOf, &RotationOriginIcon, &mut Transform),
+            (
+                &ChildOf,
+                Option<&RotationOriginIcon>,
+                Option<&PlaneNormalIcon>,
+                &mut Transform,
+            ),
             (Without<crate::DrawObject>, Without<MainCamera>),
         >,
     )>,
@@ -214,8 +228,10 @@ pub fn process_draw_overlay(
     if let Overlay::Rotate(current_rot, scale, original_rot, click) = shape {
         {
             let mut rotation_origin_icons = overlay_queries.p1();
-            for (parent, icon, mut transform) in &mut rotation_origin_icons {
-                if parent.parent() == draw_ent {
+            for (parent, icon, _, mut transform) in &mut rotation_origin_icons {
+                if parent.parent() == draw_ent
+                    && let Some(icon) = icon
+                {
                     transform.rotation = Quat::from_rotation_z(
                         icon.origin_angle + rotation_overlay_delta(current_rot, original_rot),
                     );
@@ -248,6 +264,35 @@ pub fn process_draw_overlay(
         return;
     }
 
+    if let Overlay::Plane(normal, scale) = shape {
+        let plane_angle = normal.to_angle() - std::f32::consts::FRAC_PI_2;
+        {
+            let mut roots = overlay_queries.p0();
+            if let Ok((_, mut transform, _, _)) = roots.get_mut(draw_ent) {
+                transform.rotation = Quat::from_rotation_z(plane_angle);
+            }
+        }
+        {
+            let mut icons = overlay_queries.p1();
+            for (parent, _, plane_icon, mut transform) in &mut icons {
+                if parent.parent() == draw_ent && plane_icon.is_some() {
+                    transform.translation =
+                        (Vec2::Y * scale * ROTATE_HELPER_RADIUS * 0.5).extend(FOREGROUND_Z);
+                    transform.rotation = Quat::IDENTITY;
+                }
+            }
+        }
+        gizmos
+            .circle_2d(
+                Isometry2d::new(pos, Rot2::IDENTITY),
+                scale * ROTATE_HELPER_RADIUS,
+                Color::srgba(1.0, 1.0, 1.0, 0.68),
+            )
+            .resolution(64);
+        *last_overlay = None;
+        return;
+    }
+
     let builder = GeometryBuilder::new();
     let (thickness, color, path) = match shape {
         Overlay::Rectangle(size) => (
@@ -271,6 +316,7 @@ pub fn process_draw_overlay(
                 })
                 .build(),
         ),
+        Overlay::Plane(..) => unreachable!(),
         Overlay::Rotate(..) => unreachable!(),
     };
 

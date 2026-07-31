@@ -102,6 +102,11 @@ impl GeometryBuilder {
         self
     }
 
+    pub fn end(mut self, close: bool) -> Self {
+        self.builder.end(close);
+        self
+    }
+
     pub fn close(mut self) -> Self {
         self.builder.close();
         self

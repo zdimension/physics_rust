@@ -12,6 +12,7 @@ use bevy_egui::egui::ecolor::Hsva;
 pub(crate) mod axle;
 pub(crate) mod laser;
 pub(crate) mod phy_obj;
+pub(crate) mod plane;
 pub(crate) mod thruster;
 
 pub trait SettingComponent: Component + Sized {
@@ -63,6 +64,7 @@ pub fn add_systems(app: &mut App) {
             axle::sync_hinge_motors,
             axle::update_hinge_motor_visuals,
             phy_obj::spawn_circle_angle_markers,
+            plane::update_plane_visuals,
         ),
     )
     .add_systems(

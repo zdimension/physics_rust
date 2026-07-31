@@ -20,6 +20,7 @@ use crate::tools::add_object::{
 use crate::tools::r#move::MoveEvent;
 use crate::tools::pan;
 use crate::tools::pan::PanEvent;
+use crate::tools::plane::plane_outward_normal;
 use crate::tools::rotate::{RotateEvent, rotation_delta};
 use crate::tools::zoom::ZoomEvent;
 use crate::ui::selection_overlay::{Overlay, OverlayState};
@@ -134,6 +135,9 @@ pub fn left_release(
                 Circle(Some(ent)) => {
                     commands.entity(*ent).despawn();
                 }
+                Plane(Some(state)) => {
+                    commands.entity(state.overlay_ent).despawn();
+                }
                 Rotate(Some(state)) => {
                     commands.entity(state.overlay_ent).despawn();
                 }
@@ -193,6 +197,15 @@ pub fn left_release(
                     });
                     *state_button = Some(Circle(None));
                 }
+                Plane(Some(state)) => {
+                    add_obj.write(AddObjectEvent::Plane {
+                        point: click_pos,
+                        outward_normal: plane_outward_normal(click_pos, pos, state.scale),
+                        color: state.color,
+                    });
+                    *state_button = Some(Plane(None));
+                }
+                Plane(None) => {}
                 Spring(Some(state)) if screen_pos.distance(click_pos_screen) > 6.0 => {
                     ev_spring_finish.write(FinishSpringEvent {
                         state,
@@ -407,6 +420,18 @@ pub fn left_pressed(
                             draw_ent: Some((
                                 *draw_ent,
                                 Overlay::Circle((pos - click_pos).length()),
+                                click_pos,
+                            )),
+                        };
+                    }
+                    Some(Plane(Some(state))) => {
+                        *overlay = OverlayState {
+                            draw_ent: Some((
+                                state.overlay_ent,
+                                Overlay::Plane(
+                                    plane_outward_normal(click_pos, pos, state.scale),
+                                    state.scale,
+                                ),
                                 click_pos,
                             )),
                         };

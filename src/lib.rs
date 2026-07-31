@@ -482,9 +482,17 @@ pub struct UnfreezeEntityEvent {
     entity: Entity,
 }
 
-fn process_unfreeze_entity(mut events: MessageReader<UnfreezeEntityEvent>, mut commands: Commands) {
+fn process_unfreeze_entity(
+    mut events: MessageReader<UnfreezeEntityEvent>,
+    mut commands: Commands,
+    planes: Query<(), With<objects::plane::PlaneObject>>,
+) {
     for UnfreezeEntityEvent { entity } in events.read().copied() {
-        commands.entity(entity).insert(RigidBody::Dynamic);
+        if planes.contains(entity) {
+            commands.entity(entity).insert(RigidBody::Static);
+        } else {
+            commands.entity(entity).insert(RigidBody::Dynamic);
+        }
     }
 }
 
