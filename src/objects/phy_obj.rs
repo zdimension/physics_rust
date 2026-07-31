@@ -23,19 +23,44 @@ pub enum FrictionModel {
     Advanced,
 }
 
+/// Material and collision properties shared by every physical scene object.
+#[derive(Bundle)]
+pub struct PhysicalProperties {
+    friction: Friction,
+    friction_model: FrictionModel,
+    restitution: Restitution,
+    groups: CollisionLayers,
+    refractive_index: RefractiveIndex,
+}
+
+impl PhysicalProperties {
+    pub(crate) fn with_collision_layers(mut self, groups: CollisionLayers) -> Self {
+        self.groups = groups;
+        self
+    }
+}
+
+impl Default for PhysicalProperties {
+    fn default() -> Self {
+        Self {
+            friction: Friction::default().with_combine_rule(CoefficientCombine::Multiply),
+            friction_model: FrictionModel::default(),
+            restitution: Restitution::new(0.7),
+            groups: CollisionLayers::from_bits(1, 1),
+            refractive_index: RefractiveIndex::default(),
+        }
+    }
+}
+
 #[derive(Bundle)]
 pub struct PhysicalObject {
     rigid_body: RigidBody,
     //velocity: Velocity,
     collider: Collider,
-    friction: Friction,
-    friction_model: FrictionModel,
-    restitution: Restitution,
+    properties: PhysicalProperties,
     mass_props: ColliderMassProperties,
     shape: ShapeBundle,
     //read_props: ReadMassProperties,
-    groups: CollisionLayers,
-    refractive_index: RefractiveIndex,
     color: ColorComponent,
     color_upd: UpdateFrom<ColorComponent>,
     fill_stroke: FillStroke,
@@ -52,13 +77,9 @@ impl PhysicalObject {
             //velocity: Velocity::default(),
             mass_props: ColliderMassProperties::from_shape(&collider, 2.0),
             collider,
-            friction: Friction::default(),
-            friction_model: FrictionModel::default(),
-            restitution: Restitution::new(0.7),
+            properties: PhysicalProperties::default(),
             shape,
             //read_props: ReadMassProperties::default(),
-            groups: CollisionLayers::from_bits(1, 1),
-            refractive_index: RefractiveIndex::default(),
             color: ColorComponent(Hsva::new(0.0, 1.0, 1.0, 1.0)),
             color_upd: UpdateFrom::This,
             fill_stroke: FillStroke::default(),
@@ -135,6 +156,40 @@ impl Default for RefractiveIndex {
         RefractiveIndex(1.5)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn shared_physical_properties_use_multiply_friction() {
+        let properties = PhysicalProperties::default();
+
+        assert_eq!(
+            properties.friction.combine_rule,
+            CoefficientCombine::Multiply
+        );
+        assert_eq!(properties.friction_model, FrictionModel::Simple);
+        assert_eq!(properties.restitution.coefficient, 0.7);
+        assert_eq!(properties.refractive_index.0, 1.5);
+
+        let mut world = World::new();
+        let entity = world.spawn(properties).id();
+        assert!(world.get::<Friction>(entity).is_some());
+        assert!(world.get::<FrictionModel>(entity).is_some());
+        assert!(world.get::<Restitution>(entity).is_some());
+        assert!(world.get::<CollisionLayers>(entity).is_some());
+        assert!(world.get::<RefractiveIndex>(entity).is_some());
+    }
+
+    #[test]
+    fn shared_physical_properties_can_override_collision_layers() {
+        let properties = PhysicalProperties::default().with_collision_layers(CollisionLayers::ALL);
+
+        assert_eq!(properties.groups, CollisionLayers::ALL);
+    }
+}
+
 pub fn spawn_circle_angle_markers(
     circles: Query<(Entity, &CircleVisual), Added<CircleVisual>>,
     mut commands: Commands,

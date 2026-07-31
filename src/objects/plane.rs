@@ -6,7 +6,7 @@ use bevy::prelude::*;
 use crate::lyon_compat::{GeometryBuilder, Shape, ShapeBundle, shapes};
 use crate::mouse_tracking::MainCamera;
 use crate::objects::ColorComponent;
-use crate::objects::phy_obj::{FrictionModel, RefractiveIndex};
+use crate::objects::phy_obj::PhysicalProperties;
 use crate::update_from::UpdateFrom;
 use crate::{BORDER_THICKNESS, make_fill, make_stroke};
 
@@ -38,11 +38,7 @@ pub(crate) fn spawn_plane(
             PlaneObject,
             RigidBody::Static,
             Collider::half_space(Vec2::Y),
-            Friction::default(),
-            FrictionModel::default(),
-            Restitution::new(0.7),
-            CollisionLayers::from_bits(1, 1),
-            RefractiveIndex::default(),
+            PhysicalProperties::default().with_collision_layers(CollisionLayers::ALL),
             Position(point),
             Rotation::radians(angle),
             ChildOf(scene),
