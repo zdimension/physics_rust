@@ -164,8 +164,11 @@ pub fn draw_bottom_toolbar(
 
                 ui.add(SeparatorCustom::default());
 
-                let gravity_btn =
-                    ui.add(IconButton::new(gui_icons.gravity, 32.0).selected(gravity_conf.enabled));
+                let gravity_btn = ui.add(
+                    IconButton::new(gui_icons.gravity, 32.0)
+                        .overlay(gui_icons.more_options)
+                        .selected(gravity_conf.enabled),
+                );
                 gravity_button_left = Some(gravity_btn.rect.left());
                 if gravity_btn.clicked() {
                     gravity_conf.enabled = !gravity_conf.enabled;

@@ -137,6 +137,7 @@ icon_set!(
         lasermenu,
         material,
         mirror,
+        more_options => "moreOptions.png",
         new,
         open,
         options,

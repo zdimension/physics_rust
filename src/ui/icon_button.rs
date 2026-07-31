@@ -8,6 +8,7 @@ use num_traits::Pow;
 
 pub struct IconButton<'a> {
     icon: egui::widgets::Image<'a>,
+    overlay: Option<egui::widgets::Image<'a>>,
     selected: bool,
     dim_if_unselected: bool,
 }
@@ -16,6 +17,7 @@ impl<'a> IconButton<'a> {
     pub fn new(icon: TextureId, size: f32) -> Self {
         Self {
             icon: egui::widgets::Image::new(SizedTexture::new(icon, Vec2::splat(size).to_array())),
+            overlay: None,
             selected: false,
             dim_if_unselected: false,
         }
@@ -23,6 +25,15 @@ impl<'a> IconButton<'a> {
 
     pub fn selected(mut self, selected: bool) -> Self {
         self.selected = selected;
+        self
+    }
+
+    pub fn overlay(mut self, overlay: TextureId) -> Self {
+        let size = self.icon.size().expect("icon buttons always have a size");
+        self.overlay = Some(egui::widgets::Image::new(SizedTexture::new(
+            overlay,
+            [size.x, size.y],
+        )));
         self
     }
 
@@ -36,6 +47,7 @@ impl<'a> Widget for IconButton<'a> {
     fn ui(self, ui: &mut Ui) -> Response {
         let Self {
             icon,
+            overlay,
             selected,
             dim_if_unselected,
         } = self;
@@ -81,6 +93,9 @@ impl<'a> Widget for IconButton<'a> {
                 icon
             };
             icon.paint_at(ui, image_rect);
+            if let Some(overlay) = overlay {
+                overlay.paint_at(ui, image_rect);
+            }
         }
 
         response
