@@ -1,6 +1,7 @@
 use crate::egui_systems;
 use crate::objects::attraction::{Attraction, AttractionFalloff};
 use crate::objects::laser::LaserSettings;
+use crate::objects::plane::PlaneObject;
 use crate::objects::phy_obj::{FrictionModel, RefractiveIndex};
 use crate::ui::images::GuiIcons;
 use crate::ui::{
@@ -8,7 +9,7 @@ use crate::ui::{
     shared_value, window_matching_entities,
 };
 use avian2d::prelude::*;
-use bevy::prelude::{ChildOf, Commands, Component, Entity, Query, Res, With};
+use bevy::prelude::{ChildOf, Commands, Component, Entity, Query, Res, With, Without};
 use bevy_egui::{EguiContexts, egui};
 
 egui_systems!(MaterialWindow::show);
@@ -37,6 +38,11 @@ fn set_simple_friction(friction: &mut Friction, value: f32) {
     friction.dynamic_coefficient = value;
 }
 
+fn density_for_mass(collider: &Collider, mass: f32) -> ColliderDensity {
+    let unit_density_mass = ColliderMassProperties::from_shape(collider, 1.0).mass;
+    ColliderDensity(mass.max(0.0) / unit_density_mass)
+}
+
 impl MaterialWindow {
     pub fn show(
         mut wnds: Query<
@@ -51,6 +57,9 @@ impl MaterialWindow {
         >,
         frictions: Query<&Friction>,
         friction_models: Query<&FrictionModel>,
+        densities: Query<&ColliderDensity, Without<PlaneObject>>,
+        colliders: Query<&Collider, Without<PlaneObject>>,
+        mass_properties: Query<&ColliderMassProperties, Without<PlaneObject>>,
         restitutions: Query<&Restitution>,
         refractive_indices: Query<&RefractiveIndex>,
         attractions: Query<&Attraction>,
@@ -70,6 +79,11 @@ impl MaterialWindow {
             let shared_friction_model = shared_value(targets.iter().filter_map(|entity| {
                 friction_models.get(*entity).ok().copied()
             }));
+            let density_targets = targets
+                .iter()
+                .copied()
+                .filter(|entity| densities.contains(*entity))
+                .collect::<Vec<_>>();
             let attraction_targets = targets
                 .iter()
                 .copied()
@@ -86,6 +100,47 @@ impl MaterialWindow {
                 .resizable(false)
                 .default_size(egui::Vec2::ZERO)
                 .subwindow(id, ctx, &mut initial_pos, &mut commands, |ui, commands| {
+                    if !density_targets.is_empty() {
+                        component_slider(
+                            ui,
+                            commands,
+                            &density_targets,
+                            &densities,
+                            |density| density.0,
+                            |density, value| density.0 = value.max(0.0),
+                            0.001..=100.0,
+                            |slider| {
+                                slider
+                                    .logarithmic(true)
+                                                                        .suffix(" kg/m²")
+                                    .text("Density:")
+                            },
+                        );
+                    }
+
+                    if targets.len() == 1 {
+                        let entity = targets[0];
+                        if let (Ok(collider), Ok(properties)) =
+                            (colliders.get(entity), mass_properties.get(entity))
+                        {
+                            let mut mass = properties.mass;
+                            if ui
+                                .add(
+                                    egui::Slider::new(&mut mass, 0.001..=1_000.0)
+                                        .logarithmic(true)
+                                                                                .suffix(" kg")
+                                        .text("Mass:")
+                                        .custom(),
+                                )
+                                .changed()
+                            {
+                                commands
+                                    .entity(entity)
+                                    .insert(density_for_mass(collider, mass));
+                            }
+                        }
+                    }
+
                     ui.horizontal(|ui| {
                         ui.label("Friction model:");
                         if image_radio(
@@ -273,5 +328,21 @@ mod tests {
         set_simple_friction(&mut friction, 1.25);
         assert_eq!(friction.static_coefficient, 1.25);
         assert_eq!(friction.dynamic_coefficient, 1.25);
+    }
+
+    #[test]
+    fn setting_mass_converts_it_to_collider_density() {
+        let collider = Collider::rectangle(2.0, 3.0);
+
+        let density = density_for_mass(&collider, 12.0);
+
+        assert!((density.0 - 2.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn negative_mass_is_clamped_to_zero() {
+        let collider = Collider::rectangle(2.0, 3.0);
+
+        assert_eq!(density_for_mass(&collider, -12.0), ColliderDensity::ZERO);
     }
 }

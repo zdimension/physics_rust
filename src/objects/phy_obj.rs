@@ -57,8 +57,8 @@ pub struct PhysicalObject {
     rigid_body: RigidBody,
     //velocity: Velocity,
     collider: Collider,
+    density: ColliderDensity,
     properties: PhysicalProperties,
-    mass_props: ColliderMassProperties,
     shape: ShapeBundle,
     //read_props: ReadMassProperties,
     color: ColorComponent,
@@ -75,8 +75,8 @@ impl PhysicalObject {
         Self {
             rigid_body: RigidBody::Dynamic,
             //velocity: Velocity::default(),
-            mass_props: ColliderMassProperties::from_shape(&collider, 2.0),
             collider,
+            density: ColliderDensity(2.0),
             properties: PhysicalProperties::default(),
             shape,
             //read_props: ReadMassProperties::default(),
@@ -187,6 +187,13 @@ mod tests {
         let properties = PhysicalProperties::default().with_collision_layers(CollisionLayers::ALL);
 
         assert_eq!(properties.groups, CollisionLayers::ALL);
+    }
+
+    #[test]
+    fn physical_objects_default_to_two_kilograms_per_square_meter() {
+        let object = PhysicalObject::ball(1.0, Vec3::ZERO);
+
+        assert_eq!(object.density, ColliderDensity(2.0));
     }
 }
 

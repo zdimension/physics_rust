@@ -298,17 +298,18 @@ pub(crate) fn multi_slider<D, F>(
     }
 }
 
-pub(crate) fn component_slider<C>(
+pub(crate) fn component_slider<C, F>(
     ui: &mut Ui,
     commands: &mut Commands,
     targets: &[Entity],
-    query: &Query<&C>,
+    query: &Query<&C, F>,
     get: impl Fn(&C) -> f32,
     set: impl Fn(&mut C, f32),
     range: std::ops::RangeInclusive<f32>,
     settings: impl FnOnce(Slider) -> Slider,
 ) where
     C: Component + Copy,
+    F: QueryFilter,
 {
     multi_slider(
         ui,
