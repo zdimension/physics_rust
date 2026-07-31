@@ -51,14 +51,16 @@ pub fn apply_ui_scale(mut egui_ctx: EguiContexts, app_config: Res<AppConfig>) {
 }
 
 pub struct GravitySetting {
-    value: Vec2,
-    enabled: bool,
+    pub(crate) strength: f32,
+    pub(crate) direction: f32,
+    pub(crate) enabled: bool,
 }
 
 impl Default for GravitySetting {
     fn default() -> Self {
         Self {
-            value: Vec2::new(0.0, -9.81),
+            strength: 9.81,
+            direction: -std::f32::consts::FRAC_PI_2,
             enabled: true,
         }
     }
