@@ -1,11 +1,11 @@
 use crate::egui_systems;
 use crate::objects::attraction::{Attraction, AttractionFalloff};
 use crate::objects::laser::LaserSettings;
-use crate::objects::phy_obj::RefractiveIndex;
+use crate::objects::phy_obj::{FrictionModel, RefractiveIndex};
 use crate::ui::images::GuiIcons;
 use crate::ui::{
     InitialPos, Subwindow, WindowSelectionTarget, component_slider, edit_components, image_radio,
-    window_matching_entities,
+    shared_value, window_matching_entities,
 };
 use avian2d::prelude::*;
 use bevy::prelude::{ChildOf, Commands, Component, Entity, Query, Res, With};
@@ -28,6 +28,15 @@ impl MaterialWindowState {
     }
 }
 
+fn normalize_simple_friction(friction: &mut Friction) {
+    friction.dynamic_coefficient = friction.static_coefficient;
+}
+
+fn set_simple_friction(friction: &mut Friction, value: f32) {
+    friction.static_coefficient = value;
+    friction.dynamic_coefficient = value;
+}
+
 impl MaterialWindow {
     pub fn show(
         mut wnds: Query<
@@ -41,6 +50,7 @@ impl MaterialWindow {
             With<MaterialWindow>,
         >,
         frictions: Query<&Friction>,
+        friction_models: Query<&FrictionModel>,
         restitutions: Query<&Restitution>,
         refractive_indices: Query<&RefractiveIndex>,
         attractions: Query<&Attraction>,
@@ -57,47 +67,94 @@ impl MaterialWindow {
                 continue;
             }
             let show_refractive_index = state.show_refractive_index(!lasers.is_empty());
+            let shared_friction_model = shared_value(targets.iter().filter_map(|entity| {
+                friction_models.get(*entity).ok().copied()
+            }));
             let attraction_targets = targets
                 .iter()
                 .copied()
                 .filter(|entity| attractions.contains(*entity))
                 .collect::<Vec<_>>();
-            let shared_falloff = attraction_targets
-                .first()
-                .and_then(|entity| attractions.get(*entity).ok())
-                .map(|attraction| attraction.falloff)
-                .filter(|falloff| {
-                    attraction_targets.iter().all(|entity| {
-                        attractions
-                            .get(*entity)
-                            .is_ok_and(|attraction| attraction.falloff == *falloff)
-                    })
-                });
+            let shared_falloff = shared_value(attraction_targets.iter().filter_map(|entity| {
+                attractions
+                    .get(*entity)
+                    .ok()
+                    .map(|attraction| attraction.falloff)
+            }));
 
             egui::Window::new("Material")
                 .resizable(false)
                 .default_size(egui::Vec2::ZERO)
                 .subwindow(id, ctx, &mut initial_pos, &mut commands, |ui, commands| {
-                    component_slider(
-                        ui,
-                        commands,
-                        &targets,
-                        &frictions,
-                        |friction| friction.static_coefficient,
-                        |friction, value| friction.static_coefficient = value,
-                        0.0..=2.0,
-                        |slider| slider.text("Static friction :"),
-                    );
-                    component_slider(
-                        ui,
-                        commands,
-                        &targets,
-                        &frictions,
-                        |friction| friction.dynamic_coefficient,
-                        |friction, value| friction.dynamic_coefficient = value,
-                        0.0..=2.0,
-                        |slider| slider.text("Dynamic friction :"),
-                    );
+                    ui.horizontal(|ui| {
+                        ui.label("Friction model:");
+                        if image_radio(
+                            ui,
+                            &gui_icons,
+                            shared_friction_model == Some(FrictionModel::Simple),
+                            "Simple",
+                        ) {
+                            edit_components(
+                                commands,
+                                &targets,
+                                &friction_models,
+                                |model| *model = FrictionModel::Simple,
+                            );
+                            edit_components(
+                                commands,
+                                &targets,
+                                &frictions,
+                                normalize_simple_friction,
+                            );
+                        }
+                        if image_radio(
+                            ui,
+                            &gui_icons,
+                            shared_friction_model == Some(FrictionModel::Advanced),
+                            "Advanced",
+                        ) {
+                            edit_components(
+                                commands,
+                                &targets,
+                                &friction_models,
+                                |model| *model = FrictionModel::Advanced,
+                            );
+                        }
+                    });
+
+                    if shared_friction_model == Some(FrictionModel::Simple) {
+                        component_slider(
+                            ui,
+                            commands,
+                            &targets,
+                            &frictions,
+                            |friction| friction.static_coefficient,
+                            set_simple_friction,
+                            0.0..=2.0,
+                            |slider| slider.text("Friction:"),
+                        );
+                    } else {
+                        component_slider(
+                            ui,
+                            commands,
+                            &targets,
+                            &frictions,
+                            |friction| friction.static_coefficient,
+                            |friction, value| friction.static_coefficient = value,
+                            0.0..=2.0,
+                            |slider| slider.text("Static friction:"),
+                        );
+                        component_slider(
+                            ui,
+                            commands,
+                            &targets,
+                            &frictions,
+                            |friction| friction.dynamic_coefficient,
+                            |friction, value| friction.dynamic_coefficient = value,
+                            0.0..=2.0,
+                            |slider| slider.text("Dynamic friction:"),
+                        );
+                    }
                     component_slider(
                         ui,
                         commands,
@@ -201,5 +258,20 @@ mod tests {
         let mut opened_with_lasers = MaterialWindowState::default();
         assert!(opened_with_lasers.show_refractive_index(true));
         assert!(opened_with_lasers.show_refractive_index(false));
+    }
+
+    #[test]
+    fn friction_model_defaults_to_simple_and_keeps_coefficients_together() {
+        assert_eq!(FrictionModel::default(), FrictionModel::Simple);
+
+        let mut friction = Friction::default();
+        friction.static_coefficient = 0.8;
+        friction.dynamic_coefficient = 0.2;
+        normalize_simple_friction(&mut friction);
+        assert_eq!(friction.dynamic_coefficient, 0.8);
+
+        set_simple_friction(&mut friction, 1.25);
+        assert_eq!(friction.static_coefficient, 1.25);
+        assert_eq!(friction.dynamic_coefficient, 1.25);
     }
 }

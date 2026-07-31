@@ -16,12 +16,20 @@ use crate::{BORDER_THICKNESS, FillStroke};
 #[derive(Component)]
 pub struct CircleVisual(pub f32);
 
+#[derive(Component, Copy, Clone, Debug, Default, PartialEq, Eq)]
+pub enum FrictionModel {
+    #[default]
+    Simple,
+    Advanced,
+}
+
 #[derive(Bundle)]
 pub struct PhysicalObject {
     rigid_body: RigidBody,
     //velocity: Velocity,
     collider: Collider,
     friction: Friction,
+    friction_model: FrictionModel,
     restitution: Restitution,
     mass_props: ColliderMassProperties,
     shape: ShapeBundle,
@@ -45,6 +53,7 @@ impl PhysicalObject {
             mass_props: ColliderMassProperties::from_shape(&collider, 2.0),
             collider,
             friction: Friction::default(),
+            friction_model: FrictionModel::default(),
             restitution: Restitution::new(0.7),
             shape,
             //read_props: ReadMassProperties::default(),

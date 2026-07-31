@@ -245,6 +245,12 @@ pub(crate) fn shared_f32(values: impl IntoIterator<Item = f32>) -> Option<f32> {
     }
 }
 
+pub(crate) fn shared_value<T: Copy + PartialEq>(values: impl IntoIterator<Item = T>) -> Option<T> {
+    let mut values = values.into_iter();
+    let first = values.next()?;
+    values.all(|value| value == first).then_some(first)
+}
+
 pub(crate) fn max_f32<D, F>(
     targets: &[Entity],
     query: &Query<D, F>,
