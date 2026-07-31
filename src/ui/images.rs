@@ -1,18 +1,33 @@
-use std::collections::HashSet;
-
+use bevy::asset::RenderAssetUsages;
 use bevy::prelude::*;
+use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use bevy_egui::egui::TextureId;
 use bevy_egui::{EguiTextureHandle, EguiUserTextures};
 
-pub struct LoadedImage {
-    bevy: Handle<Image>,
-    egui: TextureId,
+pub(crate) fn transparent_image() -> Image {
+    Image::new(
+        Extent3d {
+            width: 1,
+            height: 1,
+            depth_or_array_layers: 1,
+        },
+        TextureDimension::D2,
+        vec![0; 4],
+        TextureFormat::Rgba8UnormSrgb,
+        RenderAssetUsages::default(),
+    )
 }
 
-impl LoadedImage {
-    pub fn clone(&self) -> Handle<Image> {
-        self.bevy.clone()
-    }
+pub(crate) fn load_egui_image(
+    asset_server: &AssetServer,
+    images: &mut Assets<Image>,
+    egui_textures: &mut EguiUserTextures,
+    path: &'static str,
+) -> (Handle<Image>, Handle<Image>, TextureId) {
+    let source = asset_server.load(path);
+    let derived = images.add(transparent_image());
+    let texture = egui_textures.add_image(EguiTextureHandle::Strong(derived.clone()));
+    (source, derived, texture)
 }
 
 macro_rules! icon_set {
@@ -28,32 +43,42 @@ macro_rules! icon_set {
             $(
                 pub $name: TextureId,
             )*
-            image_ids: HashSet<AssetId<Image>>,
+            egui_images: Vec<(Handle<Image>, Handle<Image>)>,
         }
 
-            impl FromWorld for $type {
+        impl FromWorld for $type {
             fn from_world(world: &mut World) -> Self {
                 let unsafe_world = world.as_unsafe_world_cell();
-                let mut egui_ctx = unsafe { unsafe_world.get_resource_mut::<EguiUserTextures>().unwrap() };
                 let asset_server = unsafe { unsafe_world.get_resource::<AssetServer>().unwrap() };
-                let mut image_ids = HashSet::new();
+                let mut images = unsafe { unsafe_world.get_resource_mut::<Assets<Image>>().unwrap() };
+                let mut egui_textures = unsafe { unsafe_world.get_resource_mut::<EguiUserTextures>().unwrap() };
+                let mut egui_images = Vec::new();
                 Self {
                     $(
                         $name: {
-                            let handle = asset_server.load(icon_set!(@ path $root, $name $(=> $file)?));
-                            image_ids.insert(handle.id());
-                            let egui_id = egui_ctx.add_image(EguiTextureHandle::Strong(handle));
-                            egui_id
+                            let (source, derived, texture) = load_egui_image(
+                                asset_server,
+                                &mut images,
+                                &mut egui_textures,
+                                icon_set!(@ path $root, $name $(=> $file)?),
+                            );
+                            egui_images.push((source, derived));
+                            texture
                         },
                     )*
-                    image_ids,
+                    egui_images,
                 }
             }
         }
 
         impl $type {
-            pub(crate) fn contains_image(&self, image_id: AssetId<Image>) -> bool {
-                self.image_ids.contains(&image_id)
+            pub(crate) fn egui_image_for_source(
+                &self,
+                image_id: AssetId<Image>,
+            ) -> Option<&Handle<Image>> {
+                self.egui_images
+                    .iter()
+                    .find_map(|(source, derived)| (source.id() == image_id).then_some(derived))
             }
         }
     }
@@ -64,27 +89,24 @@ macro_rules! image_set {
         #[derive(Resource)]
         pub struct $type {
             $(
-                pub $name: LoadedImage,
+                pub $name: Handle<Image>,
             )*
         }
 
         impl FromWorld for $type {
             fn from_world(world: &mut World) -> Self {
-                let unsafe_world = world.as_unsafe_world_cell();
-                let mut egui_ctx = unsafe { unsafe_world.get_resource_mut::<EguiUserTextures>().unwrap() };
-                let asset_server = unsafe { unsafe_world.get_resource::<AssetServer>().unwrap() };
+                let asset_server = world.resource::<AssetServer>();
                 Self {
                     $(
-                        $name: {
-                            let handle = asset_server.load(concat!($root, stringify!($name), ".png"));
-                            let egui_id = egui_ctx.add_image(EguiTextureHandle::Strong(handle.clone()));
-                            LoadedImage {
-                                bevy: handle,
-                                egui: egui_id,
-                            }
-                        },
+                        $name: asset_server.load(concat!($root, stringify!($name), ".png")),
                     )*
                 }
+            }
+        }
+
+        impl $type {
+            pub(crate) fn contains_image(&self, image_id: AssetId<Image>) -> bool {
+                [$(self.$name.id(),)*].contains(&image_id)
             }
         }
     }

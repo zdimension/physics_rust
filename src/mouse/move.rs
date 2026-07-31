@@ -1,3 +1,4 @@
+use crate::config::AppConfig;
 use crate::mouse::select;
 use crate::mouse::select::{SelectEvent, SelectionMode};
 use crate::mouse_tracking::{MainCamera, MousePosWorld};
@@ -216,7 +217,8 @@ pub fn mouse_long_or_moved(
                             .collect::<Vec<_>>();
                         let origin_angle =
                             rotation_origin_initial_angle(selected_entities.len(), &targets);
-                        let scale = params.cameras.single_mut().unwrap().scale.x;
+                        let scale = params.cameras.single_mut().unwrap().scale.x
+                            * params.app_config.ui_scale_factor();
                         let overlay_ent = spawn_rotate_draw_object(
                             &mut commands,
                             &params.draw_objects,
@@ -306,6 +308,7 @@ pub struct MouseLongOrMovedParams<'w, 's> {
     scene_state: Res<'w, SceneState>,
     mouse_pos: Res<'w, MousePosWorld>,
     images: Res<'w, AppIcons>,
+    app_config: Res<'w, AppConfig>,
     palette: Res<'w, PaletteConfig>,
     rng: Query<'w, 's, &'static mut RngComponent>,
     z: ResMut<'w, DepthSorter>,

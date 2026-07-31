@@ -40,6 +40,7 @@ impl OptionsWindow {
         mut egui_ctx: EguiContexts,
         mut commands: Commands,
         current_tab: Local<Tabs>,
+        mut pending_ui_scale: Local<Option<i32>>,
         gui_icons: Res<GuiIcons>,
         mut skin: ResMut<SkinConfig>,
         mut app: ResMut<AppConfig>,
@@ -65,14 +66,23 @@ impl OptionsWindow {
                             changed = true;
                         }
 
-                        if ui
-                            .add(
-                                egui::Slider::new(&mut app_obj.ui_scale, 50..=250)
-                                    .text("Menu scale:")
-                                    .custom(),
-                            )
-                            .changed()
-                        {
+                        let mut displayed_ui_scale =
+                            pending_ui_scale.unwrap_or(app_obj.ui_scale);
+                        let ui_scale_response = ui.add(
+                            egui::Slider::new(&mut displayed_ui_scale, 50..=250)
+                                .text("Menu scale:")
+                                .suffix("%")
+                                .step_by(1.0)
+                                .custom(),
+                        );
+                        if ui_scale_response.drag_stopped() {
+                            app_obj.ui_scale = displayed_ui_scale;
+                            *pending_ui_scale = None;
+                            changed = true;
+                        } else if ui_scale_response.dragged() {
+                            *pending_ui_scale = Some(displayed_ui_scale);
+                        } else if ui_scale_response.changed() {
+                            app_obj.ui_scale = displayed_ui_scale;
                             changed = true;
                         }
 

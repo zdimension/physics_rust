@@ -76,7 +76,7 @@ impl<'a> Widget for IconButton<'a> {
             let image_rect =
                 egui::Rect::from_min_size(pos2(real_rect.min.x, real_rect.min.y), desired_size);
             let icon = if !selected && dim_if_unselected {
-                icon.tint(Color32::from_gray(180))
+                icon.tint(Color32::from_gray(230))
             } else {
                 icon
             };

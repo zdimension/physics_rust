@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+use crate::config::AppConfig;
 use crate::mouse_tracking::{MainCamera, MousePos, MousePosWorld};
 use bevy::ecs::component::Mutable;
 use bevy::ecs::query::{QueryData, QueryFilter};
@@ -23,6 +24,7 @@ use self::windows::menu::MenuWindow;
 pub mod cursor;
 mod custom_widget;
 mod icon_button;
+pub(crate) mod image_processing;
 pub mod images;
 mod menu_item;
 pub(crate) mod selection_overlay;
@@ -36,6 +38,16 @@ egui_systems! {
     process_temporary_windows,
     remove_empty_target_windows,
     remove_temporary_windows,
+}
+
+pub fn apply_ui_scale(mut egui_ctx: EguiContexts, app_config: Res<AppConfig>) {
+    let Ok(ctx) = egui_ctx.ctx_mut() else {
+        return;
+    };
+    let scale = app_config.ui_scale_factor();
+    if (ctx.zoom_factor() - scale).abs() > f32::EPSILON {
+        ctx.set_zoom_factor(scale);
+    }
 }
 
 pub struct GravitySetting {
@@ -669,7 +681,7 @@ impl<'a> WindowExt for egui::Window<'a> {
         ctx: &egui::Context,
         add_contents: impl FnOnce(&mut egui::Ui) -> R,
     ) -> Option<egui::InnerResponse<Option<R>>> {
-        let opacity = 0.9;
+        let opacity = 0.925;
 
         let frame = egui::Frame::window(&ctx.global_style()).multiply_with_opacity(opacity);
 

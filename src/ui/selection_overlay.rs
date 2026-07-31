@@ -1,3 +1,4 @@
+use crate::config::AppConfig;
 use crate::lyon_compat::GeometryBuilder;
 use crate::lyon_compat::RectangleOrigin;
 use crate::lyon_compat::shapes;
@@ -43,12 +44,13 @@ pub fn sync_selection_highlights(
     mut commands: Commands,
     selected: Query<Entity, With<Selected>>,
     mut highlight_parents: Query<(Entity, &ChildOf), With<SelectionHighlight>>,
-    mut highlights: Query<(&mut Shape, &mut Transform), With<SelectionHighlight>>,
+    mut highlights: Query<(&mut Shape, &mut Transform, &mut Stroke), With<SelectionHighlight>>,
     colliders: Query<Ref<Collider>, Without<SelectionHighlight>>,
     added_selected: Query<(), Added<Selected>>,
     changed_selected_colliders: Query<(), (With<Selected>, Changed<Collider>)>,
     mut removed_selected: RemovedComponents<Selected>,
     mut removed_colliders: RemovedComponents<Collider>,
+    app_config: Res<AppConfig>,
 ) {
     let selection_removed = removed_selected.read().next().is_some();
     let collider_removed = removed_colliders.read().next().is_some();
@@ -56,6 +58,7 @@ pub fn sync_selection_highlights(
         && changed_selected_colliders.is_empty()
         && !selection_removed
         && !collider_removed
+        && !app_config.is_changed()
     {
         return;
     }
@@ -75,7 +78,7 @@ pub fn sync_selection_highlights(
             continue;
         };
         let highlight = highlight_by_target.get(&target).copied();
-        if highlight.is_some() && !collider.is_changed() {
+        if highlight.is_some() && !collider.is_changed() && !app_config.is_changed() {
             continue;
         }
         upsert_selection_highlight(
@@ -83,6 +86,7 @@ pub fn sync_selection_highlights(
             highlight,
             collider_path(&collider),
             SELECTION_OVERLAY_Z,
+            BORDER_THICKNESS * app_config.ui_scale_factor(),
             &mut commands,
             &mut highlights,
         );
@@ -94,14 +98,16 @@ fn upsert_selection_highlight(
     highlight: Option<Entity>,
     path: bevy_prototype_lyon::prelude::tess::path::Path,
     local_z: f32,
+    stroke_width: f32,
     commands: &mut Commands,
-    highlights: &mut Query<(&mut Shape, &mut Transform), With<SelectionHighlight>>,
+    highlights: &mut Query<(&mut Shape, &mut Transform, &mut Stroke), With<SelectionHighlight>>,
 ) {
     if let Some(highlight) = highlight
-        && let Ok((mut shape, mut transform)) = highlights.get_mut(highlight)
+        && let Ok((mut shape, mut transform, mut stroke)) = highlights.get_mut(highlight)
     {
         shape.path = path;
         transform.translation = Vec3::Z * local_z;
+        stroke.options.line_width = stroke_width;
         return;
     }
 
@@ -114,7 +120,7 @@ fn upsert_selection_highlight(
                 Visibility::Inherited,
             ),
             make_fill(Color::srgba(0.0, 0.0, 0.0, 0.0)),
-            make_stroke(SELECTION_COLOR, BORDER_THICKNESS),
+            make_stroke(SELECTION_COLOR, stroke_width),
         ));
     });
 }
@@ -156,6 +162,7 @@ pub fn process_draw_overlay(
     mut commands: Commands,
     mouse: Res<MousePosWorld>,
     mut gizmos: Gizmos,
+    app_config: Res<AppConfig>,
     mut overlay_queries: ParamSet<(
         Query<
             (
@@ -171,7 +178,7 @@ pub fn process_draw_overlay(
             (Without<crate::DrawObject>, Without<MainCamera>),
         >,
     )>,
-    mut last_overlay: Local<Option<(Entity, Overlay, Vec2, f32)>>,
+    mut last_overlay: Local<Option<(Entity, Overlay, Vec2, f32, i32)>>,
     mut active_overlay: Local<Option<Entity>>,
 ) {
     let Some((draw_ent, shape, pos)) = overlay.draw_ent else {
@@ -185,7 +192,7 @@ pub fn process_draw_overlay(
     let Ok(camera) = cameras.single() else {
         return;
     };
-    let current = (draw_ent, shape, pos, camera.scale.x);
+    let current = (draw_ent, shape, pos, camera.scale.x, app_config.ui_scale);
     if last_overlay.as_ref() == Some(&current) {
         return;
     }
@@ -274,7 +281,10 @@ pub fn process_draw_overlay(
             pos,
             path,
             crate::make_fill(Color::srgba(0.0, 0.0, 0.0, 0.0)),
-            crate::make_stroke(color, thickness * camera.scale.x),
+            crate::make_stroke(
+                color,
+                thickness * camera.scale.x * app_config.ui_scale_factor(),
+            ),
             &mut commands,
             &mut root_shapes,
         );

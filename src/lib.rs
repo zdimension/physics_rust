@@ -1,5 +1,6 @@
 #![deny(clippy::disallowed_methods)]
 
+use bevy::anti_alias::smaa::{Smaa, SmaaPreset};
 use bevy::input::InputSystems;
 use bevy::math::Vec3Swizzles;
 use bevy::prelude::*;
@@ -203,8 +204,8 @@ pub fn app_main() {
         .init_resource::<SceneState>()
         .init_resource::<AppIcons>()
         .init_resource::<ToolIcons>()
-        .init_resource::<tools::EguiImageAlphaState>()
         .init_resource::<GuiIcons>()
+        .init_resource::<ui::image_processing::ImagePreparationState>()
         .init_resource::<SkinConfig>()
         .init_resource::<AppConfig>()
         .init_resource::<DragConfig>()
@@ -268,7 +269,7 @@ pub fn app_main() {
         )
         .add_systems(
             Update,
-            (update_from_palette, tools::premultiply_egui_image_alpha),
+            (update_from_palette, ui::image_processing::prepare_images),
         );
     ui::add_systems(&mut app);
     app.add_systems(
@@ -342,7 +343,7 @@ pub fn app_main() {
     )
     .add_systems(
         PreUpdate,
-        cursor::check_egui_wants_focus.after(EguiPreUpdateSet::ProcessInput),
+        (ui::apply_ui_scale, cursor::check_egui_wants_focus).after(EguiPreUpdateSet::ProcessInput),
     )
     .add_systems(
         PreUpdate,
@@ -508,7 +509,12 @@ fn setup_graphics(mut commands: Commands) {
                 .with_translation(Vec3::new(0.0, 0.0, CAMERA_FAR - 0.1))
                 .with_scale(Vec3::new(0.01, 0.01, 1.0)),
         )
-        .insert(Msaa::Sample4)
+        .insert((
+            Msaa::Off,
+            Smaa {
+                preset: SmaaPreset::High,
+            },
+        ))
         .queue(InitWorldTracking)
         .queue(|id: EntityWorldMut| {
             info!("Added main camera with {:?}", id.id());
