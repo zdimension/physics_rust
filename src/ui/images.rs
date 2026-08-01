@@ -136,6 +136,7 @@ icon_set!(
         hinge,
         info,
         lasermenu,
+        loosen,
         material,
         mirror,
         more_options => "moreOptions.png",

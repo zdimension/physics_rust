@@ -160,6 +160,7 @@ impl Default for RefractiveIndex {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bevy::ecs::system::RunSystemOnce;
 
     #[test]
     fn shared_physical_properties_use_multiply_friction() {
@@ -195,14 +196,42 @@ mod tests {
 
         assert_eq!(object.density, ColliderDensity(2.0));
     }
+
+    #[test]
+    fn angle_marker_tracks_circle_geometry_changes() {
+        let mut world = World::new();
+        let object = world.spawn(CircleVisual(2.0)).id();
+
+        world.run_system_once(spawn_circle_angle_markers).unwrap();
+        let marker = world
+            .query_filtered::<(Entity, &ChildOf), With<CircleAngleMarker>>()
+            .iter(&world)
+            .find_map(|(marker, parent)| (parent.parent() == object).then_some(marker))
+            .expect("circle marker should be created");
+
+        world.entity_mut(object).insert(CircleVisual(0.0));
+        world.run_system_once(spawn_circle_angle_markers).unwrap();
+        assert!(world.get_entity(marker).is_err());
+    }
 }
 
 pub fn spawn_circle_angle_markers(
-    circles: Query<(Entity, &CircleVisual), Added<CircleVisual>>,
+    circles: Query<(Entity, &CircleVisual), Changed<CircleVisual>>,
+    markers: Query<(Entity, &ChildOf), With<CircleAngleMarker>>,
     mut commands: Commands,
 ) {
     for (entity, circle) in circles.iter() {
+        let existing_markers = markers
+            .iter()
+            .filter_map(|(marker, parent)| (parent.parent() == entity).then_some(marker))
+            .collect::<Vec<_>>();
         if circle.0 <= 0.0 {
+            for marker in existing_markers {
+                commands.entity(marker).despawn();
+            }
+            continue;
+        }
+        if !existing_markers.is_empty() {
             continue;
         }
         commands.entity(entity).with_children(|parent| {

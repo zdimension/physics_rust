@@ -59,6 +59,8 @@ pub enum AddObjectEvent {
     Laser(Vec2),
     Thruster(Vec2),
     Tracer(Vec2),
+    CenterThruster(Entity),
+    CenterTracer(Entity),
     Polygon {
         pos: Vec2,
         points: Vec<Vec2>,
@@ -141,6 +143,7 @@ pub fn process_add_object(
     scene_state: Res<SceneState>,
     spatial_query: SpatialQuery,
     fixes: Query<(&FixedJoint, &AttachmentJoint), With<FixObject>>,
+    body_colors: Query<&ColorComponent>,
 ) {
     let palette = &palette_config.current_palette;
     let camera = cameras.single().unwrap();
@@ -277,6 +280,7 @@ pub fn process_add_object(
                     camera_scale,
                     camera_rotation,
                     &mut z,
+                    false,
                 );
             }
             Tracer(pos) => {
@@ -291,6 +295,42 @@ pub fn process_add_object(
                     camera_scale,
                     camera_rotation,
                     &mut z,
+                    false,
+                );
+            }
+            CenterThruster(entity) => {
+                let Some(placement) = center_placement(entity, &query) else {
+                    continue;
+                };
+                spawn_thruster_attachment(
+                    &mut commands,
+                    placement,
+                    &images,
+                    camera_scale,
+                    camera_rotation,
+                    &mut z,
+                    true,
+                );
+            }
+            CenterTracer(entity) => {
+                let Some(placement) = center_placement(entity, &query) else {
+                    continue;
+                };
+                let color = body_colors
+                    .get(entity)
+                    .map(|color| color.0)
+                    .unwrap_or_else(|_| {
+                        palette.get_color_hsva_opaque(&mut *rng.single_mut().unwrap())
+                    });
+                spawn_tracer_attachment(
+                    &mut commands,
+                    placement,
+                    &images,
+                    color,
+                    camera_scale,
+                    camera_rotation,
+                    &mut z,
+                    true,
                 );
             }
         }
@@ -494,21 +534,31 @@ fn axle_placement(
             fixes,
         ),
         AddAxleEvent::AddCenter(entity) => {
-            let Ok((_, transform, position, _rotation, _)) = bodies.get(entity) else {
+            let Some(placement) = center_placement(entity, bodies) else {
                 info!("Can't find transform for entity (add center axle)");
                 return None;
             };
-            let pos = position.0;
-            let body1 = BodyHit {
-                entity,
-                local_pos: Vec2::ZERO,
-                z: transform.translation_vec3a().z,
-                rotation: transform.rotation(),
-            };
-            let body2 = body_hits_at(pos, bodies, spatial_query, Some(entity)).next();
-            Some(AttachmentPlacement { body1, body2, pos })
+            let body2 = body_hits_at(placement.pos, bodies, spatial_query, Some(entity)).next();
+            Some(AttachmentPlacement { body2, ..placement })
         }
     }
+}
+
+fn center_placement(entity: Entity, bodies: &BodyQuery) -> Option<AttachmentPlacement> {
+    let Ok((_, transform, position, _rotation, _)) = bodies.get(entity) else {
+        info!("Can't find physical object for centered attachment");
+        return None;
+    };
+    Some(AttachmentPlacement {
+        body1: BodyHit {
+            entity,
+            local_pos: Vec2::ZERO,
+            z: transform.translation_vec3a().z,
+            rotation: transform.rotation(),
+        },
+        body2: None,
+        pos: position.0,
+    })
 }
 
 fn body_hits_at<'a>(
@@ -843,12 +893,17 @@ fn spawn_thruster_attachment(
     camera_scale: f32,
     camera_rotation: Quat,
     z: &mut DepthSorter,
+    align_with_body: bool,
 ) -> Entity {
     let scale = camera_scale * DEFAULT_OBJ_SIZE * 2.0;
     let sprite_scale = Vec3::new(scale / 256.0, scale / 256.0, 1.0);
     commands
         .spawn((
-            screen_aligned_attachment_pose(placement, z.next(), camera_rotation),
+            if align_with_body {
+                attachment_pose(placement, z.next())
+            } else {
+                screen_aligned_attachment_pose(placement, z.next(), camera_rotation)
+            },
             Visibility::Inherited,
             ThrusterSettings::default(),
             ColorComponent(bevy_egui::egui::ecolor::Hsva::new(0.0, 0.0, 1.0, 1.0))
@@ -897,6 +952,7 @@ fn spawn_tracer_attachment(
     camera_scale: f32,
     camera_rotation: Quat,
     z: &mut DepthSorter,
+    center_on_body: bool,
 ) -> Entity {
     let scale = camera_scale * DEFAULT_OBJ_SIZE;
     commands
@@ -906,7 +962,11 @@ fn spawn_tracer_attachment(
                     radius: scale * 0.55,
                     ..Default::default()
                 }),
-                screen_aligned_attachment_pose(placement, z.next(), camera_rotation),
+                if center_on_body {
+                    attachment_pose(placement, z.next())
+                } else {
+                    screen_aligned_attachment_pose(placement, z.next(), camera_rotation)
+                },
                 Visibility::Inherited,
             ),
             crate::make_stroke(Color::srgba(0.0, 0.0, 0.0, 0.0), BORDER_THICKNESS),

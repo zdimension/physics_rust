@@ -1,6 +1,7 @@
 use crate::mouse_tracking::MainCamera;
 use crate::objects::laser::LaserSettings;
 use crate::objects::spring::{SpringEndHandle, SpringObject};
+use crate::objects::plane::PlaneObject;
 use crate::objects::tracer::TracerSettings;
 use crate::objects::thruster::ThrusterSettings;
 use crate::objects::{ColorComponent, MotorComponent};
@@ -83,6 +84,7 @@ impl MenuWindow {
         )>,
         mut cameras: Query<&mut Transform, With<MainCamera>>,
         mut zoom2scene: MessageWriter<ZoomToScene>,
+        planes: Query<(), With<PlaneObject>>,
     ) {
         let ctx = egui_ctx.ctx_mut().expect("primary egui context");
         for (wnd_id, entity, target, mut info_wnd, mut initial_pos) in wnds.iter_mut() {
@@ -226,7 +228,11 @@ impl MenuWindow {
                         if has(Box::new(|info| info.2.is_some())) {
                             menu!("Collision layers", collisions, CollisionsWindow);
                         }
-                        if has(Box::new(|info| info.4.is_some())) {
+                        if targets.iter().copied().any(|id| {
+                            entity_info
+                                .get(id)
+                                .is_ok_and(|info| info.4.is_some() && !planes.contains(id))
+                        }) {
                             menu!("Geometry actions", /, GeometryActionsWindow);
                         }
                         menu!("Combine shapes", csg, CombineShapesWindow);
