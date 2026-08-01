@@ -52,7 +52,7 @@ impl CollisionsWindow {
                 continue;
             }
 
-            egui::Window::new("Collisions").resizable(false).subwindow(
+            egui::Window::new("Collisions").auto_sized().subwindow(
                 id,
                 ctx,
                 &mut initial_pos,

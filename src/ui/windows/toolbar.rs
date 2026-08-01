@@ -174,7 +174,7 @@ pub fn draw_bottom_toolbar(
     let toolbar = egui::Window::new("Tools2")
         .anchor(Align2::CENTER_BOTTOM, [0.0, -1.0])
         .title_bar(false)
-        .resizable(false)
+        .auto_sized()
         .show_translucent(ctx, |ui| {
             ui.style_mut().spacing.item_spacing = egui::Vec2::new(3.0, 3.0);
             ui.horizontal(|ui| {
@@ -260,7 +260,7 @@ pub fn draw_bottom_toolbar(
         egui::Window::new("Gravity")
             .pivot(Align2::LEFT_BOTTOM)
             .fixed_pos(anchor)
-            .resizable(false)
+            .auto_sized()
             .open(&mut open)
             .show_translucent(ctx, |ui| {
                 if gravity_settings_ui(ui, &gui_icons, &mut gravity_conf)

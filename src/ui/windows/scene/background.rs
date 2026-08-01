@@ -24,8 +24,7 @@ impl BackgroundWindow {
             let LinearRgba { red, green, blue, alpha } = palette.current_palette.sky_color.to_linear();
             let mut color = Hsva::from_rgba_premultiplied(red, green, blue, alpha);
             egui::Window::new("Background")
-                .resizable(false)
-                .default_size(egui::Vec2::ZERO)
+                .auto_sized()
                 .subwindow(id, ctx, &mut initial_pos, &mut commands, |ui, _commands| {
                     if egui::color_picker::color_picker_hsva_2d(
                         ui,

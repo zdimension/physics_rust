@@ -19,8 +19,7 @@ pub fn draw_scene_actions(
     egui::Window::new("Scene actions")
         .anchor(Align2::LEFT_TOP, [1.0, 36.0])
         .title_bar(false)
-        .resizable(false)
-        .default_size(egui::Vec2::ZERO)
+        .auto_sized()
         .show_translucent(egui_ctx.ctx_mut().expect("primary egui context"), |ui| {
             ui.vertical(|ui| {
                 let btn = ui.add(IconButton::new(gui_icons.new, 32.0));
@@ -52,7 +51,7 @@ impl NewSceneWindow {
         let ctx = egui_ctx.ctx_mut().expect("primary egui context");
         for (id, mut initial_pos) in wnds.iter_mut() {
             egui::Window::new("New scene")
-                .resizable(false)
+                .auto_sized()
                 .subwindow(id, ctx, &mut initial_pos, &mut commands, |ui, commands| {
                     ui.style_mut().spacing.item_spacing = egui::Vec2::new(3.0, 3.0);
                     ui.vertical(|ui| {

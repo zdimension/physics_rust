@@ -38,8 +38,7 @@ impl TracerWindow {
             }
 
             egui::Window::new("Tracer")
-                .resizable(false)
-                .default_size(egui::Vec2::ZERO)
+                .auto_sized()
                 .subwindow(id, ctx, &mut initial_pos, &mut commands, |ui, _commands| {
                     component_slider_mut(
                         ui,

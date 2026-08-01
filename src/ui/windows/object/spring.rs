@@ -55,8 +55,7 @@ impl SpringWindow {
             });
 
             egui::Window::new("Springs")
-                .resizable(false)
-                .default_size(egui::Vec2::ZERO)
+                .auto_sized()
                 .subwindow(id, ctx, &mut initial_pos, &mut commands, |ui, commands| {
                     component_slider(
                         ui,

@@ -50,7 +50,7 @@ impl OptionsWindow {
             return;
         };
         // C'EST PARCE QUE LE PIVOT EST AU CENTRE QUE Ã‡A S'AGRANDIT DU CENTRE ESPÃˆCE DE DÃ‰BILE
-        egui::Window::new("Options").resizable(false).subwindow(
+        egui::Window::new("Options").auto_sized().subwindow(
             id,
             ctx,
             &mut initial_pos,

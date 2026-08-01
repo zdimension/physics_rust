@@ -32,8 +32,7 @@ impl AppearanceWindow {
                 continue;
             };
             egui::Window::new("Appearance")
-                .resizable(false)
-                .default_size(egui::Vec2::ZERO)
+                .auto_sized()
                 .subwindow(id, ctx, &mut initial_pos, &mut commands, |ui, _commands| {
                     let mut hsva = color.0;
                     if egui::color_picker::color_picker_hsva_2d(

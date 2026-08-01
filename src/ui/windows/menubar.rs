@@ -23,8 +23,7 @@ pub fn draw_menubar(
     egui::Window::new("Menu bar")
         .anchor(Align2::LEFT_TOP, [1.0, 1.0])
         .title_bar(false)
-        .resizable(false)
-        .default_size(egui::Vec2::ZERO)
+        .auto_sized()
         .show_translucent(egui_ctx.ctx_mut().expect("primary egui context"), |ui| {
             ui.horizontal(|ui| {
                 ui.add(TextButton::new("File"));

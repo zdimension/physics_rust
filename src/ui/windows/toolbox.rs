@@ -24,8 +24,7 @@ pub fn draw_toolbox(
     let toolbox = egui::Window::new("Tools")
         .anchor(Align2::LEFT_BOTTOM, [1.0, -1.0])
         .title_bar(false)
-        .resizable(false)
-        .default_size(egui::Vec2::ZERO)
+        .auto_sized()
         .frame(Frame {
             inner_margin: Margin::same(3),
             ..Frame::window(ctx.global_style().as_ref())
@@ -66,8 +65,7 @@ pub fn draw_toolbox(
             [toolbox.response.rect.width() + 2.0, -1.0],
         )
         .title_bar(false)
-        .resizable(false)
-        .default_size(egui::Vec2::ZERO)
+        .auto_sized()
         .frame(Frame {
             inner_margin: Margin::same(3),
             ..Frame::window(ctx.global_style().as_ref())
