@@ -9,6 +9,7 @@ use bevy::prelude::{
 };
 use bevy_egui::egui::ecolor::Hsva;
 
+pub(crate) mod air;
 pub(crate) mod attraction;
 pub(crate) mod axle;
 pub(crate) mod laser;
@@ -53,6 +54,7 @@ pub mod spring;
 pub mod tracer;
 
 pub fn add_systems(app: &mut App) {
+    air::add_systems(app);
     attraction::add_systems(app);
     spring::add_systems(app);
     thruster::add_systems(app);

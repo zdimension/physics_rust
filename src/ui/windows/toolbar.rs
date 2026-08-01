@@ -5,6 +5,7 @@ use bevy_egui::egui::{self, Align2, Color32, Mesh, Sense, Shape};
 use bevy_egui::{EguiContexts, egui::PointerButton};
 
 use crate::tools::ToolIcons;
+use crate::objects::air::AirSettings;
 use crate::ui::icon_button::IconButton;
 use crate::ui::images::GuiIcons;
 use crate::{egui_systems, update_changed};
@@ -103,12 +104,64 @@ fn gravity_settings_ui(
     changed
 }
 
+fn air_settings_ui(ui: &mut egui::Ui, icons: &GuiIcons, settings: &mut AirSettings) {
+    ui.add(
+        egui::Slider::new(&mut settings.multiplier, 0.0..=100.0)
+            .logarithmic(true)
+            .smallest_positive(0.01)
+            .text("Multiplier:")
+            .custom(),
+    );
+    ui.add(
+        egui::Slider::new(&mut settings.linear_term, 0.0..=10.0)
+            .logarithmic(true)
+            .smallest_positive(0.0001)
+            .suffix(" N/(m²/s)")
+            .text("Linear term:")
+            .custom(),
+    );
+    ui.add(
+        egui::Slider::new(&mut settings.quadratic_term, 0.0..=1.0)
+            .logarithmic(true)
+            .smallest_positive(0.0001)
+            .suffix(" N/(m³/s²)")
+            .text("Quadratic term:")
+            .custom(),
+    );
+
+    ui.separator();
+
+    ui.add(
+        egui::Slider::new(&mut settings.wind_speed, 0.0..=50.0)
+            .suffix(" m/s²")
+            .text("Wind speed:")
+            .custom(),
+    );
+    ui.horizontal(|ui| {
+        let mut direction_degrees = settings.wind_direction.to_degrees();
+        if ui
+            .add(
+                egui::Slider::new(&mut direction_degrees, -180.0..=180.0)
+                    .suffix("°")
+                    .text("Wind angle:")
+                    .custom(),
+            )
+            .changed()
+        {
+            settings.wind_direction = direction_degrees.to_radians();
+        }
+        direction_selector(ui, icons, &mut settings.wind_direction);
+    });
+}
+
 pub fn draw_bottom_toolbar(
     mut egui_ctx: EguiContexts,
     mut toolbox_state: ResMut<ToolboxState>,
     //mut rapier: ResMut<RapierConfiguration>,
     mut gravity_conf: Local<GravitySetting>,
     mut gravity_settings_open: Local<bool>,
+    mut air_settings_open: Local<bool>,
+    mut air_settings: ResMut<AirSettings>,
     tool_icons: Res<ToolIcons>,
     gui_icons: Res<GuiIcons>,
     mut clear_tmp: MessageWriter<RemoveTemporaryWindowsEvent>,
@@ -117,6 +170,7 @@ pub fn draw_bottom_toolbar(
 ) {
     let ctx = egui_ctx.ctx_mut().expect("primary egui context");
     let mut gravity_button_left = None;
+    let mut air_button_left = None;
     let toolbar = egui::Window::new("Tools2")
         .anchor(Align2::CENTER_BOTTOM, [0.0, -1.0])
         .title_bar(false)
@@ -182,11 +236,24 @@ pub fn draw_bottom_toolbar(
                 if gravity_btn.secondary_clicked() {
                     *gravity_settings_open = true;
                 }
+
+                let air_btn = ui.add(
+                    IconButton::new(gui_icons.air, 32.0)
+                        .overlay(gui_icons.more_options)
+                        .selected(air_settings.enabled),
+                );
+                air_button_left = Some(air_btn.rect.left());
+                if air_btn.clicked() {
+                    air_settings.enabled = !air_settings.enabled;
+                }
+                if air_btn.secondary_clicked() {
+                    *air_settings_open = true;
+                }
             })
         });
 
     if *gravity_settings_open
-        && let (Some(toolbar), Some(button_left)) = (toolbar, gravity_button_left)
+        && let (Some(toolbar), Some(button_left)) = (toolbar.as_ref(), gravity_button_left)
     {
         let mut open = true;
         let anchor = egui::pos2(button_left, toolbar.response.rect.top() - 1.0);
@@ -203,6 +270,22 @@ pub fn draw_bottom_toolbar(
                 }
             });
         *gravity_settings_open = open;
+    }
+
+    if *air_settings_open
+        && let (Some(toolbar), Some(button_left)) = (toolbar.as_ref(), air_button_left)
+    {
+        let mut open = true;
+        let anchor = egui::pos2(button_left, toolbar.response.rect.top() - 1.0);
+        egui::Window::new("Air")
+            .pivot(Align2::LEFT_BOTTOM)
+            .fixed_pos(anchor)
+            .resizable(false)
+            .open(&mut open)
+            .show_translucent(ctx, |ui| {
+                air_settings_ui(ui, &gui_icons, &mut air_settings);
+            });
+        *air_settings_open = open;
     }
 }
 

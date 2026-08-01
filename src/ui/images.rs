@@ -120,6 +120,7 @@ icon_set!(
         arrow_left,
         arrow_right,
         arrow_up,
+        air,
         checkbox_off => "checkbox-off.png",
         checkbox_on => "checkbox-on.png",
         checkbox_unknown => "checkbox-unknown.png",

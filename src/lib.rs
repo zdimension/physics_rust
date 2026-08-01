@@ -210,6 +210,7 @@ pub fn app_main() {
         .init_resource::<AppConfig>()
         .init_resource::<DragConfig>()
         .init_resource::<SelectionConfig>()
+        .init_resource::<objects::air::AirSettings>()
         .init_resource::<add_object::DepthSorter>()
         .init_resource::<cursor::ToolCursorCache>()
         .init_resource::<wheel::SmoothZoom>()

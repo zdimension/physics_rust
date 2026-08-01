@@ -42,11 +42,15 @@ struct AttractionWorkspace {
     accumulated: Vec<Vec2>,
 }
 
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) struct AttractionForcesSet;
+
 pub(crate) fn add_systems(app: &mut App) {
     app.add_systems(Update, sync_active_attractors).add_systems(
         PhysicsSchedule,
         apply_attraction_forces
             .in_set(PhysicsStepSystems::BroadPhase)
+            .in_set(AttractionForcesSet)
             .after(crate::objects::thruster::apply_thruster_forces),
     );
 }
