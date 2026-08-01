@@ -1,7 +1,10 @@
 use avian2d::prelude::*;
 use bevy::math::Vec2;
 use bevy::prelude::{Local, MessageWriter, Res, ResMut, Time};
-use bevy_egui::egui::{self, Align2, Color32, Mesh, Sense, Shape};
+use bevy_egui::egui::{
+    self, Align2, Color32, Mesh, Popup, PopupCloseBehavior, RectAlign, Sense, SetOpenCommand,
+    Shape,
+};
 use bevy_egui::{EguiContexts, egui::PointerButton};
 
 use crate::tools::ToolIcons;
@@ -13,6 +16,27 @@ use crate::ui::separator_custom::SeparatorCustom;
 use crate::ui::{GravitySetting, RemoveTemporaryWindowsEvent, ToolboxState, WindowExt};
 
 const DIRECTION_SELECTOR_SIZE: f32 = 48.0;
+const SIM_SPEED_HOVER_DELAY: f32 = 0.5;
+
+fn long_hovered(
+    ctx: &egui::Context,
+    response: &egui::Response,
+    hover_start: &mut Option<f64>,
+) -> bool {
+    if !response.hovered() {
+        *hover_start = None;
+        return false;
+    }
+
+    let now = ctx.input(|input| input.time);
+    let elapsed = (now - *hover_start.get_or_insert(now)) as f32;
+    if elapsed < SIM_SPEED_HOVER_DELAY {
+        ctx.request_repaint_after_secs(SIM_SPEED_HOVER_DELAY - elapsed);
+        false
+    } else {
+        true
+    }
+}
 
 fn gravity_vector(settings: &GravitySetting) -> Vec2 {
     Vec2::from_angle(settings.direction) * settings.strength
@@ -161,6 +185,7 @@ pub fn draw_bottom_toolbar(
     mut gravity_conf: Local<GravitySetting>,
     mut gravity_settings_open: Local<bool>,
     mut air_settings_open: Local<bool>,
+    mut playpause_hover_start: Local<Option<f64>>,
     mut air_settings: ResMut<AirSettings>,
     tool_icons: Res<ToolIcons>,
     gui_icons: Res<GuiIcons>,
@@ -171,6 +196,7 @@ pub fn draw_bottom_toolbar(
     let ctx = egui_ctx.ctx_mut().expect("primary egui context");
     let mut gravity_button_left = None;
     let mut air_button_left = None;
+    let mut playpause_response = None;
     let toolbar = egui::Window::new("Tools2")
         .anchor(Align2::CENTER_BOTTOM, [0.0, -1.0])
         .title_bar(false)
@@ -210,11 +236,7 @@ pub fn draw_bottom_toolbar(
                         physics.pause();
                     }
                 }
-                playpause.context_menu(|ui| {
-                    update_changed!(ui, || physics.relative_speed() => |x| physics.set_relative_speed(x), 0.1..=10.0, |slider| {
-                        slider.logarithmic(true).text("Simulation speed :")
-                    });
-                });
+                playpause_response = Some(playpause);
 
                 ui.add(SeparatorCustom::default());
 
@@ -251,6 +273,42 @@ pub fn draw_bottom_toolbar(
                 }
             })
         });
+
+    if let (Some(toolbar), Some(playpause)) = (toolbar.as_ref(), playpause_response.as_ref()) {
+        let popup_id = playpause.id.with("simulation speed");
+        let popup_open = Popup::is_id_open(ctx, popup_id);
+        let long_hover = if popup_open {
+            *playpause_hover_start = None;
+            false
+        } else {
+            long_hovered(ctx, playpause, &mut playpause_hover_start)
+        };
+        let requested_open = playpause.secondary_clicked()
+            || long_hover;
+        let anchor = egui::Rect::from_pos(egui::pos2(
+            playpause.rect.center().x,
+            toolbar.response.rect.top(),
+        ));
+
+        Popup::from_response(playpause)
+            .id(popup_id)
+            .anchor(anchor)
+            .align(RectAlign::TOP)
+            .align_alternatives(&[])
+            .gap(1.0)
+            .open_memory(
+                requested_open.then_some(SetOpenCommand::Bool(true)),
+            )
+            .close_behavior(PopupCloseBehavior::CloseOnClickOutside)
+            .show(|ui| {
+                update_changed!(ui, || physics.relative_speed() => |x| physics.set_relative_speed(x), 0.1..=10.0, |slider| {
+                    slider
+                        .logarithmic(true)
+                        .text("Simulation speed :")
+                        .custom()
+                });
+            });
+    }
 
     if *gravity_settings_open
         && let (Some(toolbar), Some(button_left)) = (toolbar.as_ref(), gravity_button_left)
