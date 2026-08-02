@@ -76,7 +76,7 @@ pub fn show_current_tool_icon(
         }
     }
 
-    let desired_cursor = if egui_input.0 {
+    let desired_cursor = if !app_config.tool_cursor || egui_input.0 {
         CursorIcon::System(SystemCursorIcon::Default)
     } else {
         let current_tool = match pointer_state.mouse_button {
