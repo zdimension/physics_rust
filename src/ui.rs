@@ -34,6 +34,7 @@ mod text_button;
 
 egui_systems! {
     mod windows,
+    mod scale_bar,
     ui_example,
     process_temporary_windows,
     remove_empty_target_windows,
