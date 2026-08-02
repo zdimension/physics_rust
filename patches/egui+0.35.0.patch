@@ -1,5 +1,57 @@
+diff --git a/src/response.rs b/src/response.rs
+index 81d04f1..cef02b7 100644
+--- a/src/response.rs
++++ b/src/response.rs
+@@ -603,8 +603,18 @@ impl Response {
+     /// So we call this when the text of a [`crate::TextEdit`], but not when the cursor changes.
+     #[inline(always)]
+     pub fn mark_changed(&mut self) {
+         self.flags.set(Flags::CHANGED, true);
+     }
+ 
++    /// Mark the underlying data as unchanged.
++    ///
++    /// This is useful for compound widgets that contain an editor for a draft value:
++    /// editing the draft changes the editor, but not yet the value represented by the
++    /// compound widget.
++    #[inline(always)]
++    pub fn mark_unchanged(&mut self) {
++        self.flags.set(Flags::CHANGED, false);
++    }
++
+     /// Should the container be closed?
+     ///
+diff --git a/src/widgets/drag_value.rs b/src/widgets/drag_value.rs
+index 7f1140b..17357cd 100644
+--- a/src/widgets/drag_value.rs
++++ b/src/widgets/drag_value.rs
+@@ -520,3 +520,3 @@ impl Widget for DragValue<'_> {
+-        if change != 0.0 {
++        if change != 0.0 && (update_while_editing || !is_kb_editing) {
+             value += speed * change;
+             value = emath::round_to_decimals(value, auto_decimals);
+@@ -558,3 +558,3 @@ impl Widget for DragValue<'_> {
+-            let response = ui.add(
++            let mut response = ui.add(
+                 TextEdit::singleline(&mut value_text)
+                     .clip_text(false)
+@@ -584,9 +584,13 @@ impl Widget for DragValue<'_> {
+             if update {
+                 let parsed_value = parse(custom_parser.as_ref(), &value_text);
+                 if let Some(mut parsed_value) = parsed_value {
+                     // User edits always clamps:
+                     parsed_value = clamp_value_to_range(parsed_value, range.clone());
+                     set(&mut get_set_value, parsed_value);
+                 }
++            } else if !update_while_editing {
++                // The text editor contains a draft. Do not report a numeric value change
++                // until that draft is committed by Enter or losing focus.
++                response.mark_unchanged();
+             }
+             ui.data_mut(|data| data.insert_temp(id, value_text));
+             response
 diff --git a/src/widgets/slider.rs b/src/widgets/slider.rs
-index b5ce4fc..c77ce18 100644
+index b5ce4fc..087f25a 100644
 --- a/src/widgets/slider.rs
 +++ b/src/widgets/slider.rs
 @@ -63,6 +63,7 @@ pub enum SliderClamping {
@@ -37,6 +89,13 @@ index b5ce4fc..c77ce18 100644
      /// unless you change this behavior with [`Self::clamping`].
      pub fn new<Num: emath::Numeric>(
          value: &'a mut Num,
+@@ -168,5 +168,5 @@ impl<'a> Slider<'a> {
+             trailing_fill: None,
+             handle_shape: None,
+-            update_while_editing: true,
++            update_while_editing: false,
+         }
+     }
 @@ -251,7 +251,7 @@ impl<'a> Slider<'a> {
  
      /// Controls when the values will be clamped to the range.
@@ -55,6 +114,13 @@ index b5ce4fc..c77ce18 100644
      /// ```
      /// # egui::__run_test_ui(|ui| {
      /// let mut my_value: f32 = 1337.0;
+@@ -636,5 +636,5 @@ impl<'a> Slider<'a> {
+     /// Update the value on each key press when text-editing the value.
+     ///
+-    /// Default: `true`.
++    /// Default: `false`.
+     /// If `false`, the value will only be updated when user presses enter or deselects the value.
+     #[inline]
 @@ -1208,3 +1208,106 @@ fn logarithmic_zero_cutoff(min: f64, max: f64) -> f64 {
      );
      cutoff

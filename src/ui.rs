@@ -734,6 +734,37 @@ mod tests {
     use super::*;
 
     #[test]
+    fn deferred_numeric_edits_do_not_change_or_signal_until_focus_is_lost() {
+        let ctx = egui::Context::default();
+        let mut value = 1.0_f64;
+        let mut editor_id = egui::Id::NULL;
+
+        let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+            let response = ui.add(egui::DragValue::new(&mut value).update_while_editing(false));
+            editor_id = response.id;
+            response.request_focus();
+        });
+
+        let mut input = egui::RawInput::default();
+        input.events.push(egui::Event::Text("2".into()));
+        let mut draft_reported_changed = false;
+        let _ = ctx.run_ui(input, |ui| {
+            draft_reported_changed = ui
+                .add(egui::DragValue::new(&mut value).update_while_editing(false))
+                .changed();
+        });
+
+        assert_eq!(value, 1.0);
+        assert!(!draft_reported_changed);
+
+        ctx.memory_mut(|memory| memory.surrender_focus(editor_id));
+        let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+            ui.add(egui::DragValue::new(&mut value).update_while_editing(false));
+        });
+        assert_eq!(value, 12.0);
+    }
+
+    #[test]
     fn sliders_allow_out_of_range_text_values_by_default() {
         assert_eq!(egui::SliderClamping::default(), egui::SliderClamping::Never);
     }
