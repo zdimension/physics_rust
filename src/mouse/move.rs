@@ -254,6 +254,7 @@ pub fn mouse_long_or_moved(
                         let (transform, _, _, _) = query.get(under).unwrap();
                         *ui_button = Some(Move(Some(MoveState {
                             primary_delta: transform.translation_vec3a().xy() - curpos,
+                            pointer_start: curpos,
                             targets: selected_entities
                                 .iter()
                                 .filter_map(|entity| {

@@ -52,5 +52,33 @@ pub fn process_move(
 #[derive(Clone, Debug)]
 pub struct MoveState {
     pub primary_delta: Vec2,
+    pub pointer_start: Vec2,
     pub targets: Vec<(Entity, Vec2)>,
+}
+
+impl MoveState {
+    pub fn pointer_delta(&self, pointer: Vec2) -> Vec2 {
+        pointer - self.pointer_start
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn movement_is_relative_to_the_pointer_when_the_move_gesture_starts() {
+        let pointer_start = Vec2::new(4.25, -1.5);
+        let state = MoveState {
+            primary_delta: Vec2::new(2.0, 3.0),
+            pointer_start,
+            targets: Vec::new(),
+        };
+
+        assert_eq!(state.pointer_delta(pointer_start), Vec2::ZERO);
+        assert_eq!(
+            state.pointer_delta(pointer_start + Vec2::new(0.5, -0.25)),
+            Vec2::new(0.5, -0.25)
+        );
+    }
 }

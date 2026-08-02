@@ -8,12 +8,16 @@ use bevy_egui::egui::{
 use bevy_egui::{EguiContexts, egui::PointerButton};
 
 use crate::tools::ToolIcons;
+use crate::grid::{GridAxes, GridSettings};
 use crate::objects::air::AirSettings;
 use crate::ui::icon_button::IconButton;
 use crate::ui::images::GuiIcons;
 use crate::{egui_systems, update_changed};
 use crate::ui::separator_custom::SeparatorCustom;
-use crate::ui::{GravitySetting, RemoveTemporaryWindowsEvent, ToolboxState, WindowExt};
+use crate::ui::{
+    GravitySetting, RemoveTemporaryWindowsEvent, ToolboxState, WindowExt, bool_checkbox,
+    image_radio,
+};
 
 const DIRECTION_SELECTOR_SIZE: f32 = 48.0;
 const SIM_SPEED_HOVER_DELAY: f32 = 0.5;
@@ -178,6 +182,25 @@ fn air_settings_ui(ui: &mut egui::Ui, icons: &GuiIcons, settings: &mut AirSettin
     });
 }
 
+fn grid_settings_ui(ui: &mut egui::Ui, icons: &GuiIcons, settings: &mut GridSettings) {
+    ui.horizontal(|ui| {
+        ui.label("Number of axes:");
+        if image_radio(ui, icons, settings.axes == GridAxes::Rectangular, "2") {
+            settings.axes = GridAxes::Rectangular;
+        }
+        if image_radio(ui, icons, settings.axes == GridAxes::Triangular, "3") {
+            settings.axes = GridAxes::Triangular;
+        }
+    });
+    ui.add(
+        egui::Slider::new(&mut settings.base, 2..=100)
+            .logarithmic(true)
+            .text("Grid base:")
+            .custom(),
+    );
+    bool_checkbox(ui, icons, &mut settings.snap, "Snap to grid");
+}
+
 pub fn draw_bottom_toolbar(
     mut egui_ctx: EguiContexts,
     mut toolbox_state: ResMut<ToolboxState>,
@@ -185,8 +208,10 @@ pub fn draw_bottom_toolbar(
     mut gravity_conf: Local<GravitySetting>,
     mut gravity_settings_open: Local<bool>,
     mut air_settings_open: Local<bool>,
+    mut grid_settings_open: Local<bool>,
     mut playpause_hover_start: Local<Option<f64>>,
     mut air_settings: ResMut<AirSettings>,
+    mut grid_settings: ResMut<GridSettings>,
     tool_icons: Res<ToolIcons>,
     gui_icons: Res<GuiIcons>,
     mut clear_tmp: MessageWriter<RemoveTemporaryWindowsEvent>,
@@ -196,6 +221,7 @@ pub fn draw_bottom_toolbar(
     let ctx = egui_ctx.ctx_mut().expect("primary egui context");
     let mut gravity_button_left = None;
     let mut air_button_left = None;
+    let mut grid_button_left = None;
     let mut playpause_response = None;
     let toolbar = egui::Window::new("Tools2")
         .anchor(Align2::CENTER_BOTTOM, [0.0, -1.0])
@@ -271,6 +297,19 @@ pub fn draw_bottom_toolbar(
                 if air_btn.secondary_clicked() {
                     *air_settings_open = true;
                 }
+
+                let grid_btn = ui.add(
+                    IconButton::new(gui_icons.grid, 32.0)
+                        .overlay(gui_icons.more_options)
+                        .selected(grid_settings.enabled),
+                );
+                grid_button_left = Some(grid_btn.rect.left());
+                if grid_btn.clicked() {
+                    grid_settings.enabled = !grid_settings.enabled;
+                }
+                if grid_btn.secondary_clicked() {
+                    *grid_settings_open = true;
+                }
             })
         });
 
@@ -344,6 +383,22 @@ pub fn draw_bottom_toolbar(
                 air_settings_ui(ui, &gui_icons, &mut air_settings);
             });
         *air_settings_open = open;
+    }
+
+    if *grid_settings_open
+        && let (Some(toolbar), Some(button_left)) = (toolbar.as_ref(), grid_button_left)
+    {
+        let mut open = true;
+        let anchor = egui::pos2(button_left, toolbar.response.rect.top() - 1.0);
+        egui::Window::new("Grid")
+            .pivot(Align2::LEFT_BOTTOM)
+            .fixed_pos(anchor)
+            .auto_sized()
+            .open(&mut open)
+            .show_translucent(ctx, |ui| {
+                grid_settings_ui(ui, &gui_icons, &mut grid_settings);
+            });
+        *grid_settings_open = open;
     }
 }
 

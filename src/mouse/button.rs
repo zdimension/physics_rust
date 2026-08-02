@@ -1,3 +1,4 @@
+use crate::grid::{GridSettings, SnapBody};
 use crate::mouse_tracking::{MainCamera, MousePos, MousePosWorld};
 use avian2d::prelude::*;
 use bevy::ecs::system::SystemParam;
@@ -56,6 +57,21 @@ pub struct LaserClickTargets<'w, 's> {
     >,
 }
 
+#[derive(SystemParam)]
+pub struct GridInteraction<'w, 's> {
+    settings: Res<'w, GridSettings>,
+    cameras: Query<'w, 's, &'static Transform, With<MainCamera>>,
+    bodies: Query<
+        'w,
+        's,
+        (
+            &'static Collider,
+            &'static Rotation,
+            &'static ColliderMassProperties,
+        ),
+    >,
+}
+
 pub fn left_release(
     mouse_button_input: Res<ButtonInput<MouseButton>>,
     mut commands: Commands,
@@ -70,7 +86,7 @@ pub fn left_release(
     mut overlay: ResMut<OverlayState>,
     selection_config: Res<SelectionConfig>,
     laser_click_targets: LaserClickTargets,
-    cameras: Query<&Transform, With<MainCamera>>,
+    grid: GridInteraction,
     mut ev_zoom: MessageWriter<ZoomEvent>,
     mut attachment_move_commit: AttachmentMoveCommit,
 ) {
@@ -78,6 +94,11 @@ pub fn left_release(
     use bevy::math::Vec3Swizzles;
     let screen_pos = **screen_pos;
     let pos = mouse_pos.xy();
+    let camera_scale = grid
+        .cameras
+        .single()
+        .map_or(1.0, |camera| camera.scale.x.abs());
+    let draw_pos = grid.settings.snap_point(pos, camera_scale);
     let selected_entities = tool_state.selected.iter().collect::<Vec<_>>();
     let selection_mode = if tool_state.keys.pressed(KeyCode::ControlLeft)
         || tool_state.keys.pressed(KeyCode::ControlRight)
@@ -174,18 +195,18 @@ pub fn left_release(
                     if selection_config.select_by_encircling {
                         select_enclosed.write(SelectEnclosedEvent {
                             start: click_pos,
-                            end: pos,
+                            end: draw_pos,
                             mode: selection_mode,
                             open_menu: false,
                             fallback_add_object: Some(AddObjectEvent::Box {
                                 pos: click_pos,
-                                size: pos - click_pos,
+                                size: draw_pos - click_pos,
                             }),
                         });
                     } else {
                         add_obj.write(AddObjectEvent::Box {
                             pos: click_pos,
-                            size: pos - click_pos,
+                            size: draw_pos - click_pos,
                         });
                     }
                     *state_button = Some(Box(None));
@@ -193,7 +214,7 @@ pub fn left_release(
                 Circle(Some(_ent)) if screen_pos.distance(click_pos_screen) > 6.0 => {
                     add_obj.write(AddObjectEvent::Circle {
                         center: click_pos,
-                        radius: (pos - click_pos).length(),
+                        radius: (draw_pos - click_pos).length(),
                     });
                     *state_button = Some(Circle(None));
                 }
@@ -263,7 +284,7 @@ pub fn left_release(
 
     if rebase_active_zoom && mouse_button_input.pressed(MouseButton::Left) {
         if let Some(Zoom(Some(state))) = &mut pointer_state.mouse_left {
-            if let Ok(camera) = cameras.single() {
+            if let Ok(camera) = grid.cameras.single() {
                 state.orig_camera_pos = camera.translation.xy();
                 state.orig_camera_scale = camera.scale.x;
                 state.click_pos_screen = screen_pos;
@@ -294,6 +315,7 @@ pub fn left_pressed(
     mut ev_drag: MessageWriter<DragEvent>,
     mut ev_spring_preview: MessageWriter<UpdateSpringPreviewEvent>,
     mut overlay: ResMut<OverlayState>,
+    grid: GridInteraction,
     time: Res<Time>,
 ) {
     let screen_pos = **screen_pos;
@@ -308,6 +330,11 @@ pub fn left_pressed(
     }
 
     let pos = mouse_pos.xy();
+    let camera_scale = grid
+        .cameras
+        .single()
+        .map_or(1.0, |camera| camera.scale.x.abs());
+    let draw_pos = grid.settings.snap_point(pos, camera_scale);
 
     let selected_tool = tool_state.toolbox.toolbox_selected.clone();
     let pointer_state = &mut *tool_state.pointer; // https://bevy-cheatbook.github.io/pitfalls/split-borrows.html
@@ -355,10 +382,34 @@ pub fn left_pressed(
                     }
                     Some(Move(Some(state))) => {
                         if !state.targets.is_empty() {
+                            let move_delta = state.pointer_delta(pos);
+                            let desired_targets = state
+                                .targets
+                                .iter()
+                                .filter_map(|(entity, original_pos)| {
+                                    let (collider, rotation, mass) =
+                                        grid.bodies.get(*entity).ok()?;
+                                    Some(SnapBody {
+                                        position: *original_pos + move_delta,
+                                        rotation: *rotation,
+                                        center_of_mass: mass.center_of_mass,
+                                        collider,
+                                    })
+                                })
+                                .collect::<Vec<_>>();
+                            let snap_correction = if grid.settings.snap {
+                                grid.settings
+                                    .layout(camera_scale)
+                                    .map_or(Vec2::ZERO, |layout| {
+                                        layout.snap_translation(&desired_targets)
+                                    })
+                            } else {
+                                Vec2::ZERO
+                            };
                             for (entity, original_pos) in state.targets.iter().copied() {
                                 ev_move.write(MoveEvent {
                                     entity,
-                                    pos: original_pos + (pos - click_pos),
+                                    pos: original_pos + move_delta + snap_correction,
                                 });
                             }
                         } else {
@@ -410,7 +461,7 @@ pub fn left_pressed(
                         *overlay = OverlayState {
                             draw_ent: Some((
                                 *draw_ent,
-                                Overlay::Rectangle(pos - click_pos),
+                                Overlay::Rectangle(draw_pos - click_pos),
                                 click_pos,
                             )),
                         };
@@ -419,7 +470,7 @@ pub fn left_pressed(
                         *overlay = OverlayState {
                             draw_ent: Some((
                                 *draw_ent,
-                                Overlay::Circle((pos - click_pos).length()),
+                                Overlay::Circle((draw_pos - click_pos).length()),
                                 click_pos,
                             )),
                         };
@@ -463,8 +514,13 @@ pub fn left_pressed(
                     .is_pointer_over_egui()
             {
                 info!("button pressed ({:?})", button);
+                let start_pos = if matches!(tool, Box(_) | Circle(_)) {
+                    draw_pos
+                } else {
+                    pos
+                };
                 *state_button = Some(tool);
-                *state_pos = Some((time.elapsed(), pos, screen_pos));
+                *state_pos = Some((time.elapsed(), start_pos, screen_pos));
                 if pointer_state.mouse_button.is_none() {
                     pointer_state.mouse_button = Some(button);
                 }

@@ -133,6 +133,7 @@ icon_set!(
         direction_top,
         erase,
         gravity,
+        grid,
         hinge,
         info,
         lasermenu,

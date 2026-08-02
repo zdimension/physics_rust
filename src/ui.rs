@@ -35,6 +35,7 @@ mod text_button;
 egui_systems! {
     mod windows,
     mod scale_bar,
+    crate::grid::draw_grid,
     ui_example,
     process_temporary_windows,
     remove_empty_target_windows,

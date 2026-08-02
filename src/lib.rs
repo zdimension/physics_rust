@@ -51,6 +51,7 @@ use crate::ui::images::{AppIcons, GuiIcons};
 
 mod config;
 mod demo;
+mod grid;
 mod lyon_compat;
 mod measures;
 mod mouse;
@@ -62,7 +63,6 @@ mod skin;
 mod tools;
 mod ui;
 mod update_from;
-//mod grid;
 
 const BORDER_THICKNESS: f32 = 0.03;
 const CAMERA_FAR: f32 = 1e6f32;
@@ -211,6 +211,7 @@ pub fn app_main() {
         .init_resource::<DragConfig>()
         .init_resource::<SelectionConfig>()
         .init_resource::<objects::air::AirSettings>()
+        .init_resource::<grid::GridSettings>()
         .init_resource::<add_object::DepthSorter>()
         .init_resource::<cursor::ToolCursorCache>()
         .init_resource::<wheel::SmoothZoom>()
