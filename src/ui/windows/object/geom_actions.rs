@@ -2,7 +2,7 @@ use std::collections::HashSet;
 use std::f32::consts::PI;
 
 use crate::lyon_compat::{GeometryBuilder, RectangleOrigin, Shape, shapes};
-use crate::objects::phy_obj::{CircleVisual, FreeformObject};
+use crate::objects::phy_obj::{CircleVisual, CollisionOutline, FreeformObject};
 use crate::objects::plane::PlaneObject;
 use crate::objects::spring::{SpringEnd, SpringObject};
 use crate::tools::ToolIcons;
@@ -229,7 +229,9 @@ fn process_geometry_actions(
                         && transform_to_circle(&mut collider, &mut shape, &mut circle)
                         && is_polygon
                     {
-                        commands.entity(entity).remove::<FreeformObject>();
+                        commands
+                            .entity(entity)
+                            .remove::<(FreeformObject, CollisionOutline)>();
                     }
                 }
             }
@@ -241,7 +243,9 @@ fn process_geometry_actions(
                         && transform_to_box(&mut collider, &mut shape, &mut circle)
                         && is_polygon
                     {
-                        commands.entity(entity).remove::<FreeformObject>();
+                        commands
+                            .entity(entity)
+                            .remove::<(FreeformObject, CollisionOutline)>();
                     }
                 }
             }

@@ -20,6 +20,11 @@ pub struct CircleVisual(pub f32);
 #[derive(Component)]
 pub struct FreeformObject;
 
+/// The exact collision boundary for freeform objects whose painted path is
+/// inset to keep its centered border stroke inside the collider.
+#[derive(Component, Clone)]
+pub struct CollisionOutline(pub bevy_prototype_lyon::prelude::tess::path::Path);
+
 #[derive(Component, Copy, Clone, Debug, Default, PartialEq, Eq)]
 pub enum FrictionModel {
     #[default]
@@ -139,19 +144,21 @@ impl PhysicalObject {
     }
 
     pub fn freeform(points: &[Vec2], pos: Vec3) -> Option<Self> {
-        Self::freeform_path(polygon_path(points, true), pos, 0.0)
+        let path = polygon_path(points, true);
+        Self::freeform_path(path.clone(), path, pos, 0.0)
     }
 
     pub fn freeform_path(
-        path: bevy_prototype_lyon::prelude::tess::path::Path,
+        collision_path: bevy_prototype_lyon::prelude::tess::path::Path,
+        visual_path: bevy_prototype_lyon::prelude::tess::path::Path,
         pos: Vec3,
         angle: f32,
     ) -> Option<Self> {
-        let geometry = tessellate_path(&path)?;
+        let geometry = tessellate_path(&collision_path)?;
         let mut object = Self::make(
             geometry.collider(),
             ShapeBundle::new(
-                path,
+                visual_path,
                 Transform::from_translation(pos).with_rotation(Quat::from_rotation_z(angle)),
                 Visibility::Inherited,
             ),
@@ -214,7 +221,7 @@ mod tests {
     #[test]
     fn freeform_path_keeps_its_placement_orientation() {
         let path = polygon_path(&[Vec2::ZERO, Vec2::X, Vec2::Y], true);
-        let object = PhysicalObject::freeform_path(path, Vec3::ZERO, 0.75).unwrap();
+        let object = PhysicalObject::freeform_path(path.clone(), path, Vec3::ZERO, 0.75).unwrap();
 
         assert!((object.rotation.as_radians() - 0.75).abs() < 1.0e-6);
     }

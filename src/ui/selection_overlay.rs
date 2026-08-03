@@ -4,7 +4,7 @@ use crate::lyon_compat::RectangleOrigin;
 use crate::lyon_compat::shapes;
 use crate::lyon_compat::{Fill, Shape, ShapeBundle, Stroke};
 use crate::mouse_tracking::{MainCamera, MousePosWorld};
-use crate::objects::phy_obj::FreeformObject;
+use crate::objects::phy_obj::{CollisionOutline, FreeformObject};
 use crate::ui::Selected;
 use crate::{BORDER_THICKNESS, make_fill, make_stroke};
 use avian2d::parry::shape::TypedShape;
@@ -55,7 +55,10 @@ pub fn sync_selection_highlights(
     mut highlight_parents: Query<(Entity, &ChildOf), With<SelectionHighlight>>,
     mut highlights: Query<(&mut Shape, &mut Transform, &mut Stroke), With<SelectionHighlight>>,
     colliders: Query<Ref<Collider>, Without<SelectionHighlight>>,
-    freeform_shapes: Query<&Shape, (With<FreeformObject>, Without<SelectionHighlight>)>,
+    freeform_shapes: Query<
+        (&Shape, Option<&CollisionOutline>),
+        (With<FreeformObject>, Without<SelectionHighlight>),
+    >,
     added_selected: Query<(), Added<Selected>>,
     changed_selected_colliders: Query<(), (With<Selected>, Changed<Collider>)>,
     mut removed_selected: RemovedComponents<Selected>,
@@ -94,9 +97,13 @@ pub fn sync_selection_highlights(
         upsert_selection_highlight(
             target,
             highlight,
-            freeform_shapes
-                .get(target)
-                .map_or_else(|_| collider_path(&collider), |shape| shape.path.clone()),
+            freeform_shapes.get(target).map_or_else(
+                |_| collider_path(&collider),
+                |(shape, collision_outline)| {
+                    collision_outline
+                        .map_or_else(|| shape.path.clone(), |outline| outline.0.clone())
+                },
+            ),
             SELECTION_OVERLAY_Z,
             BORDER_THICKNESS * app_config.ui_scale_factor(),
             &mut commands,

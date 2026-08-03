@@ -9,7 +9,7 @@ use crate::objects::axle::{
     HingeMotorRing, hinge_selection_radius,
 };
 use crate::objects::laser::{LaserSettings, LaserVisual};
-use crate::objects::phy_obj::{FreeformObject, PhysicalObject};
+use crate::objects::phy_obj::{CollisionOutline, FreeformObject, PhysicalObject};
 use crate::objects::plane::spawn_plane;
 use crate::objects::thruster::{ThrusterInner, ThrusterSettings};
 use crate::objects::tracer::{TracerObject, TracerSettings, TracerVisual};
@@ -190,13 +190,20 @@ pub fn process_add_object(
                     continue;
                 };
                 let gear_pos = z.pos(center);
-                let Some(object) = PhysicalObject::freeform_path(outline.path(), gear_pos, angle)
-                else {
+                let collision_path = outline.path();
+                let visual_path = outline.visual_path(BORDER_THICKNESS);
+                let Some(object) = PhysicalObject::freeform_path(
+                    collision_path.clone(),
+                    visual_path,
+                    gear_pos,
+                    angle,
+                ) else {
                     continue;
                 };
                 let entity = commands
                     .spawn(object)
                     .insert(FreeformObject)
+                    .insert(CollisionOutline(collision_path))
                     .insert(ChildOf(scene_state.scene))
                     .insert(
                         ColorComponent(palette.get_color_hsva(&mut *rng.single_mut().unwrap()))
