@@ -73,30 +73,44 @@ fn draw_scale_bar(
             egui::Align2::RIGHT_BOTTOM,
             egui::vec2(-SCREEN_MARGIN, -SCREEN_MARGIN),
         )
-        .order(egui::Order::Foreground)
+        .order(egui::Order::Background)
         .interactable(false)
+        .sense(egui::Sense::empty())
         .show(ctx, |ui| {
-            ui.spacing_mut().item_spacing.y = 2.0;
-            ui.with_layout(egui::Layout::top_down(egui::Align::Max), |ui| {
-                ui.label(scale_label(scale));
+            let color = ui.visuals().text_color();
+            let font = egui::TextStyle::Body.resolve(ui.style());
+            let label = ui
+                .painter()
+                .layout_no_wrap(scale_label(scale), font, color);
+            let spacing = 2.0;
+            let size = egui::vec2(
+                scale.screen_length.max(label.size().x),
+                label.size().y + spacing + END_HEIGHT,
+            );
+            let (rect, _) = ui.allocate_exact_size(size, egui::Sense::empty());
+            ui.painter().galley(
+                egui::pos2(rect.right() - label.size().x, rect.top()),
+                label,
+                color,
+            );
 
-                let (rect, _) = ui.allocate_exact_size(
-                    egui::vec2(scale.screen_length, END_HEIGHT),
-                    egui::Sense::hover(),
-                );
-                let stroke = egui::Stroke::new(LINE_THICKNESS, ui.visuals().text_color());
-                let left = egui::pos2(rect.left(), rect.center().y);
-                let right = egui::pos2(rect.right(), rect.center().y);
-                let top_left = egui::pos2(rect.left(), rect.top());
-                let top_right = egui::pos2(rect.right(), rect.top());
-                let bottom_left = egui::pos2(rect.left(), rect.bottom());
-                let bottom_right = egui::pos2(rect.right(), rect.bottom());
-                ui.painter().line_segment([left, right], stroke);
-                ui.painter()
-                    .line_segment([top_left, bottom_left], stroke);
-                ui.painter()
-                    .line_segment([top_right, bottom_right], stroke);
-            });
+            let line_rect = egui::Rect::from_min_size(
+                egui::pos2(
+                    rect.right() - scale.screen_length,
+                    rect.bottom() - END_HEIGHT,
+                ),
+                egui::vec2(scale.screen_length, END_HEIGHT),
+            );
+            let stroke = egui::Stroke::new(LINE_THICKNESS, color);
+            let left = egui::pos2(line_rect.left(), line_rect.center().y);
+            let right = egui::pos2(line_rect.right(), line_rect.center().y);
+            let top_left = egui::pos2(line_rect.left(), line_rect.top());
+            let top_right = egui::pos2(line_rect.right(), line_rect.top());
+            let bottom_left = egui::pos2(line_rect.left(), line_rect.bottom());
+            let bottom_right = egui::pos2(line_rect.right(), line_rect.bottom());
+            ui.painter().line_segment([left, right], stroke);
+            ui.painter().line_segment([top_left, bottom_left], stroke);
+            ui.painter().line_segment([top_right, bottom_right], stroke);
         });
 }
 
