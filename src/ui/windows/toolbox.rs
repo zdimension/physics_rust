@@ -1,6 +1,7 @@
 use crate::egui_systems;
 use crate::mouse::select::SelectionConfig;
 use crate::tools::drag::DragConfig;
+use crate::tools::gear::GearSettings;
 use crate::tools::{ToolEnum, ToolIcons};
 use crate::ui::icon_button::IconButton;
 use crate::ui::images::GuiIcons;
@@ -19,6 +20,7 @@ pub fn draw_toolbox(
     mut clear_tmp: MessageWriter<RemoveTemporaryWindowsEvent>,
     mut drag_config: ResMut<DragConfig>,
     mut selection_config: ResMut<SelectionConfig>,
+    mut gear_settings: ResMut<GearSettings>,
 ) {
     let ctx = egui_ctx.ctx_mut().expect("primary egui context");
     let toolbox = egui::Window::new("Tools")
@@ -106,6 +108,41 @@ pub fn draw_toolbox(
                                 &mut selection_config.select_by_encircling,
                                 "Select by encircling",
                             );
+                        }
+                        Gear(_) => {
+                            update_changed!(ui, gear_settings.teeth_size, 0.1..=10.0, |slider| {
+                                slider
+                                    .text("Teeth size:")
+                                    .suffix(" m")
+                                    .logarithmic(true)
+                                    .custom()
+                            });
+                            bool_checkbox(
+                                ui,
+                                &gui_icons,
+                                &mut gear_settings.external,
+                                "External gears",
+                            );
+                            bool_checkbox(
+                                ui,
+                                &gui_icons,
+                                &mut gear_settings.internal,
+                                "Internal gears",
+                            );
+                            if gear_settings.internal {
+                                update_changed!(
+                                    ui,
+                                    gear_settings.hollow_thickness,
+                                    0.1..=10.0,
+                                    |slider| {
+                                        slider
+                                            .text("Hollow gear thickness:")
+                                            .suffix(" m")
+                                            .logarithmic(true)
+                                            .custom()
+                                    }
+                                );
+                            }
                         }
                         _ => {
                             break 'settings;

@@ -287,6 +287,12 @@ pub fn mouse_long_or_moved(
                             &params.draw_objects,
                         ))));
                     }
+                    (Gear(None), _) => {
+                        *ui_button = Some(Gear(Some(spawn_draw_object(
+                            &mut commands,
+                            &params.draw_objects,
+                        ))));
+                    }
                     (Polygon(None), _) => {
                         let overlay_ent = spawn_draw_object(&mut commands, &params.draw_objects);
                         let camera_scale = params.cameras.single().unwrap().scale.x.abs();

@@ -32,11 +32,13 @@ use crate::CustomForceDespawn;
 use crate::UnfreezeEntityEvent;
 use crate::UsedMouseButton;
 use crate::tools::drag::DragEvent;
+use crate::tools::gear::{GearOutline, GearSettings};
 
 #[derive(SystemParam)]
 pub struct ToolInteractionState<'w, 's> {
     pointer: ResMut<'w, PointerToolState>,
     toolbox: Res<'w, ToolboxState>,
+    gear_settings: Res<'w, GearSettings>,
     keys: Res<'w, ButtonInput<KeyCode>>,
     selected: Query<'w, 's, Entity, With<Selected>>,
 }
@@ -100,6 +102,7 @@ pub fn left_release(
         .single()
         .map_or(1.0, |camera| camera.scale.x.abs());
     let draw_pos = grid.settings.snap_point(pos, camera_scale);
+    let gear_settings = *tool_state.gear_settings;
     let selected_entities = tool_state.selected.iter().collect::<Vec<_>>();
     let selection_mode = if tool_state.keys.pressed(KeyCode::ControlLeft)
         || tool_state.keys.pressed(KeyCode::ControlRight)
@@ -155,6 +158,9 @@ pub fn left_release(
                     commands.entity(*ent).despawn();
                 }
                 Circle(Some(ent)) => {
+                    commands.entity(*ent).despawn();
+                }
+                Gear(Some(ent)) => {
                     commands.entity(*ent).despawn();
                 }
                 Polygon(Some(state)) => {
@@ -221,6 +227,14 @@ pub fn left_release(
                         radius: (draw_pos - click_pos).length(),
                     });
                     *state_button = Some(Circle(None));
+                }
+                Gear(Some(_ent)) if screen_pos.distance(click_pos_screen) > 6.0 => {
+                    add_obj.write(AddObjectEvent::Gear {
+                        center: click_pos,
+                        radius: (draw_pos - click_pos).length(),
+                        settings: gear_settings,
+                    });
+                    *state_button = Some(Gear(None));
                 }
                 Polygon(Some(mut state)) => {
                     state.push_world_point(draw_pos, f32::EPSILON);
@@ -351,6 +365,7 @@ pub fn left_pressed(
     let draw_pos = grid.settings.snap_point(pos, camera_scale);
 
     let selected_tool = tool_state.toolbox.toolbox_selected.clone();
+    let gear_settings = *tool_state.gear_settings;
     let pointer_state = &mut *tool_state.pointer; // https://bevy-cheatbook.github.io/pitfalls/split-borrows.html
     let left_tool_if_right = match pointer_state.mouse_right_pos {
         Some(_) => Pan(None),
@@ -509,6 +524,15 @@ pub fn left_pressed(
                             )),
                         };
                     }
+                    Some(Gear(Some(draw_ent))) => {
+                        if let Some(outline) =
+                            GearOutline::from_radius((draw_pos - click_pos).length(), gear_settings)
+                        {
+                            *overlay = OverlayState {
+                                draw_ent: Some((*draw_ent, Overlay::Gear(outline), click_pos)),
+                            };
+                        }
+                    }
                     Some(Plane(Some(state))) => {
                         *overlay = OverlayState {
                             draw_ent: Some((
@@ -548,7 +572,7 @@ pub fn left_pressed(
                     .is_pointer_over_egui()
             {
                 info!("button pressed ({:?})", button);
-                let start_pos = if matches!(tool, Polygon(_) | Box(_) | Circle(_)) {
+                let start_pos = if matches!(tool, Polygon(_) | Gear(_) | Box(_) | Circle(_)) {
                     draw_pos
                 } else {
                     pos

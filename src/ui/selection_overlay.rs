@@ -15,6 +15,7 @@ use std::collections::HashMap;
 use std::f32::consts::{PI, TAU};
 
 use crate::FOREGROUND_Z;
+use crate::tools::gear::GearOutline;
 use crate::tools::polygon::polygon_path;
 use crate::tools::rotate::ROTATE_HELPER_RADIUS;
 
@@ -26,6 +27,7 @@ const SELECTION_COLOR: Color = Color::WHITE;
 pub enum Overlay {
     Rectangle(Vec2),
     Circle(f32),
+    Gear(GearOutline),
     Polygon(Vec<Vec2>, bool),
     Plane(Vec2, f32),
     Rotate(f32, f32, f32, Vec2),
@@ -329,6 +331,12 @@ pub fn process_draw_overlay(
                     ..Default::default()
                 })
                 .build(),
+        ),
+        Overlay::Gear(outline) => (
+            5.0,
+            Color::WHITE,
+            Color::srgba(0.0, 0.0, 0.0, 0.0),
+            outline.path(),
         ),
         Overlay::Polygon(points, show_preview) => (
             5.0,

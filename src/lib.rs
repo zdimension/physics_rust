@@ -209,6 +209,7 @@ pub fn app_main() {
         .init_resource::<SkinConfig>()
         .init_resource::<AppConfig>()
         .init_resource::<DragConfig>()
+        .init_resource::<tools::gear::GearSettings>()
         .init_resource::<SelectionConfig>()
         .init_resource::<objects::air::AirSettings>()
         .init_resource::<grid::GridSettings>()

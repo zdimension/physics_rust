@@ -105,10 +105,14 @@ pub fn tessellate_polygon(points: &[Vec2]) -> Option<PolygonGeometry> {
     }
 
     let path = polygon_path(points, true);
+    tessellate_path(&path)
+}
+
+pub fn tessellate_path(path: &Path) -> Option<PolygonGeometry> {
     let mut buffers: VertexBuffers<Point, u16> = VertexBuffers::new();
     FillTessellator::new()
         .tessellate_path(
-            &path,
+            path,
             &FillOptions::default(),
             &mut simple_builder(&mut buffers),
         )

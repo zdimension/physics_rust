@@ -16,6 +16,7 @@ use crate::objects::tracer::{TracerObject, TracerSettings, TracerVisual};
 use crate::objects::{ColorComponent, MotorComponent, SettingComponent, SpriteOnly};
 use crate::palette::PaletteConfig;
 use crate::rng::RngComponent;
+use crate::tools::gear::{GearOutline, GearSettings};
 use crate::ui::SceneState;
 use crate::ui::images::AppIcons;
 use crate::update_from::UpdateFrom;
@@ -46,6 +47,11 @@ pub enum AddObjectEvent {
     Circle {
         center: Vec2,
         radius: f32,
+    },
+    Gear {
+        center: Vec2,
+        radius: f32,
+        settings: GearSettings,
     },
     Plane {
         point: Vec2,
@@ -172,6 +178,50 @@ pub fn process_add_object(
                             .update_from_this(),
                     )
                     .log_components();
+            }
+            Gear {
+                center,
+                radius,
+                settings,
+            } => {
+                let Some(outline) = GearOutline::from_radius(radius, settings) else {
+                    continue;
+                };
+                let gear_pos = z.pos(center);
+                let Some(object) = PhysicalObject::freeform_path(outline.path(), gear_pos) else {
+                    continue;
+                };
+                let entity = commands
+                    .spawn(object)
+                    .insert(FreeformObject)
+                    .insert(ChildOf(scene_state.scene))
+                    .insert(
+                        ColorComponent(palette.get_color_hsva(&mut *rng.single_mut().unwrap()))
+                            .update_from_this(),
+                    )
+                    .log_components()
+                    .id();
+                let placement = AttachmentPlacement {
+                    body1: BodyHit {
+                        entity,
+                        local_pos: Vec2::ZERO,
+                        z: gear_pos.z,
+                        rotation: Quat::IDENTITY,
+                    },
+                    body2: body_hits_at(center, &query, &spatial_query, None).next(),
+                    pos: center,
+                };
+                spawn_axle_attachment(
+                    &mut commands,
+                    placement,
+                    &images,
+                    palette.get_color_hsva_opaque(&mut *rng.single_mut().unwrap()),
+                    palette.sky_color,
+                    camera_scale,
+                    camera_rotation,
+                    &mut z,
+                    scene_state.scene,
+                );
             }
             Plane {
                 point,

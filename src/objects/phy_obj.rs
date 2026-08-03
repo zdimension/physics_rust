@@ -10,7 +10,7 @@ use avian2d::prelude::*;
 
 use crate::objects::attraction::Attraction;
 use crate::objects::{CircleAngleMarker, ColorComponent};
-use crate::tools::polygon::{polygon_path, tessellate_polygon};
+use crate::tools::polygon::{polygon_path, tessellate_path};
 use crate::update_from::UpdateFrom;
 use crate::{BORDER_THICKNESS, FillStroke};
 
@@ -137,11 +137,18 @@ impl PhysicalObject {
     }
 
     pub fn freeform(points: &[Vec2], pos: Vec3) -> Option<Self> {
-        let geometry = tessellate_polygon(points)?;
+        Self::freeform_path(polygon_path(points, true), pos)
+    }
+
+    pub fn freeform_path(
+        path: bevy_prototype_lyon::prelude::tess::path::Path,
+        pos: Vec3,
+    ) -> Option<Self> {
+        let geometry = tessellate_path(&path)?;
         Some(Self::make(
             geometry.collider(),
             ShapeBundle::new(
-                polygon_path(points, true),
+                path,
                 Transform::from_translation(pos),
                 Visibility::Inherited,
             ),

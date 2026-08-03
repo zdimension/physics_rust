@@ -1,5 +1,6 @@
 pub(crate) mod add_object;
 pub(crate) mod drag;
+pub(crate) mod gear;
 pub(crate) mod r#move;
 pub(crate) mod pan;
 pub(crate) mod plane;
@@ -120,6 +121,7 @@ tools_enum! {
     rotate => Rotate(Option<RotateState>),
 
     polygon => Polygon(Option<PolygonPlacementState>),
+    gear => Gear(Option<Entity>),
     box => Box(Option<Entity>),
     circle => Circle(Option<Entity>),
     plane => Plane(Option<PlanePlacementState>),
