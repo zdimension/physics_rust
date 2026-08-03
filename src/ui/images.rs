@@ -132,6 +132,7 @@ icon_set!(
         direction_base,
         direction_top,
         erase,
+        gearify,
         gravity,
         grid,
         hinge,

@@ -9,6 +9,8 @@ use crate::tools::ToolIcons;
 use crate::tools::add_object::{
     AddAxleEvent, AddObjectEvent, AttachmentJoint, AttachmentLinks, despawn_attachment_links,
 };
+use crate::tools::gear::{GearOutline, GearSettings, gearify_path};
+use crate::tools::polygon::tessellate_path;
 use crate::ui::images::GuiIcons;
 use crate::ui::{
     InitialPos, SceneState, Subwindow, WindowSelectionTarget, window_target_entities,
@@ -33,6 +35,10 @@ enum GeometryActionEvent {
     GlueToBackground(Vec<Entity>),
     GlueTogether(Vec<Entity>),
     Loosen(Vec<Entity>),
+    Gearify {
+        targets: Vec<Entity>,
+        teeth_size: f32,
+    },
     ShapesToCircles(Vec<Entity>),
     ShapesToBoxes(Vec<Entity>),
 }
@@ -71,6 +77,7 @@ impl GeometryActionsWindow {
         mut actions: MessageWriter<GeometryActionEvent>,
         gui_icons: Res<GuiIcons>,
         tool_icons: Res<ToolIcons>,
+        gear_settings: Res<GearSettings>,
         physical_objects: Query<&Collider, (With<RigidBody>, Without<PlaneObject>)>,
         freeform_objects: Query<(), With<FreeformObject>>,
         springs: Query<&SpringObject>,
@@ -101,6 +108,12 @@ impl GeometryActionsWindow {
                     || physical_objects
                         .get(*entity)
                         .is_ok_and(collider_is_circle)
+            });
+            let can_gearify = bodies.iter().any(|entity| {
+                freeform_objects.contains(*entity)
+                    || physical_objects
+                        .get(*entity)
+                        .is_ok_and(|collider| collider_is_box(collider) || collider_is_circle(collider))
             });
             let can_loosen = bodies.iter().copied().any(|entity| {
                 object_has_attachment(entity, &springs, &fixed_joints, &revolute_joints)
@@ -135,6 +148,12 @@ impl GeometryActionsWindow {
                         for entity in bodies.iter().copied() {
                             add_obj.write(AddObjectEvent::CenterTracer(entity));
                         }
+                    }
+                    if can_gearify && action_button(ui, gui_icons.gearify, "Gearify") {
+                        actions.write(GeometryActionEvent::Gearify {
+                            targets: bodies.clone(),
+                            teeth_size: gear_settings.teeth_size,
+                        });
                     }
                     if contains_box_or_polygon
                         && action_button(
@@ -221,6 +240,27 @@ fn process_geometry_actions(
                 &joints,
                 &attachment_links,
             ),
+            GeometryActionEvent::Gearify {
+                targets,
+                teeth_size,
+            } => {
+                for entity in targets.iter().copied() {
+                    if let Ok((mut collider, mut shape, mut circle, is_polygon)) =
+                        geometry.get_mut(entity)
+                        && (is_polygon
+                            || collider_is_box(&collider)
+                            || collider_is_circle(&collider))
+                        && gearify_geometry(
+                            &mut collider,
+                            &mut shape,
+                            &mut circle,
+                            *teeth_size,
+                        )
+                    {
+                        commands.entity(entity).insert(FreeformObject);
+                    }
+                }
+            }
             GeometryActionEvent::ShapesToCircles(targets) => {
                 for entity in targets.iter().copied() {
                     if let Ok((mut collider, mut shape, mut circle, is_polygon)) =
@@ -367,6 +407,40 @@ fn collider_is_circle(collider: &Collider) -> bool {
     matches!(collider.shape().as_typed_shape(), TypedShape::Ball(_))
 }
 
+fn gearify_geometry(
+    collider: &mut Collider,
+    shape: &mut Shape,
+    circle: &mut CircleVisual,
+    teeth_size: f32,
+) -> bool {
+    let path = match collider.shape().as_typed_shape() {
+        // Preserve exact visual equivalence with the radial gear tool. Only
+        // tooth size applies to Gearify; existing holes are handled below.
+        TypedShape::Ball(ball) => GearOutline::from_radius(
+            ball.radius,
+            GearSettings {
+                teeth_size,
+                external: true,
+                internal: false,
+                ..Default::default()
+            },
+        )
+        .map(|outline| outline.path()),
+        _ => gearify_path(&shape.path, teeth_size),
+    };
+    let Some(path) = path else {
+        return false;
+    };
+    let Some(geometry) = tessellate_path(&path) else {
+        return false;
+    };
+
+    *collider = geometry.collider();
+    shape.path = path;
+    circle.0 = 0.0;
+    true
+}
+
 fn transform_to_circle(
     collider: &mut Collider,
     shape: &mut Shape,
@@ -462,6 +536,109 @@ mod tests {
         assert!((side.powi(2) - PI * 9.0).abs() < 1.0e-5);
         assert_eq!(square.half_extents.x, square.half_extents.y);
         assert_eq!(circle.0, 0.0);
+    }
+
+    #[test]
+    fn gearify_geometry_changes_a_repeated_figure_eight_polygon() {
+        let source = crate::tools::polygon::polygon_path(
+            &[
+                Vec2::new(-2.0, 0.0),
+                Vec2::new(-1.0, 1.0),
+                Vec2::ZERO,
+                Vec2::new(-1.0, -1.0),
+                Vec2::new(-2.0, 0.0),
+                Vec2::ZERO,
+                Vec2::new(1.0, 1.0),
+                Vec2::new(2.0, 0.0),
+                Vec2::new(1.0, -1.0),
+                Vec2::ZERO,
+            ],
+            true,
+        );
+        let source_events = source.iter().count();
+        let geometry = tessellate_path(&source).unwrap();
+        let mut collider = geometry.collider();
+        let mut shape = Shape {
+            path: source.clone(),
+        };
+        let mut circle = CircleVisual(0.0);
+
+        assert!(gearify_geometry(
+            &mut collider,
+            &mut shape,
+            &mut circle,
+            0.2,
+        ));
+        assert!(shape.path.iter().count() > source_events);
+        assert!(matches!(
+            collider.shape().as_typed_shape(),
+            TypedShape::Compound(_)
+        ));
+    }
+
+    #[test]
+    fn gearified_circle_matches_a_gear_drawn_at_the_same_radius() {
+        let radius = 1.0;
+        let settings = GearSettings::default();
+        let expected = GearOutline::from_radius(radius, settings).unwrap().path();
+        let mut collider = Collider::circle(radius);
+        let mut shape = Shape {
+            path: GeometryBuilder::build_as(&shapes::Circle {
+                radius,
+                ..Default::default()
+            }),
+        };
+        let mut circle = CircleVisual(radius);
+
+        assert!(gearify_geometry(
+            &mut collider,
+            &mut shape,
+            &mut circle,
+            settings.teeth_size,
+        ));
+        let actual_segments = path_segments(&shape.path);
+        let expected_segments = path_segments(&expected);
+        assert_eq!(actual_segments.len(), expected_segments.len());
+        for (actual, expected) in actual_segments.iter().zip(&expected_segments) {
+            assert!(actual.0.distance_squared(expected.0) < 1.0e-10);
+            assert!(actual.1.distance_squared(expected.1) < 1.0e-10);
+        }
+        assert_eq!(circle.0, 0.0);
+    }
+
+    #[test]
+    fn gearify_action_converts_a_circle_to_a_freeform_collider() {
+        let mut app = geometry_action_app();
+        let radius = 1.0;
+        let entity = app
+            .world_mut()
+            .spawn((
+                RigidBody::Dynamic,
+                Position::default(),
+                Rotation::default(),
+                Collider::circle(radius),
+                Shape {
+                    path: GeometryBuilder::build_as(&shapes::Circle {
+                        radius,
+                        ..Default::default()
+                    }),
+                },
+                CircleVisual(radius),
+            ))
+            .id();
+
+        app.world_mut()
+            .write_message(GeometryActionEvent::Gearify {
+                targets: vec![entity],
+                teeth_size: 0.2,
+            });
+        app.update();
+
+        assert!(app.world().get::<FreeformObject>(entity).is_some());
+        assert_eq!(app.world().get::<CircleVisual>(entity).unwrap().0, 0.0);
+        assert!(!collider_is_circle(
+            app.world().get::<Collider>(entity).unwrap()
+        ));
     }
 
     #[test]
@@ -585,6 +762,19 @@ mod tests {
         assert!(app.world().get_entity(body).is_ok());
         assert!(app.world().get_entity(joint_entity).is_err());
         assert!(app.world().get_entity(anchor).is_err());
+    }
+
+    fn path_segments(
+        path: &bevy_prototype_lyon::prelude::tess::path::Path,
+    ) -> Vec<(Vec2, Vec2)> {
+        path.iter()
+            .map(|event| {
+                (
+                    Vec2::new(event.from().x, event.from().y),
+                    Vec2::new(event.to().x, event.to().y),
+                )
+            })
+            .collect()
     }
 
     #[test]

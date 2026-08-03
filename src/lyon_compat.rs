@@ -28,6 +28,13 @@ const ATTRIBUTE_SCREEN_OFFSET: MeshVertexAttribute =
     MeshVertexAttribute::new("ScreenOffset", 1_847_362_941, VertexFormat::Float32x2);
 const MIN_STROKE_TOPOLOGY_WIDTH: f32 = 1.0e-9;
 const STROKE_TOPOLOGY_WIDTH_RATIO: f32 = 1.0e-4;
+const BOUNDARY_VERTEX_MERGE_RATIO: f32 = 1.0e-7;
+const BOUNDARY_VERTEX_MERGE_ULPS: f32 = 2.0;
+const MAX_BOUNDARY_ARTIFACT_VERTICES: usize = 8;
+const BOUNDARY_ARTIFACT_AREA_RATIO: f32 = 1.0e-2;
+// Preserve ordinary square corners while preventing acute joins from turning
+// a fixed-width screen-space stroke into an arbitrarily long miter spike.
+const MAX_SCREEN_SPACE_JOIN_SCALE: f32 = std::f32::consts::SQRT_2;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum StrokeAlignment {
@@ -255,11 +262,21 @@ impl StrokeVertexConstructor<ShapeVertex> for StrokeVertexBuilder {
 }
 
 fn stroke_screen_offset(
-    normal: bevy_prototype_lyon::prelude::tess::math::Vector,
+    mut normal: bevy_prototype_lyon::prelude::tess::math::Vector,
     positive_side: bool,
     pixel_width: f32,
     alignment: StrokeAlignment,
 ) -> bevy_prototype_lyon::prelude::tess::math::Vector {
+    // Lyon's `normal` is a miter extrusion vector, not a unit normal. Its
+    // length can become enormous at acute joins. That is appropriate when
+    // tessellating in object space, but here the shader interprets the vector
+    // length as physical pixels, so cap it before applying the pixel width.
+    let length_squared = normal.square_length();
+    let maximum_length_squared = MAX_SCREEN_SPACE_JOIN_SCALE.powi(2);
+    if length_squared > maximum_length_squared {
+        normal *= MAX_SCREEN_SPACE_JOIN_SCALE / length_squared.sqrt();
+    }
+
     match alignment {
         StrokeAlignment::Center => normal * (pixel_width * 0.5),
         StrokeAlignment::Inward if positive_side => normal * pixel_width,
@@ -302,14 +319,64 @@ fn append_fill(buffers: &mut ShapeVertexBuffers, fill: &FillVertexBuffers, color
 struct BoundaryEdge {
     from: u32,
     to: u32,
-    occurrences: u32,
+}
+
+/// Tessellates a path using the standard fill rule and returns its occupied
+/// region as closed contours, each directed with filled material on its left.
+pub(crate) fn filled_path_boundary_contours(path: &Path) -> Option<Vec<Vec<Vec2>>> {
+    let fill = tessellate_fill(&mut FillTessellator::new(), path, FillOptions::default());
+    filled_boundary_contours(&fill)
+}
+
+fn filled_boundary_path(fill: &FillVertexBuffers) -> Option<Path> {
+    let mut contours = filled_boundary_contours(fill)?;
+    remove_small_foldover_contours(&mut contours);
+    let mut builder = GeometryBuilder::new();
+    for contour in contours {
+        builder = builder.begin(contour[0]);
+        for point in contour.iter().skip(1).copied() {
+            builder = builder.line_to(point);
+        }
+        builder = builder.close();
+    }
+    Some(builder.build())
+}
+
+/// A centered tooth profile can fold across an acute corner and Lyon then
+/// represents the fold as a tiny detached triangle or quad. The fill is too
+/// small to notice, but outlining that component at a fixed pixel width makes
+/// it look like a bright shard. Suppress only these simple, negligible
+/// positive-area components from the visual border; holes and detailed small
+/// components are retained.
+fn remove_small_foldover_contours(contours: &mut Vec<Vec<Vec2>>) {
+    let largest_positive_area = contours
+        .iter()
+        .map(|contour| contour_signed_area(contour))
+        .filter(|area| *area > 0.0)
+        .fold(0.0, f32::max);
+    let maximum_artifact_area = largest_positive_area * BOUNDARY_ARTIFACT_AREA_RATIO;
+    contours.retain(|contour| {
+        let area = contour_signed_area(contour);
+        area <= 0.0
+            || contour.len() > MAX_BOUNDARY_ARTIFACT_VERTICES
+            || area >= maximum_artifact_area
+    });
+}
+
+fn contour_signed_area(contour: &[Vec2]) -> f32 {
+    contour
+        .iter()
+        .zip(contour.iter().cycle().skip(1))
+        .map(|(from, to)| from.perp_dot(*to))
+        .sum::<f32>()
+        * 0.5
 }
 
 /// Builds the actual boundary of a filled region from its triangles. Triangle
 /// edges are directed with material on their left; shared internal edges cancel.
-fn filled_boundary_path(fill: &FillVertexBuffers) -> Option<Path> {
-    let (points, canonical_indices) = canonical_fill_vertices(&fill.vertices);
-    let mut edges = HashMap::<(u32, u32), BoundaryEdge>::new();
+fn filled_boundary_contours(fill: &FillVertexBuffers) -> Option<Vec<Vec<Vec2>>> {
+    let (points, canonical_indices, merge_distance) = canonical_fill_vertices(&fill.vertices);
+    let mut triangle_edges = Vec::new();
 
     for triangle in fill.indices.chunks_exact(3) {
         let mut triangle = [
@@ -336,52 +403,282 @@ fn filled_boundary_path(fill: &FillVertexBuffers) -> Option<Path> {
             (triangle[1], triangle[2]),
             (triangle[2], triangle[0]),
         ] {
-            let key = if from < to { (from, to) } else { (to, from) };
-            edges
-                .entry(key)
-                .and_modify(|edge| edge.occurrences += 1)
-                .or_insert(BoundaryEdge {
-                    from,
-                    to,
-                    occurrences: 1,
-                });
+            triangle_edges.push((from, to));
         }
     }
 
-    let boundary_edges = edges
-        .into_values()
-        .filter(|edge| edge.occurrences == 1)
+    // Cancel shared triangle edges. The remaining directed edges form a
+    // balanced graph with filled material on their left.
+    let mut unsplit_balances = HashMap::<(u32, u32), i32>::new();
+    for (from, to) in triangle_edges {
+        let key = if from < to { (from, to) } else { (to, from) };
+        *unsplit_balances.entry(key).or_default() += if from < to { 1 } else { -1 };
+    }
+    let unmatched_edges = unsplit_balances
+        .into_iter()
+        .filter_map(|((from, to), balance)| match balance.cmp(&0) {
+            std::cmp::Ordering::Greater => Some((from, to)),
+            std::cmp::Ordering::Less => Some((to, from)),
+            std::cmp::Ordering::Equal => None,
+        })
         .collect::<Vec<_>>();
+    let unmatched_boundary_edges = unmatched_edges
+        .iter()
+        .map(|(from, to)| BoundaryEdge {
+            from: *from,
+            to: *to,
+        })
+        .collect::<Vec<_>>();
+    let mut split_balances = HashMap::<(u32, u32), i32>::new();
+    for (from, to) in split_edges_at_vertices(&points, &unmatched_edges, merge_distance) {
+        let key = if from < to { (from, to) } else { (to, from) };
+        *split_balances.entry(key).or_default() += if from < to { 1 } else { -1 };
+    }
+    let split_boundary_edges = split_balances
+        .into_iter()
+        .filter_map(|((from, to), balance)| match balance.cmp(&0) {
+            std::cmp::Ordering::Greater => Some(BoundaryEdge { from, to }),
+            std::cmp::Ordering::Less => Some(BoundaryEdge { from: to, to: from }),
+            std::cmp::Ordering::Equal => None,
+        })
+        .collect::<Vec<_>>();
+
+    // T-junction splitting removes internal seams in ordinary contours and
+    // holes. Near dense self-intersections, however, approximate collinearity
+    // can split the wrong edge and unbalance the graph, which discards the
+    // main outline. Use the repaired topology only when it is still balanced.
+    let mut boundary_edges = if boundary_edges_are_balanced(&split_boundary_edges) {
+        split_boundary_edges
+    } else {
+        unmatched_boundary_edges
+    };
+    boundary_edges.sort_unstable_by_key(|edge| (edge.from, edge.to));
     trace_boundary_contours(&points, &boundary_edges)
 }
 
-fn canonical_fill_vertices(vertices: &[Point]) -> (Vec<Point>, Vec<u32>) {
-    let mut point_by_bits = HashMap::<(u32, u32), u32>::new();
+fn canonical_fill_vertices(vertices: &[Point]) -> (Vec<Point>, Vec<u32>, f32) {
+    let minimum = vertices
+        .iter()
+        .fold(Vec2::splat(f32::INFINITY), |bounds, point| {
+            bounds.min(point_vec(*point))
+        });
+    let maximum = vertices
+        .iter()
+        .fold(Vec2::splat(f32::NEG_INFINITY), |bounds, point| {
+            bounds.max(point_vec(*point))
+        });
+    let extent = (maximum - minimum).max_element();
+    let coordinate_scale = minimum.abs().max(maximum.abs()).max_element();
+    let merge_distance = (extent * BOUNDARY_VERTEX_MERGE_RATIO)
+        .max(coordinate_scale * f32::EPSILON * BOUNDARY_VERTEX_MERGE_ULPS)
+        .max(f32::MIN_POSITIVE);
+    let mut points_by_cell = HashMap::<(i64, i64), Vec<u32>>::new();
     let mut points = Vec::new();
     let canonical_indices = vertices
         .iter()
         .map(|vertex| {
             let normalized_x = if vertex.x == 0.0 { 0.0 } else { vertex.x };
             let normalized_y = if vertex.y == 0.0 { 0.0 } else { vertex.y };
-            let key = (normalized_x.to_bits(), normalized_y.to_bits());
-            *point_by_bits.entry(key).or_insert_with(|| {
-                let index = points.len() as u32;
-                points.push(point(normalized_x, normalized_y));
-                index
-            })
+            let vertex = point(normalized_x, normalized_y);
+            let cell = (
+                (normalized_x / merge_distance).floor() as i64,
+                (normalized_y / merge_distance).floor() as i64,
+            );
+            for cell_y in cell.1 - 1..=cell.1 + 1 {
+                for cell_x in cell.0 - 1..=cell.0 + 1 {
+                    if let Some(index) = points_by_cell
+                        .get(&(cell_x, cell_y))
+                        .into_iter()
+                        .flatten()
+                        .copied()
+                        .find(|index| {
+                            point_vec(points[*index as usize]).distance_squared(point_vec(vertex))
+                                <= merge_distance.powi(2)
+                        })
+                    {
+                        return index;
+                    }
+                }
+            }
+
+            let index = points.len() as u32;
+            points.push(vertex);
+            points_by_cell.entry(cell).or_default().push(index);
+            index
         })
         .collect();
-    (points, canonical_indices)
+    (points, canonical_indices, merge_distance)
 }
 
-fn trace_boundary_contours(points: &[Point], edges: &[BoundaryEdge]) -> Option<Path> {
-    let mut outgoing = HashMap::<u32, Vec<usize>>::new();
+fn boundary_edges_are_balanced(edges: &[BoundaryEdge]) -> bool {
+    let mut balances = HashMap::<u32, i32>::new();
+    for edge in edges {
+        *balances.entry(edge.from).or_default() += 1;
+        *balances.entry(edge.to).or_default() -= 1;
+    }
+    balances.into_values().all(|balance| balance == 0)
+}
+
+/// Lyon can emit a T-junction where one triangle has a long edge and its
+/// neighbor has several collinear edge segments. Split the long edge at all
+/// such vertices so shared material edges can cancel segment-for-segment.
+fn split_edges_at_vertices(
+    points: &[Point],
+    edges: &[(u32, u32)],
+    tolerance: f32,
+) -> Vec<(u32, u32)> {
+    let mut by_x = points
+        .iter()
+        .enumerate()
+        .map(|(index, point)| (point.x, index as u32))
+        .collect::<Vec<_>>();
+    let mut by_y = points
+        .iter()
+        .enumerate()
+        .map(|(index, point)| (point.y, index as u32))
+        .collect::<Vec<_>>();
+    by_x.sort_unstable_by(|left, right| left.0.total_cmp(&right.0));
+    by_y.sort_unstable_by(|left, right| left.0.total_cmp(&right.0));
+
+    let mut split = Vec::new();
+    for &(from, to) in edges {
+        let a = point_vec(points[from as usize]);
+        let b = point_vec(points[to as usize]);
+        let edge = b - a;
+        let length_squared = edge.length_squared();
+        if length_squared <= f32::EPSILON {
+            continue;
+        }
+        let length = length_squared.sqrt();
+        let sorted = if edge.x.abs() >= edge.y.abs() {
+            &by_x
+        } else {
+            &by_y
+        };
+        let (start_coordinate, end_coordinate) = if edge.x.abs() >= edge.y.abs() {
+            (a.x, b.x)
+        } else {
+            (a.y, b.y)
+        };
+        let lower = start_coordinate.min(end_coordinate) - tolerance;
+        let upper = start_coordinate.max(end_coordinate) + tolerance;
+        let first = sorted.partition_point(|(coordinate, _)| *coordinate < lower);
+        let last = sorted.partition_point(|(coordinate, _)| *coordinate <= upper);
+        let mut vertices = sorted[first..last]
+            .iter()
+            .filter_map(|(_, index)| {
+                let point = point_vec(points[*index as usize]);
+                let along = (point - a).dot(edge) / length_squared;
+                ((-f32::EPSILON..=1.0 + f32::EPSILON).contains(&along)
+                    && edge.perp_dot(point - a).abs() <= tolerance * length)
+                    .then_some((along.clamp(0.0, 1.0), *index))
+            })
+            .collect::<Vec<_>>();
+        vertices.push((0.0, from));
+        vertices.push((1.0, to));
+        vertices.sort_unstable_by(|left, right| left.0.total_cmp(&right.0));
+        vertices.dedup_by_key(|(_, index)| *index);
+        split.extend(vertices.windows(2).filter_map(|vertices| {
+            let from = vertices[0].1;
+            let to = vertices[1].1;
+            (from != to).then_some((from, to))
+        }));
+    }
+    split
+}
+
+fn trace_boundary_contours(points: &[Point], edges: &[BoundaryEdge]) -> Option<Vec<Vec<Vec2>>> {
+    let mut incident = HashMap::<u32, (Vec<usize>, Vec<usize>)>::new();
     for (index, edge) in edges.iter().enumerate() {
-        outgoing.entry(edge.from).or_default().push(index);
+        incident.entry(edge.to).or_default().0.push(index);
+        incident.entry(edge.from).or_default().1.push(index);
+    }
+
+    // Pair incoming and outgoing half-edges bijectively at every vertex. A
+    // per-edge "closest clockwise" lookup can choose the same outgoing edge
+    // for multiple incoming edges at a non-manifold junction; subsequent
+    // walks then consume that edge and leave the main outline open. Preserving
+    // circular order while choosing the lowest-cost rotation gives the usual
+    // clockwise successor rule and guarantees disjoint cycles.
+    let mut successors = vec![None; edges.len()];
+    for (vertex, (mut incoming, mut outgoing)) in incident {
+        let origin = point_vec(points[vertex as usize]);
+        incoming.sort_unstable_by(|left, right| {
+            let left_direction = point_vec(points[edges[*left].from as usize]) - origin;
+            let right_direction = point_vec(points[edges[*right].from as usize]) - origin;
+            left_direction
+                .y
+                .atan2(left_direction.x)
+                .total_cmp(&right_direction.y.atan2(right_direction.x))
+                .then_with(|| left.cmp(right))
+        });
+        outgoing.sort_unstable_by(|left, right| {
+            let left_direction = point_vec(points[edges[*left].to as usize]) - origin;
+            let right_direction = point_vec(points[edges[*right].to as usize]) - origin;
+            left_direction
+                .y
+                .atan2(left_direction.x)
+                .total_cmp(&right_direction.y.atan2(right_direction.x))
+                .then_with(|| left.cmp(right))
+        });
+
+        if incoming.len() == outgoing.len() && !incoming.is_empty() {
+            let count = incoming.len();
+            let best_shift = (0..count)
+                .min_by(|left_shift, right_shift| {
+                    let pairing_cost = |shift: usize| {
+                        incoming
+                            .iter()
+                            .enumerate()
+                            .map(|(index, incoming_edge)| {
+                                let outgoing_edge = outgoing[(index + shift) % count];
+                                let reverse_incoming =
+                                    point_vec(points[edges[*incoming_edge].from as usize]) - origin;
+                                let outgoing_direction =
+                                    point_vec(points[edges[outgoing_edge].to as usize]) - origin;
+                                clockwise_angle(reverse_incoming, outgoing_direction)
+                            })
+                            .sum::<f32>()
+                    };
+                    pairing_cost(*left_shift).total_cmp(&pairing_cost(*right_shift))
+                })
+                .unwrap();
+            for (index, incoming_edge) in incoming.into_iter().enumerate() {
+                successors[incoming_edge] = Some(outgoing[(index + best_shift) % count]);
+            }
+        } else {
+            debug!(
+                "Unbalanced filled-boundary vertex {vertex}: {} incoming, {} outgoing",
+                incoming.len(),
+                outgoing.len()
+            );
+            let mut remaining = outgoing;
+            for incoming_edge in incoming {
+                let reverse_incoming =
+                    point_vec(points[edges[incoming_edge].from as usize]) - origin;
+                let Some((remaining_index, _)) =
+                    remaining
+                        .iter()
+                        .enumerate()
+                        .min_by(|(_, left), (_, right)| {
+                            let left_direction =
+                                point_vec(points[edges[**left].to as usize]) - origin;
+                            let right_direction =
+                                point_vec(points[edges[**right].to as usize]) - origin;
+                            clockwise_angle(reverse_incoming, left_direction)
+                                .total_cmp(&clockwise_angle(reverse_incoming, right_direction))
+                        })
+                else {
+                    break;
+                };
+                successors[incoming_edge] = Some(remaining.swap_remove(remaining_index));
+            }
+        }
     }
 
     let mut used = vec![false; edges.len()];
-    let mut contours = Vec::<Vec<Vec2>>::new();
+    let mut contours = Vec::new();
+    let mut discarded_open_contours = 0;
     for first_edge in 0..edges.len() {
         if used[first_edge] {
             continue;
@@ -402,24 +699,7 @@ fn trace_boundary_contours(points: &[Point], edges: &[BoundaryEdge]) -> Option<P
                 break;
             }
             contour.push(point_vec(points[edge.to as usize]));
-            let Some(candidates) = outgoing.get(&edge.to) else {
-                break;
-            };
-            let reverse_incoming =
-                point_vec(points[edge.from as usize]) - point_vec(points[edge.to as usize]);
-            let Some(next_edge) = candidates
-                .iter()
-                .copied()
-                .filter(|candidate| !used[*candidate])
-                .min_by(|left, right| {
-                    let left_direction = point_vec(points[edges[*left].to as usize])
-                        - point_vec(points[edge.to as usize]);
-                    let right_direction = point_vec(points[edges[*right].to as usize])
-                        - point_vec(points[edge.to as usize]);
-                    clockwise_angle(reverse_incoming, left_direction)
-                        .total_cmp(&clockwise_angle(reverse_incoming, right_direction))
-                })
-            else {
+            let Some(next_edge) = successors[current_edge] else {
                 break;
             };
             current_edge = next_edge;
@@ -428,22 +708,14 @@ fn trace_boundary_contours(points: &[Point], edges: &[BoundaryEdge]) -> Option<P
         if closed && contour.len() >= 3 {
             contours.push(contour);
         } else {
-            warn!("Discarding an open boundary extracted from filled shape geometry");
+            discarded_open_contours += 1;
         }
     }
 
-    if contours.is_empty() {
-        return None;
+    if discarded_open_contours > 0 {
+        debug!("Discarded {discarded_open_contours} open filled-boundary edge walks");
     }
-    let mut builder = GeometryBuilder::new();
-    for contour in contours {
-        builder = builder.begin(contour[0]);
-        for point in contour.iter().skip(1).copied() {
-            builder = builder.line_to(point);
-        }
-        builder = builder.close();
-    }
-    Some(builder.build())
+    (!contours.is_empty()).then_some(contours)
 }
 
 fn clockwise_angle(from: Vec2, to: Vec2) -> f32 {
@@ -622,13 +894,14 @@ fn transparent_placeholder_mesh() -> Mesh {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tools::gear::gearify_path;
     use crate::tools::gear::{GearOutline, GearSettings};
     use bevy::ecs::system::RunSystemOnce;
     use bevy_prototype_lyon::prelude::tess::math::vector;
 
     #[test]
     fn inward_strokes_leave_the_boundary_side_fixed() {
-        let normal = vector(1.5, -0.5);
+        let normal = vector(0.6, -0.8);
 
         assert_eq!(
             stroke_screen_offset(normal, false, 5.0, StrokeAlignment::Inward),
@@ -638,6 +911,15 @@ mod tests {
             stroke_screen_offset(normal, true, 5.0, StrokeAlignment::Inward),
             normal * 5.0
         );
+    }
+
+    #[test]
+    fn screen_space_strokes_cap_acute_miter_spikes() {
+        let long_miter = vector(10.0, 0.0);
+        let offset = stroke_screen_offset(long_miter, true, 5.0, StrokeAlignment::Inward);
+
+        assert!((offset.x - MAX_SCREEN_SPACE_JOIN_SCALE * 5.0).abs() < 1.0e-5);
+        assert_eq!(offset.y, 0.0);
     }
 
     #[test]
@@ -709,6 +991,70 @@ mod tests {
         assert_eq!(contour_areas.len(), 2);
         assert_eq!(contour_areas.iter().filter(|area| **area > 0.0).count(), 1);
         assert_eq!(contour_areas.iter().filter(|area| **area < 0.0).count(), 1);
+    }
+
+    #[test]
+    fn gearified_figure_eight_strokes_have_bounded_screen_offsets() {
+        let touching = GeometryBuilder::new()
+            .begin(Vec2::ZERO)
+            .line_to(Vec2::new(-1.0, -1.0))
+            .line_to(Vec2::new(-2.0, 0.0))
+            .line_to(Vec2::new(-1.0, 1.0))
+            .line_to(Vec2::ZERO)
+            .line_to(Vec2::new(1.0, -1.0))
+            .line_to(Vec2::new(2.0, 0.0))
+            .line_to(Vec2::new(1.0, 1.0))
+            .close()
+            .build();
+        let crossing = GeometryBuilder::new()
+            .begin(Vec2::new(-2.0, -1.0))
+            .line_to(Vec2::new(2.0, 1.0))
+            .line_to(Vec2::new(-2.0, 1.0))
+            .line_to(Vec2::new(2.0, -1.0))
+            .close()
+            .build();
+
+        for source in [touching, crossing] {
+            let gearified = gearify_path(&source, 0.2).unwrap();
+            let mut fill_tessellator = FillTessellator::new();
+            let fill = tessellate_fill(
+                &mut fill_tessellator,
+                &gearified,
+                FillOptions::default().with_tolerance(crate::STROKE_TOLERANCE),
+            );
+            let boundary = filled_boundary_path(&fill).expect("gearified figure eight boundary");
+            let contour_areas = path_contour_areas(&boundary);
+            assert_eq!(contour_areas.len(), 2, "unexpected outlined tooth islands");
+            assert!(contour_areas.iter().all(|area| *area > 1.0));
+            let mut buffers = ShapeVertexBuffers::new();
+            let options = StrokeOptions::default()
+                .with_tolerance(crate::STROKE_TOLERANCE)
+                .with_line_width(stroke_topology_width(&boundary));
+            StrokeTessellator::new()
+                .tessellate_path(
+                    &boundary,
+                    &options,
+                    &mut BuffersBuilder::new(
+                        &mut buffers,
+                        StrokeVertexBuilder {
+                            color: Color::WHITE,
+                            pixel_width: 5.0,
+                            alignment: StrokeAlignment::Inward,
+                        },
+                    ),
+                )
+                .unwrap();
+            let maximum_offset = buffers
+                .vertices
+                .iter()
+                .map(|vertex| Vec2::from(vertex.screen_offset).length())
+                .fold(0.0, f32::max);
+
+            assert!(
+                maximum_offset <= 5.0 * std::f32::consts::SQRT_2 * 1.001,
+                "screen-space join spike: {maximum_offset}px"
+            );
+        }
     }
 
     #[test]
