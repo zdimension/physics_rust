@@ -4,6 +4,7 @@ use crate::lyon_compat::RectangleOrigin;
 use crate::lyon_compat::shapes;
 use crate::lyon_compat::{Fill, Shape, ShapeBundle, Stroke};
 use crate::mouse_tracking::{MainCamera, MousePosWorld};
+use crate::objects::phy_obj::FreeformObject;
 use crate::ui::Selected;
 use crate::{BORDER_THICKNESS, make_fill, make_stroke};
 use avian2d::parry::shape::TypedShape;
@@ -14,16 +15,18 @@ use std::collections::HashMap;
 use std::f32::consts::{PI, TAU};
 
 use crate::FOREGROUND_Z;
+use crate::tools::polygon::polygon_path;
 use crate::tools::rotate::ROTATE_HELPER_RADIUS;
 
 // Object layers are one unit apart, leaving this above object details but below the next object.
 const SELECTION_OVERLAY_Z: f32 = 0.5;
 const SELECTION_COLOR: Color = Color::WHITE;
 
-#[derive(Copy, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub enum Overlay {
     Rectangle(Vec2),
     Circle(f32),
+    Polygon(Vec<Vec2>, bool),
     Plane(Vec2, f32),
     Rotate(f32, f32, f32, Vec2),
 }
@@ -50,6 +53,7 @@ pub fn sync_selection_highlights(
     mut highlight_parents: Query<(Entity, &ChildOf), With<SelectionHighlight>>,
     mut highlights: Query<(&mut Shape, &mut Transform, &mut Stroke), With<SelectionHighlight>>,
     colliders: Query<Ref<Collider>, Without<SelectionHighlight>>,
+    freeform_shapes: Query<&Shape, (With<FreeformObject>, Without<SelectionHighlight>)>,
     added_selected: Query<(), Added<Selected>>,
     changed_selected_colliders: Query<(), (With<Selected>, Changed<Collider>)>,
     mut removed_selected: RemovedComponents<Selected>,
@@ -88,7 +92,9 @@ pub fn sync_selection_highlights(
         upsert_selection_highlight(
             target,
             highlight,
-            collider_path(&collider),
+            freeform_shapes
+                .get(target)
+                .map_or_else(|_| collider_path(&collider), |shape| shape.path.clone()),
             SELECTION_OVERLAY_Z,
             BORDER_THICKNESS * app_config.ui_scale_factor(),
             &mut commands,
@@ -195,7 +201,7 @@ pub fn process_draw_overlay(
     mut last_overlay: Local<Option<(Entity, Overlay, Vec2, f32, i32)>>,
     mut active_overlay: Local<Option<Entity>>,
 ) {
-    let Some((draw_ent, shape, pos)) = overlay.draw_ent else {
+    let Some((draw_ent, shape, pos)) = overlay.draw_ent.clone() else {
         *last_overlay = None;
         if let Some(active_overlay) = active_overlay.take() {
             clear_overlay_shape(active_overlay, &mut overlay_queries.p0());
@@ -206,7 +212,13 @@ pub fn process_draw_overlay(
     let Ok(camera) = cameras.single() else {
         return;
     };
-    let current = (draw_ent, shape, pos, camera.scale.x, app_config.ui_scale);
+    let current = (
+        draw_ent,
+        shape.clone(),
+        pos,
+        camera.scale.x,
+        app_config.ui_scale,
+    );
     if last_overlay.as_ref() == Some(&current) {
         return;
     }
@@ -294,10 +306,11 @@ pub fn process_draw_overlay(
     }
 
     let builder = GeometryBuilder::new();
-    let (thickness, color, path) = match shape {
+    let (thickness, color, fill, path) = match shape {
         Overlay::Rectangle(size) => (
             5.0,
             Color::WHITE,
+            Color::srgba(0.0, 0.0, 0.0, 0.0),
             builder
                 .add(&shapes::Rectangle {
                     extents: size,
@@ -309,12 +322,23 @@ pub fn process_draw_overlay(
         Overlay::Circle(radius) => (
             5.0,
             Color::WHITE,
+            Color::srgba(0.0, 0.0, 0.0, 0.0),
             builder
                 .add(&shapes::Circle {
                     radius,
                     ..Default::default()
                 })
                 .build(),
+        ),
+        Overlay::Polygon(points, show_preview) => (
+            5.0,
+            Color::WHITE,
+            if show_preview {
+                Color::srgba(1.0, 0.5, 1.0, 0.4)
+            } else {
+                Color::srgba(0.0, 0.0, 0.0, 0.0)
+            },
+            polygon_path(&points, false),
         ),
         Overlay::Plane(..) => unreachable!(),
         Overlay::Rotate(..) => unreachable!(),
@@ -326,7 +350,7 @@ pub fn process_draw_overlay(
             draw_ent,
             pos,
             path,
-            crate::make_fill(Color::srgba(0.0, 0.0, 0.0, 0.0)),
+            crate::make_fill(fill),
             crate::make_stroke(
                 color,
                 thickness * camera.scale.x * app_config.ui_scale_factor(),
@@ -503,6 +527,15 @@ fn draw_absolute_rotation_arc(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bevy::ecs::system::IntoSystem;
+
+    #[test]
+    fn selection_highlight_queries_are_disjoint() {
+        let mut world = World::new();
+        let mut system = IntoSystem::into_system(sync_selection_highlights);
+
+        system.initialize(&mut world);
+    }
 
     #[test]
     fn rotation_origin_follows_the_interaction_delta() {

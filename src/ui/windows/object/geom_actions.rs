@@ -2,7 +2,7 @@ use std::collections::HashSet;
 use std::f32::consts::PI;
 
 use crate::lyon_compat::{GeometryBuilder, RectangleOrigin, Shape, shapes};
-use crate::objects::phy_obj::CircleVisual;
+use crate::objects::phy_obj::{CircleVisual, FreeformObject};
 use crate::objects::plane::PlaneObject;
 use crate::objects::spring::{SpringEnd, SpringObject};
 use crate::tools::ToolIcons;
@@ -33,8 +33,8 @@ enum GeometryActionEvent {
     GlueToBackground(Vec<Entity>),
     GlueTogether(Vec<Entity>),
     Loosen(Vec<Entity>),
-    BoxesToCircles(Vec<Entity>),
-    CirclesToBoxes(Vec<Entity>),
+    ShapesToCircles(Vec<Entity>),
+    ShapesToBoxes(Vec<Entity>),
 }
 
 /// Marks a fixed joint created by a glue action. Unlike an ordinary fixpoint,
@@ -72,6 +72,7 @@ impl GeometryActionsWindow {
         gui_icons: Res<GuiIcons>,
         tool_icons: Res<ToolIcons>,
         physical_objects: Query<&Collider, (With<RigidBody>, Without<PlaneObject>)>,
+        freeform_objects: Query<(), With<FreeformObject>>,
         springs: Query<&SpringObject>,
         fixed_joints: Query<&FixedJoint>,
         revolute_joints: Query<&RevoluteJoint>,
@@ -89,15 +90,17 @@ impl GeometryActionsWindow {
                 continue;
             }
 
-            let contains_box = bodies.iter().any(|entity| {
-                physical_objects
-                    .get(*entity)
-                    .is_ok_and(collider_is_box)
+            let contains_box_or_polygon = bodies.iter().any(|entity| {
+                freeform_objects.contains(*entity)
+                    || physical_objects
+                        .get(*entity)
+                        .is_ok_and(collider_is_box)
             });
-            let contains_circle = bodies.iter().any(|entity| {
-                physical_objects
-                    .get(*entity)
-                    .is_ok_and(collider_is_circle)
+            let contains_circle_or_polygon = bodies.iter().any(|entity| {
+                freeform_objects.contains(*entity)
+                    || physical_objects
+                        .get(*entity)
+                        .is_ok_and(collider_is_circle)
             });
             let can_loosen = bodies.iter().copied().any(|entity| {
                 object_has_attachment(entity, &springs, &fixed_joints, &revolute_joints)
@@ -133,19 +136,19 @@ impl GeometryActionsWindow {
                             add_obj.write(AddObjectEvent::CenterTracer(entity));
                         }
                     }
-                    if contains_box
+                    if contains_box_or_polygon
                         && action_button(
                             ui,
                             tool_icons.egui_icon_circle,
                             "Transform into circle",
                         )
                     {
-                        actions.write(GeometryActionEvent::BoxesToCircles(bodies.clone()));
+                        actions.write(GeometryActionEvent::ShapesToCircles(bodies.clone()));
                     }
-                    if contains_circle
+                    if contains_circle_or_polygon
                         && action_button(ui, tool_icons.egui_icon_box, "Transform into box")
                     {
-                        actions.write(GeometryActionEvent::CirclesToBoxes(bodies.clone()));
+                        actions.write(GeometryActionEvent::ShapesToBoxes(bodies.clone()));
                     }
                 });
         }
@@ -191,7 +194,10 @@ fn process_geometry_actions(
     springs: Query<(Entity, &SpringObject)>,
     joints: Query<JointData, JointFilter>,
     attachment_links: Query<&AttachmentLinks>,
-    mut geometry: Query<(&mut Collider, &mut Shape, &mut CircleVisual), Without<PlaneObject>>,
+    mut geometry: Query<
+        (&mut Collider, &mut Shape, &mut CircleVisual, Has<FreeformObject>),
+        Without<PlaneObject>,
+    >,
 ) {
     for event in events.read() {
         match event {
@@ -215,17 +221,27 @@ fn process_geometry_actions(
                 &joints,
                 &attachment_links,
             ),
-            GeometryActionEvent::BoxesToCircles(targets) => {
+            GeometryActionEvent::ShapesToCircles(targets) => {
                 for entity in targets.iter().copied() {
-                    if let Ok((mut collider, mut shape, mut circle)) = geometry.get_mut(entity) {
-                        transform_box_to_circle(&mut collider, &mut shape, &mut circle);
+                    if let Ok((mut collider, mut shape, mut circle, is_polygon)) =
+                        geometry.get_mut(entity)
+                        && (is_polygon || collider_is_box(&collider))
+                        && transform_to_circle(&mut collider, &mut shape, &mut circle)
+                        && is_polygon
+                    {
+                        commands.entity(entity).remove::<FreeformObject>();
                     }
                 }
             }
-            GeometryActionEvent::CirclesToBoxes(targets) => {
+            GeometryActionEvent::ShapesToBoxes(targets) => {
                 for entity in targets.iter().copied() {
-                    if let Ok((mut collider, mut shape, mut circle)) = geometry.get_mut(entity) {
-                        transform_circle_to_box(&mut collider, &mut shape, &mut circle);
+                    if let Ok((mut collider, mut shape, mut circle, is_polygon)) =
+                        geometry.get_mut(entity)
+                        && (is_polygon || collider_is_circle(&collider))
+                        && transform_to_box(&mut collider, &mut shape, &mut circle)
+                        && is_polygon
+                    {
+                        commands.entity(entity).remove::<FreeformObject>();
                     }
                 }
             }
@@ -351,16 +367,16 @@ fn collider_is_circle(collider: &Collider) -> bool {
     matches!(collider.shape().as_typed_shape(), TypedShape::Ball(_))
 }
 
-fn transform_box_to_circle(
+fn transform_to_circle(
     collider: &mut Collider,
     shape: &mut Shape,
     circle: &mut CircleVisual,
 ) -> bool {
-    let TypedShape::Cuboid(box_shape) = collider.shape().as_typed_shape() else {
+    let area = collider.shape().mass_properties(1.0).mass();
+    if !area.is_finite() || area <= 0.0 {
         return false;
-    };
-    let size = box_shape.half_extents * 2.0;
-    let radius = (size.x * size.y / PI).sqrt();
+    }
+    let radius = (area / PI).sqrt();
     *collider = Collider::circle(radius);
     shape.path = GeometryBuilder::build_as(&shapes::Circle {
         radius: (radius - crate::BORDER_THICKNESS * 0.5).max(radius * 0.5),
@@ -370,15 +386,16 @@ fn transform_box_to_circle(
     true
 }
 
-fn transform_circle_to_box(
+fn transform_to_box(
     collider: &mut Collider,
     shape: &mut Shape,
     circle: &mut CircleVisual,
 ) -> bool {
-    let TypedShape::Ball(ball) = collider.shape().as_typed_shape() else {
+    let area = collider.shape().mass_properties(1.0).mass();
+    if !area.is_finite() || area <= 0.0 {
         return false;
-    };
-    let side = (PI * ball.radius * ball.radius).sqrt();
+    }
+    let side = area.sqrt();
     *collider = Collider::rectangle(side, side);
     shape.path = GeometryBuilder::build_as(&shapes::Rectangle {
         extents: (Vec2::splat(side) - Vec2::splat(crate::BORDER_THICKNESS))
@@ -416,10 +433,10 @@ mod tests {
         let mut shape = Shape::default();
         let mut circle = CircleVisual(0.0);
 
-        assert!(transform_box_to_circle(
+        assert!(transform_to_circle(
             &mut collider,
             &mut shape,
-            &mut circle
+            &mut circle,
         ));
         let TypedShape::Ball(ball) = collider.shape().as_typed_shape() else {
             panic!("box was not transformed into a circle");
@@ -434,10 +451,10 @@ mod tests {
         let mut shape = Shape::default();
         let mut circle = CircleVisual(3.0);
 
-        assert!(transform_circle_to_box(
+        assert!(transform_to_box(
             &mut collider,
             &mut shape,
-            &mut circle
+            &mut circle,
         ));
         let TypedShape::Cuboid(square) = collider.shape().as_typed_shape() else {
             panic!("circle was not transformed into a box");
@@ -449,7 +466,7 @@ mod tests {
     }
 
     #[test]
-    fn transforms_ignore_other_geometry_types() {
+    fn parry_computes_area_without_manual_shape_cases() {
         let mut collider = Collider::convex_hull(vec![
             Vec2::new(-1.0, 0.0),
             Vec2::new(1.0, 0.0),
@@ -459,16 +476,89 @@ mod tests {
         let mut shape = Shape::default();
         let mut circle = CircleVisual(0.0);
 
-        assert!(!transform_box_to_circle(
+        assert!(transform_to_circle(
             &mut collider,
             &mut shape,
-            &mut circle
+            &mut circle,
         ));
-        assert!(!transform_circle_to_box(
+        let TypedShape::Ball(ball) = collider.shape().as_typed_shape() else {
+            panic!("convex shape was not transformed into a circle");
+        };
+        assert!((PI * ball.radius.powi(2) - 1.0).abs() < 1.0e-5);
+
+        assert!(transform_to_box(
             &mut collider,
             &mut shape,
-            &mut circle
+            &mut circle,
         ));
+        let TypedShape::Cuboid(square) = collider.shape().as_typed_shape() else {
+            panic!("circle was not transformed into a box");
+        };
+        assert!(((square.half_extents.x * 2.0).powi(2) - 1.0).abs() < 1.0e-5);
+    }
+
+    #[test]
+    fn polygon_transforms_preserve_area_and_remove_polygon_marker() {
+        let mut app = geometry_action_app();
+        let expected_area = 3.0;
+        let polygon = crate::tools::polygon::tessellate_polygon(&[
+            Vec2::ZERO,
+            Vec2::new(2.0, 0.0),
+            Vec2::new(2.0, 2.0),
+            Vec2::new(1.0, 1.0),
+            Vec2::new(0.0, 2.0),
+        ])
+        .unwrap();
+        let entity = app
+            .world_mut()
+            .spawn((
+                RigidBody::Dynamic,
+                Position::default(),
+                Rotation::default(),
+                polygon.collider(),
+                Shape::default(),
+                CircleVisual(0.0),
+                FreeformObject,
+            ))
+            .id();
+
+        app.world_mut()
+            .write_message(GeometryActionEvent::ShapesToCircles(vec![entity]));
+        app.update();
+
+        let collider = app.world().get::<Collider>(entity).unwrap();
+        let TypedShape::Ball(circle) = collider.shape().as_typed_shape() else {
+            panic!("polygon was not transformed into a circle");
+        };
+        assert!((PI * circle.radius.powi(2) - expected_area).abs() < 1.0e-5);
+        assert!(app.world().get::<FreeformObject>(entity).is_none());
+    }
+
+    #[test]
+    fn polygon_can_transform_directly_into_an_equal_area_square() {
+        let polygon = crate::tools::polygon::tessellate_polygon(&[
+            Vec2::ZERO,
+            Vec2::new(2.0, 0.0),
+            Vec2::new(2.0, 2.0),
+            Vec2::new(1.0, 1.0),
+            Vec2::new(0.0, 2.0),
+        ])
+        .unwrap();
+        let expected_area = polygon.area;
+        let mut collider = polygon.collider();
+        let mut shape = Shape::default();
+        let mut circle = CircleVisual(0.0);
+
+        assert!(transform_to_box(
+            &mut collider,
+            &mut shape,
+            &mut circle,
+        ));
+        let TypedShape::Cuboid(square) = collider.shape().as_typed_shape() else {
+            panic!("polygon was not transformed into a box");
+        };
+        let side = square.half_extents.x * 2.0;
+        assert!((side.powi(2) - expected_area).abs() < 1.0e-5);
     }
 
     #[test]

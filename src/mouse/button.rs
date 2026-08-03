@@ -22,6 +22,7 @@ use crate::tools::r#move::MoveEvent;
 use crate::tools::pan;
 use crate::tools::pan::PanEvent;
 use crate::tools::plane::plane_outward_normal;
+use crate::tools::polygon::{FREEHAND_SAMPLE_DISTANCE_PX, MIN_PREVIEW_AREA_PX};
 use crate::tools::rotate::{RotateEvent, rotation_delta};
 use crate::tools::zoom::ZoomEvent;
 use crate::ui::selection_overlay::{Overlay, OverlayState};
@@ -156,6 +157,9 @@ pub fn left_release(
                 Circle(Some(ent)) => {
                     commands.entity(*ent).despawn();
                 }
+                Polygon(Some(state)) => {
+                    commands.entity(state.overlay_ent).despawn();
+                }
                 Plane(Some(state)) => {
                     commands.entity(state.overlay_ent).despawn();
                 }
@@ -217,6 +221,16 @@ pub fn left_release(
                         radius: (draw_pos - click_pos).length(),
                     });
                     *state_button = Some(Circle(None));
+                }
+                Polygon(Some(mut state)) => {
+                    state.push_world_point(draw_pos, f32::EPSILON);
+                    if state.screen_area(camera_scale) >= MIN_PREVIEW_AREA_PX {
+                        add_obj.write(AddObjectEvent::Polygon {
+                            pos: state.origin,
+                            points: state.points,
+                        });
+                    }
+                    *state_button = Some(Polygon(None));
                 }
                 Plane(Some(state)) => {
                     add_obj.write(AddObjectEvent::Plane {
@@ -367,6 +381,26 @@ pub fn left_pressed(
                 break 'thing;
             }
             if let Some((at, click_pos, click_pos_screen)) = *state_pos {
+                if let Some(Polygon(Some(state))) = state_button.as_mut() {
+                    let minimum_distance = if grid.settings.enabled && grid.settings.snap {
+                        f32::EPSILON
+                    } else {
+                        FREEHAND_SAMPLE_DISTANCE_PX * camera_scale
+                    };
+                    if state.push_world_point(draw_pos, minimum_distance) {
+                        *overlay = OverlayState {
+                            draw_ent: Some((
+                                state.overlay_ent,
+                                Overlay::Polygon(
+                                    state.points.clone(),
+                                    state.screen_area(camera_scale) >= MIN_PREVIEW_AREA_PX,
+                                ),
+                                state.origin,
+                            )),
+                        };
+                    }
+                    break 'thing;
+                }
                 match state_button.as_ref() {
                     Some(Pan(Some(PanState { orig_camera_pos }))) => {
                         ev_pan.write(PanEvent {
@@ -514,7 +548,7 @@ pub fn left_pressed(
                     .is_pointer_over_egui()
             {
                 info!("button pressed ({:?})", button);
-                let start_pos = if matches!(tool, Box(_) | Circle(_)) {
+                let start_pos = if matches!(tool, Polygon(_) | Box(_) | Circle(_)) {
                     draw_pos
                 } else {
                     pos

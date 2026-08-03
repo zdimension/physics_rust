@@ -9,7 +9,7 @@ use crate::objects::axle::{
     HingeMotorRing, hinge_selection_radius,
 };
 use crate::objects::laser::{LaserSettings, LaserVisual};
-use crate::objects::phy_obj::PhysicalObject;
+use crate::objects::phy_obj::{FreeformObject, PhysicalObject};
 use crate::objects::plane::spawn_plane;
 use crate::objects::thruster::{ThrusterInner, ThrusterSettings};
 use crate::objects::tracer::{TracerObject, TracerSettings, TracerVisual};
@@ -187,8 +187,12 @@ pub fn process_add_object(
                 );
             }
             Polygon { pos, ref points } => {
+                let Some(object) = PhysicalObject::freeform(points, z.pos(pos)) else {
+                    continue;
+                };
                 commands
-                    .spawn(PhysicalObject::poly(points.clone(), z.pos(pos)))
+                    .spawn(object)
+                    .insert(FreeformObject)
                     .insert(ChildOf(scene_state.scene))
                     .insert(
                         ColorComponent(palette.get_color_hsva(&mut *rng.single_mut().unwrap()))

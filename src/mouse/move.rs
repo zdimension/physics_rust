@@ -12,10 +12,11 @@ use crate::tools::drag::{DragObject, DragState, DragTarget};
 use crate::tools::r#move::MoveState;
 use crate::tools::pan::PanState;
 use crate::tools::plane::PlanePlacementState;
+use crate::tools::polygon::{FREEHAND_SAMPLE_DISTANCE_PX, PolygonPlacementState};
 use crate::tools::rotate::RotateState;
 use crate::tools::zoom::ZoomState;
 use crate::ui::images::AppIcons;
-use crate::ui::selection_overlay::{PlaneNormalIcon, RotationOriginIcon};
+use crate::ui::selection_overlay::{Overlay, OverlayState, PlaneNormalIcon, RotationOriginIcon};
 use crate::ui::{PointerToolState, SceneState, Selected};
 use crate::{CustomForce, InvTransformPoint, UsedMouseButton};
 use avian2d::prelude::*;
@@ -286,6 +287,24 @@ pub fn mouse_long_or_moved(
                             &params.draw_objects,
                         ))));
                     }
+                    (Polygon(None), _) => {
+                        let overlay_ent = spawn_draw_object(&mut commands, &params.draw_objects);
+                        let camera_scale = params.cameras.single().unwrap().scale.x.abs();
+                        let point = params.grid.snap_point(curpos, camera_scale);
+                        let minimum_distance = if params.grid.enabled && params.grid.snap {
+                            f32::EPSILON
+                        } else {
+                            FREEHAND_SAMPLE_DISTANCE_PX * camera_scale
+                        };
+                        let mut state = PolygonPlacementState::new(overlay_ent, clickpos);
+                        state.push_world_point(point, minimum_distance);
+                        params.overlay.draw_ent = Some((
+                            overlay_ent,
+                            Overlay::Polygon(state.points.clone(), false),
+                            state.origin,
+                        ));
+                        *ui_button = Some(Polygon(Some(state)));
+                    }
                     (Plane(None), _) => {
                         let camera = params.cameras.single_mut().unwrap();
                         let scale = camera.scale.x * params.app_config.ui_scale_factor();
@@ -350,10 +369,12 @@ pub struct MouseLongOrMovedParams<'w, 's> {
     mouse_pos: Res<'w, MousePosWorld>,
     images: Res<'w, AppIcons>,
     app_config: Res<'w, AppConfig>,
+    grid: Res<'w, crate::grid::GridSettings>,
     palette: Res<'w, PaletteConfig>,
     rng: Query<'w, 's, &'static mut RngComponent>,
     z: ResMut<'w, DepthSorter>,
     draw_objects: Query<'w, 's, Entity, With<crate::DrawObject>>,
+    overlay: ResMut<'w, OverlayState>,
     rotation_pivots: RotationPivotQueries<'w, 's>,
 }
 

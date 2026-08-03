@@ -3,6 +3,7 @@ pub(crate) mod drag;
 pub(crate) mod r#move;
 pub(crate) mod pan;
 pub(crate) mod plane;
+pub(crate) mod polygon;
 pub(crate) mod rotate;
 pub(crate) mod zoom;
 
@@ -107,6 +108,7 @@ use crate::tools::drag::DragState;
 use crate::tools::r#move::MoveState;
 use crate::tools::pan::PanState;
 use crate::tools::plane::PlanePlacementState;
+use crate::tools::polygon::PolygonPlacementState;
 use crate::tools::rotate::RotateState;
 use crate::tools::zoom::ZoomState;
 use bevy::prelude::*;
@@ -117,6 +119,7 @@ tools_enum! {
     drag => Drag(Option<DragState>),
     rotate => Rotate(Option<RotateState>),
 
+    polygon => Polygon(Option<PolygonPlacementState>),
     box => Box(Option<Entity>),
     circle => Circle(Option<Entity>),
     plane => Plane(Option<PlanePlacementState>),

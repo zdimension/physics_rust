@@ -1,3 +1,4 @@
+use avian2d::parry::shape::{Shape as ParryShape, TypedShape};
 use avian2d::prelude::{Collider, Rotation};
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
@@ -143,24 +144,14 @@ impl GridLayout {
                     line_step,
                 );
 
-                let Some(support_map) = body.collider.shape_scaled().as_support_map() else {
-                    continue;
-                };
                 let direction = avian2d::parry::math::Vector::new(local_normal.x, local_normal.y);
-                let support_max = support_map.local_support_point(direction);
-                let support_min = support_map.local_support_point(-direction);
-                add_residual(
-                    &mut residuals[family],
-                    normal.dot(body.position)
-                        + local_normal.dot(Vec2::new(support_max.x, support_max.y)),
-                    line_step,
-                );
-                add_residual(
-                    &mut residuals[family],
-                    normal.dot(body.position)
-                        + local_normal.dot(Vec2::new(support_min.x, support_min.y)),
-                    line_step,
-                );
+                for offset in support_offsets(body.collider.shape_scaled().as_ref(), direction) {
+                    add_residual(
+                        &mut residuals[family],
+                        normal.dot(body.position) + offset,
+                        line_step,
+                    );
+                }
             }
         }
 
@@ -187,6 +178,30 @@ impl GridLayout {
         }
         best.unwrap_or(Vec2::ZERO)
     }
+}
+
+fn support_offsets(shape: &dyn ParryShape, direction: avian2d::parry::math::Vector) -> Vec<f32> {
+    if let Some(support_map) = shape.as_support_map() {
+        let max = support_map.local_support_point(direction).dot(direction);
+        let min = support_map.local_support_point(-direction).dot(direction);
+        return vec![min, max];
+    }
+
+    let TypedShape::Compound(compound) = shape.as_typed_shape() else {
+        return Vec::new();
+    };
+    compound
+        .shapes()
+        .iter()
+        .flat_map(|(pose, child)| {
+            let support_map = child.as_support_map()?;
+            Some([
+                support_map.support_point(pose, -direction).dot(direction),
+                support_map.support_point(pose, direction).dot(direction),
+            ])
+        })
+        .flatten()
+        .collect()
 }
 
 fn add_residual(residuals: &mut Vec<f32>, projected_position: f32, line_step: f32) {
@@ -429,5 +444,28 @@ mod tests {
             collider: &collider,
         };
         assert!(layout.snap_translation(&[already_snapped]).length_squared() < 1.0e-10);
+    }
+
+    #[test]
+    fn compound_shapes_offer_each_convex_part_for_edge_snapping() {
+        let collider = Collider::compound(vec![
+            (
+                Vec2::new(-1.0, 0.0),
+                Rotation::IDENTITY,
+                Collider::rectangle(1.0, 1.0),
+            ),
+            (
+                Vec2::new(2.0, 0.0),
+                Rotation::IDENTITY,
+                Collider::rectangle(1.0, 1.0),
+            ),
+        ]);
+        let mut offsets = support_offsets(
+            collider.shape_scaled().as_ref(),
+            avian2d::parry::math::Vector::X,
+        );
+        offsets.sort_by(f32::total_cmp);
+
+        assert_eq!(offsets, [-1.5, -0.5, 1.5, 2.5]);
     }
 }

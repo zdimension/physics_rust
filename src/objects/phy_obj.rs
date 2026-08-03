@@ -10,11 +10,15 @@ use avian2d::prelude::*;
 
 use crate::objects::attraction::Attraction;
 use crate::objects::{CircleAngleMarker, ColorComponent};
+use crate::tools::polygon::{polygon_path, tessellate_polygon};
 use crate::update_from::UpdateFrom;
 use crate::{BORDER_THICKNESS, FillStroke};
 
 #[derive(Component)]
 pub struct CircleVisual(pub f32);
+
+#[derive(Component)]
+pub struct FreeformObject;
 
 #[derive(Component, Copy, Clone, Debug, Default, PartialEq, Eq)]
 pub enum FrictionModel {
@@ -132,19 +136,17 @@ impl PhysicalObject {
         )
     }
 
-    pub fn poly(points: Vec<Vec2>, pos: Vec3) -> Self {
-        Self::make(
-            Collider::convex_hull(points.clone()).unwrap(),
+    pub fn freeform(points: &[Vec2], pos: Vec3) -> Option<Self> {
+        let geometry = tessellate_polygon(points)?;
+        Some(Self::make(
+            geometry.collider(),
             ShapeBundle::new(
-                GeometryBuilder::build_as(&shapes::Polygon {
-                    points,
-                    closed: true,
-                }),
-                Transform::from_translation(Vec3::new(0.0, 0.0, pos.z)), // todo: center of mass
+                polygon_path(points, true),
+                Transform::from_translation(pos),
                 Visibility::Inherited,
             ),
             Position(pos.xy()),
-        )
+        ))
     }
 }
 
