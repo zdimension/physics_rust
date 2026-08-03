@@ -255,7 +255,6 @@ pub fn left_release(
                     });
                     *state_button = Some(Plane(None));
                 }
-                Plane(None) => {}
                 Spring(Some(state)) if screen_pos.distance(click_pos_screen) > 6.0 => {
                     ev_spring_finish.write(FinishSpringEvent {
                         state,
