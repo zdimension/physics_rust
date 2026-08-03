@@ -95,18 +95,6 @@ impl GearOutline {
     pub fn path(&self) -> Path {
         path_from_contours(&self.outer, self.inner.as_deref())
     }
-
-    /// Builds the painted outline with a centered stroke kept wholly inside the
-    /// collision outline.
-    pub fn visual_path(&self, stroke_width: f32) -> Path {
-        let inset = stroke_width.max(0.0) * 0.5;
-        let outer = offset_contour(&self.outer, inset);
-        let inner = self
-            .inner
-            .as_deref()
-            .map(|contour| offset_contour(contour, inset));
-        path_from_contours(&outer, inner.as_deref())
-    }
 }
 
 fn path_from_contours(outer: &[Vec2], inner: Option<&[Vec2]>) -> Path {
@@ -115,40 +103,6 @@ fn path_from_contours(outer: &[Vec2], inner: Option<&[Vec2]>) -> Path {
         builder = add_contour(builder, inner);
     }
     builder.build()
-}
-
-/// Offsets toward the left side of every directed edge. Gear contours are
-/// wound so that this is always toward their material: inward for the outer
-/// contour and outward for a hole.
-fn offset_contour(points: &[Vec2], distance: f32) -> Vec<Vec2> {
-    if points.len() < 3 || distance == 0.0 {
-        return points.to_vec();
-    }
-
-    (0..points.len())
-        .map(|index| {
-            let previous = points[(index + points.len() - 1) % points.len()];
-            let point = points[index];
-            let next = points[(index + 1) % points.len()];
-            let previous_direction = (point - previous).normalize_or_zero();
-            let next_direction = (next - point).normalize_or_zero();
-            let previous_offset = previous + previous_direction.perp() * distance;
-            let next_offset = point + next_direction.perp() * distance;
-            let denominator = cross(previous_direction, next_direction);
-
-            if denominator.abs() <= 1.0e-6 {
-                point + next_direction.perp() * distance
-            } else {
-                previous_offset
-                    + previous_direction
-                        * (cross(next_offset - previous_offset, next_direction) / denominator)
-            }
-        })
-        .collect()
-}
-
-fn cross(left: Vec2, right: Vec2) -> f32 {
-    left.x * right.y - left.y * right.x
 }
 
 fn add_contour(mut builder: GeometryBuilder, points: &[Vec2]) -> GeometryBuilder {
@@ -342,30 +296,5 @@ mod tests {
 
         assert_eq!(outline.external_teeth, 3);
         assert_eq!(outline.outer.len(), 12);
-    }
-
-    #[test]
-    fn contour_offset_moves_both_boundaries_into_the_material() {
-        let outer = [
-            Vec2::new(-1.0, -1.0),
-            Vec2::new(1.0, -1.0),
-            Vec2::new(1.0, 1.0),
-            Vec2::new(-1.0, 1.0),
-        ];
-        let inner = outer.into_iter().rev().collect::<Vec<_>>();
-
-        let inset_outer = offset_contour(&outer, 0.1);
-        let inset_inner = offset_contour(&inner, 0.1);
-
-        assert!(
-            inset_outer
-                .iter()
-                .all(|point| point.abs().max_element() < 1.0)
-        );
-        assert!(
-            inset_inner
-                .iter()
-                .all(|point| point.abs().max_element() > 1.0)
-        );
     }
 }

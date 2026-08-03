@@ -1,5 +1,6 @@
 use crate::tools::add_object::DepthSorter;
 use crate::mouse_tracking::MainCamera;
+use crate::lyon_compat::ScreenSpaceShapeMaterial;
 use crate::ui::images::GuiIcons;
 use crate::ui::menu_item::MenuItem;
 use crate::ui::{InitialPos, Selected, Subwindow, WindowSelectionTarget, bool_checkbox};
@@ -203,6 +204,7 @@ fn process_selection_actions(
     mut transforms: Query<(&mut Transform, Option<&ChildOf>)>,
     globals: Query<&GlobalTransform>,
     mut mesh_materials: Query<&mut MeshMaterial2d<ColorMaterial>>,
+    mut shape_materials: Query<&mut MeshMaterial2d<ScreenSpaceShapeMaterial>>,
     mut depth: ResMut<DepthSorter>,
     mut commands: Commands,
 ) {
@@ -217,6 +219,7 @@ fn process_selection_actions(
                 &mut transforms,
                 &globals,
                 &mut mesh_materials,
+                &mut shape_materials,
                 &mut depth,
             ),
         }
@@ -250,6 +253,7 @@ fn move_selected_z(
     transforms: &mut Query<(&mut Transform, Option<&ChildOf>)>,
     globals: &Query<&GlobalTransform>,
     mesh_materials: &mut Query<&mut MeshMaterial2d<ColorMaterial>>,
+    shape_materials: &mut Query<&mut MeshMaterial2d<ScreenSpaceShapeMaterial>>,
     depth: &mut DepthSorter,
 ) {
     let selected = selected.iter().copied().collect::<HashSet<_>>();
@@ -311,6 +315,9 @@ fn move_selected_z(
     // Bevy 0.19 retains Material2d sort keys when only GlobalTransform changes.
     // Requeue 2D meshes so their transparent-phase order uses the new Z values.
     for mut material in mesh_materials.iter_mut() {
+        material.set_changed();
+    }
+    for mut material in shape_materials.iter_mut() {
         material.set_changed();
     }
 

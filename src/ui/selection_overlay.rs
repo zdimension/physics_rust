@@ -4,9 +4,9 @@ use crate::lyon_compat::RectangleOrigin;
 use crate::lyon_compat::shapes;
 use crate::lyon_compat::{Fill, Shape, ShapeBundle, Stroke};
 use crate::mouse_tracking::{MainCamera, MousePosWorld};
-use crate::objects::phy_obj::{CollisionOutline, FreeformObject};
+use crate::objects::phy_obj::FreeformObject;
 use crate::ui::Selected;
-use crate::{BORDER_THICKNESS, make_fill, make_stroke};
+use crate::{BORDER_WIDTH_PX, make_fill, make_inset_stroke};
 use avian2d::parry::shape::TypedShape;
 use avian2d::prelude::Collider;
 use bevy::math::{Vec2, Vec3Swizzles};
@@ -22,6 +22,7 @@ use crate::tools::rotate::ROTATE_HELPER_RADIUS;
 // Object layers are one unit apart, leaving this above object details but below the next object.
 const SELECTION_OVERLAY_Z: f32 = 0.5;
 const SELECTION_COLOR: Color = Color::WHITE;
+const SELECTION_BORDER_WIDTH_PX: f32 = BORDER_WIDTH_PX * 5.0;
 
 #[derive(Clone, PartialEq)]
 pub enum Overlay {
@@ -55,15 +56,11 @@ pub fn sync_selection_highlights(
     mut highlight_parents: Query<(Entity, &ChildOf), With<SelectionHighlight>>,
     mut highlights: Query<(&mut Shape, &mut Transform, &mut Stroke), With<SelectionHighlight>>,
     colliders: Query<Ref<Collider>, Without<SelectionHighlight>>,
-    freeform_shapes: Query<
-        (&Shape, Option<&CollisionOutline>),
-        (With<FreeformObject>, Without<SelectionHighlight>),
-    >,
+    freeform_shapes: Query<&Shape, (With<FreeformObject>, Without<SelectionHighlight>)>,
     added_selected: Query<(), Added<Selected>>,
     changed_selected_colliders: Query<(), (With<Selected>, Changed<Collider>)>,
     mut removed_selected: RemovedComponents<Selected>,
     mut removed_colliders: RemovedComponents<Collider>,
-    app_config: Res<AppConfig>,
 ) {
     let selection_removed = removed_selected.read().next().is_some();
     let collider_removed = removed_colliders.read().next().is_some();
@@ -71,7 +68,6 @@ pub fn sync_selection_highlights(
         && changed_selected_colliders.is_empty()
         && !selection_removed
         && !collider_removed
-        && !app_config.is_changed()
     {
         return;
     }
@@ -91,21 +87,17 @@ pub fn sync_selection_highlights(
             continue;
         };
         let highlight = highlight_by_target.get(&target).copied();
-        if highlight.is_some() && !collider.is_changed() && !app_config.is_changed() {
+        if highlight.is_some() && !collider.is_changed() {
             continue;
         }
         upsert_selection_highlight(
             target,
             highlight,
-            freeform_shapes.get(target).map_or_else(
-                |_| collider_path(&collider),
-                |(shape, collision_outline)| {
-                    collision_outline
-                        .map_or_else(|| shape.path.clone(), |outline| outline.0.clone())
-                },
-            ),
+            freeform_shapes
+                .get(target)
+                .map_or_else(|_| collider_path(&collider), |shape| shape.path.clone()),
             SELECTION_OVERLAY_Z,
-            BORDER_THICKNESS * app_config.ui_scale_factor(),
+            SELECTION_BORDER_WIDTH_PX,
             &mut commands,
             &mut highlights,
         );
@@ -126,7 +118,7 @@ fn upsert_selection_highlight(
     {
         shape.path = path;
         transform.translation = Vec3::Z * local_z;
-        stroke.options.line_width = stroke_width;
+        stroke.width_px = stroke_width;
         return;
     }
 
@@ -139,7 +131,7 @@ fn upsert_selection_highlight(
                 Visibility::Inherited,
             ),
             make_fill(Color::srgba(0.0, 0.0, 0.0, 0.0)),
-            make_stroke(SELECTION_COLOR, stroke_width),
+            make_inset_stroke(SELECTION_COLOR, stroke_width),
         ));
     });
 }
@@ -163,8 +155,10 @@ fn collider_path(collider: &Collider) -> bevy_prototype_lyon::prelude::tess::pat
             closed: true,
         }),
         TypedShape::HalfSpace(_) => GeometryBuilder::new()
-            .begin(Vec2::new(-100_000.0, 0.0))
-            .line_to(Vec2::new(100_000.0, 0.0))
+            // The collider occupies local negative Y. Traversing right-to-left
+            // keeps that material on the path's positive (left) side.
+            .begin(Vec2::new(100_000.0, 0.0))
+            .line_to(Vec2::new(-100_000.0, 0.0))
             .end(false)
             .build(),
         _ => {
@@ -181,7 +175,6 @@ fn collider_path(collider: &Collider) -> bevy_prototype_lyon::prelude::tess::pat
 }
 
 pub fn process_draw_overlay(
-    cameras: Query<&Transform, With<MainCamera>>,
     mut overlay: ResMut<OverlayState>,
     mut commands: Commands,
     mouse: Res<MousePosWorld>,
@@ -207,7 +200,7 @@ pub fn process_draw_overlay(
             (Without<crate::DrawObject>, Without<MainCamera>),
         >,
     )>,
-    mut last_overlay: Local<Option<(Entity, Overlay, Vec2, f32, i32)>>,
+    mut last_overlay: Local<Option<(Entity, Overlay, Vec2, i32)>>,
     mut active_overlay: Local<Option<Entity>>,
 ) {
     let Some((draw_ent, shape, pos)) = overlay.draw_ent.clone() else {
@@ -218,16 +211,7 @@ pub fn process_draw_overlay(
         return;
     };
 
-    let Ok(camera) = cameras.single() else {
-        return;
-    };
-    let current = (
-        draw_ent,
-        shape.clone(),
-        pos,
-        camera.scale.x,
-        app_config.ui_scale,
-    );
+    let current = (draw_ent, shape.clone(), pos, app_config.ui_scale);
     if last_overlay.as_ref() == Some(&current) {
         return;
     }
@@ -372,10 +356,7 @@ pub fn process_draw_overlay(
             path,
             rotation,
             crate::make_fill(fill),
-            crate::make_stroke(
-                color,
-                thickness * camera.scale.x * app_config.ui_scale_factor(),
-            ),
+            crate::make_stroke(color, thickness * app_config.ui_scale_factor()),
             &mut commands,
             &mut root_shapes,
         );
@@ -551,7 +532,8 @@ fn draw_absolute_rotation_arc(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bevy::ecs::system::IntoSystem;
+    use crate::lyon_compat::StrokeAlignment;
+    use bevy::ecs::system::{IntoSystem, RunSystemOnce};
 
     #[test]
     fn selection_highlight_queries_are_disjoint() {
@@ -559,6 +541,36 @@ mod tests {
         let mut system = IntoSystem::into_system(sync_selection_highlights);
 
         system.initialize(&mut world);
+    }
+
+    #[test]
+    fn selection_border_is_five_pixels_and_entirely_inset() {
+        let mut world = World::new();
+        let target = world.spawn((Selected, Collider::circle(1.0))).id();
+
+        world.run_system_once(sync_selection_highlights).unwrap();
+        world.flush();
+
+        let (_, stroke) = world
+            .query::<(&ChildOf, &Stroke)>()
+            .iter(&world)
+            .find(|(parent, _)| parent.parent() == target)
+            .expect("selection highlight should be spawned");
+        assert_eq!(stroke.width_px, 5.0);
+        assert_eq!(stroke.alignment, StrokeAlignment::Inward);
+    }
+
+    #[test]
+    fn half_space_selection_border_points_into_the_collidable_side() {
+        let path = collider_path(&Collider::half_space(Vec2::Y));
+        let direction = path
+            .iter()
+            .map(|edge| Vec2::new(edge.to().x - edge.from().x, edge.to().y - edge.from().y))
+            .find(|direction| direction.length_squared() > 0.0)
+            .expect("half-space path should contain an edge");
+        let positive_side_normal = direction.perp().normalize();
+
+        assert!(positive_side_normal.y < 0.0);
     }
 
     #[test]

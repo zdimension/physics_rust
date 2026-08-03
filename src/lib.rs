@@ -64,7 +64,8 @@ mod tools;
 mod ui;
 mod update_from;
 
-const BORDER_THICKNESS: f32 = 0.03;
+/// Standard object-outline width in physical screen pixels.
+const BORDER_WIDTH_PX: f32 = 1.0;
 const CAMERA_FAR: f32 = 1e6f32;
 const CAMERA_Z: f32 = CAMERA_FAR - 0.1;
 const FOREGROUND_Z: f32 = CAMERA_Z - 0.2;
@@ -359,18 +360,7 @@ pub fn app_main() {
     .add_systems(Update, update_draw_modes)
     .add_systems(
         PostUpdate,
-        (
-            selection_overlay::sync_selection_highlights,
-            lyon_compat::sync_draw_components,
-        )
-            .chain()
-            .before(bevy_prototype_lyon::plugin::BuildShapes),
-    )
-    .add_systems(
-        PostUpdate,
-        lyon_compat::sanitize_empty_shape_meshes
-            .after(bevy_prototype_lyon::plugin::BuildShapes)
-            .before(bevy::asset::AssetEventSystems),
+        selection_overlay::sync_selection_highlights.before(lyon_compat::BuildShapes),
     )
     .add_systems(Update, laser::draw_lasers)
     .add_systems(Update, apply_custom_forces)
@@ -580,9 +570,8 @@ impl Default for FillStroke {
             },
             stroke: Stroke {
                 color: Color::srgba(0.0, 0.0, 0.0, 0.0),
-                options: StrokeOptions::default()
-                    .with_tolerance(STROKE_TOLERANCE)
-                    .with_line_width(BORDER_THICKNESS),
+                width_px: BORDER_WIDTH_PX,
+                alignment: StrokeAlignment::Inward,
             },
         }
     }
@@ -591,9 +580,15 @@ impl Default for FillStroke {
 fn make_stroke(color: Color, thickness: f32) -> Stroke {
     Stroke {
         color,
-        options: StrokeOptions::default()
-            .with_tolerance(STROKE_TOLERANCE)
-            .with_line_width(thickness),
+        width_px: thickness,
+        alignment: StrokeAlignment::Center,
+    }
+}
+
+fn make_inset_stroke(color: Color, thickness: f32) -> Stroke {
+    Stroke {
+        alignment: StrokeAlignment::Inward,
+        ..make_stroke(color, thickness)
     }
 }
 

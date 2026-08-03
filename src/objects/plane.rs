@@ -8,7 +8,7 @@ use crate::mouse_tracking::MainCamera;
 use crate::objects::ColorComponent;
 use crate::objects::phy_obj::PhysicalProperties;
 use crate::update_from::UpdateFrom;
-use crate::{BORDER_THICKNESS, make_fill, make_stroke};
+use crate::{BORDER_WIDTH_PX, make_fill, make_stroke};
 
 #[derive(Component, Copy, Clone, Debug, Default)]
 pub struct PlaneObject;
@@ -87,7 +87,7 @@ fn insert_plane_visual(
                 Transform::from_translation(Vec3::Z * 0.25),
                 Visibility::Inherited,
             ),
-            make_stroke(Color::WHITE, BORDER_THICKNESS),
+            make_stroke(Color::WHITE, BORDER_WIDTH_PX),
             UpdateFrom::<ColorComponent>::entity(entity),
         ));
     });
@@ -109,8 +109,9 @@ pub(crate) fn update_plane_visuals(
     for (plane_entity, transform, mut fill_shape) in &mut planes {
         let angle = transform.rotation.to_euler(EulerRot::XYZ).2;
         let camera_local = Rot2::radians(-angle) * (camera_pos - transform.translation.truncate());
-        let half_width = camera_local.x.abs() + view_radius + BORDER_THICKNESS;
-        let depth = (-camera_local.y).max(0.0) + view_radius + BORDER_THICKNESS;
+        let border_margin = camera.scale.x.abs() * BORDER_WIDTH_PX;
+        let half_width = camera_local.x.abs() + view_radius + border_margin;
+        let depth = (-camera_local.y).max(0.0) + view_radius + border_margin;
         fill_shape.path = GeometryBuilder::build_as(&shapes::Polygon {
             points: vec![
                 Vec2::new(-half_width, 0.0),

@@ -8,22 +8,17 @@ use crate::lyon_compat::ShapeBundle;
 use crate::lyon_compat::shapes;
 use avian2d::prelude::*;
 
+use crate::FillStroke;
 use crate::objects::attraction::Attraction;
 use crate::objects::{CircleAngleMarker, ColorComponent};
 use crate::tools::polygon::{polygon_path, tessellate_path};
 use crate::update_from::UpdateFrom;
-use crate::{BORDER_THICKNESS, FillStroke};
 
 #[derive(Component)]
 pub struct CircleVisual(pub f32);
 
 #[derive(Component)]
 pub struct FreeformObject;
-
-/// The exact collision boundary for freeform objects whose painted path is
-/// inset to keep its centered border stroke inside the collider.
-#[derive(Component, Clone)]
-pub struct CollisionOutline(pub bevy_prototype_lyon::prelude::tess::path::Path);
 
 #[derive(Component, Copy, Clone, Debug, Default, PartialEq, Eq)]
 pub enum FrictionModel {
@@ -107,7 +102,7 @@ impl PhysicalObject {
             Collider::circle(radius),
             ShapeBundle::new(
                 GeometryBuilder::build_as(&shapes::Circle {
-                    radius: (radius - BORDER_THICKNESS * 0.5).max(radius * 0.5),
+                    radius,
                     ..Default::default()
                 }),
                 Transform::from_translation(Vec3::new(0.0, 0.0, pos.z)),
@@ -132,7 +127,7 @@ impl PhysicalObject {
             Collider::rectangle(size.x, size.y),
             ShapeBundle::new(
                 GeometryBuilder::build_as(&shapes::Rectangle {
-                    extents: (size - Vec2::splat(BORDER_THICKNESS)).max(Vec2::splat(f32::EPSILON)),
+                    extents: size.max(Vec2::splat(f32::EPSILON)),
                     origin: RectangleOrigin::Center,
                     radii: None,
                 }),
@@ -145,20 +140,19 @@ impl PhysicalObject {
 
     pub fn freeform(points: &[Vec2], pos: Vec3) -> Option<Self> {
         let path = polygon_path(points, true);
-        Self::freeform_path(path.clone(), path, pos, 0.0)
+        Self::freeform_path(path, pos, 0.0)
     }
 
     pub fn freeform_path(
-        collision_path: bevy_prototype_lyon::prelude::tess::path::Path,
-        visual_path: bevy_prototype_lyon::prelude::tess::path::Path,
+        path: bevy_prototype_lyon::prelude::tess::path::Path,
         pos: Vec3,
         angle: f32,
     ) -> Option<Self> {
-        let geometry = tessellate_path(&collision_path)?;
+        let geometry = tessellate_path(&path)?;
         let mut object = Self::make(
             geometry.collider(),
             ShapeBundle::new(
-                visual_path,
+                path,
                 Transform::from_translation(pos).with_rotation(Quat::from_rotation_z(angle)),
                 Visibility::Inherited,
             ),
@@ -181,6 +175,7 @@ impl Default for RefractiveIndex {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::lyon_compat::StrokeAlignment;
     use bevy::ecs::system::RunSystemOnce;
 
     #[test]
@@ -216,12 +211,14 @@ mod tests {
         let object = PhysicalObject::ball(1.0, Vec3::ZERO);
 
         assert_eq!(object.density, ColliderDensity(2.0));
+        assert_eq!(object.fill_stroke.stroke.width_px, 1.0);
+        assert_eq!(object.fill_stroke.stroke.alignment, StrokeAlignment::Inward);
     }
 
     #[test]
     fn freeform_path_keeps_its_placement_orientation() {
         let path = polygon_path(&[Vec2::ZERO, Vec2::X, Vec2::Y], true);
-        let object = PhysicalObject::freeform_path(path.clone(), path, Vec3::ZERO, 0.75).unwrap();
+        let object = PhysicalObject::freeform_path(path, Vec3::ZERO, 0.75).unwrap();
 
         assert!((object.rotation.as_radians() - 0.75).abs() < 1.0e-6);
     }
@@ -265,7 +262,7 @@ pub fn spawn_circle_angle_markers(
         }
         commands.entity(entity).with_children(|parent| {
             const SEGMENTS: usize = 6;
-            let marker_radius = (circle.0 - BORDER_THICKNESS).max(circle.0 * 0.5);
+            let marker_radius = circle.0;
             let mut points = Vec::with_capacity(SEGMENTS + 2);
             points.push(Vec2::ZERO);
             for step in 0..=SEGMENTS {

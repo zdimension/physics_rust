@@ -1,4 +1,4 @@
-use crate::BORDER_THICKNESS;
+use crate::BORDER_WIDTH_PX;
 use crate::lyon_compat::GeometryBuilder;
 use crate::lyon_compat::ShapeBundle;
 use crate::lyon_compat::shapes;
@@ -9,7 +9,7 @@ use crate::objects::axle::{
     HingeMotorRing, hinge_selection_radius,
 };
 use crate::objects::laser::{LaserSettings, LaserVisual};
-use crate::objects::phy_obj::{CollisionOutline, FreeformObject, PhysicalObject};
+use crate::objects::phy_obj::{FreeformObject, PhysicalObject};
 use crate::objects::plane::spawn_plane;
 use crate::objects::thruster::{ThrusterInner, ThrusterSettings};
 use crate::objects::tracer::{TracerObject, TracerSettings, TracerVisual};
@@ -191,19 +191,13 @@ pub fn process_add_object(
                 };
                 let gear_pos = z.pos(center);
                 let collision_path = outline.path();
-                let visual_path = outline.visual_path(BORDER_THICKNESS);
-                let Some(object) = PhysicalObject::freeform_path(
-                    collision_path.clone(),
-                    visual_path,
-                    gear_pos,
-                    angle,
-                ) else {
+                let Some(object) = PhysicalObject::freeform_path(collision_path, gear_pos, angle)
+                else {
                     continue;
                 };
                 let entity = commands
                     .spawn(object)
                     .insert(FreeformObject)
-                    .insert(CollisionOutline(collision_path))
                     .insert(ChildOf(scene_state.scene))
                     .insert(
                         ColorComponent(palette.get_color_hsva(&mut *rng.single_mut().unwrap()))
@@ -760,7 +754,7 @@ fn spawn_fix_attachment(
                 screen_aligned_attachment_transform(placement, scale, z.next(), camera_rotation),
                 Visibility::Inherited,
             ),
-            crate::make_stroke(Color::srgba(0.0, 0.0, 0.0, 0.0), BORDER_THICKNESS),
+            crate::make_stroke(Color::srgba(0.0, 0.0, 0.0, 0.0), BORDER_WIDTH_PX),
             SpriteOnly,
             Collider::circle(0.5),
             VIRTUAL_LAYER_OBJ,
@@ -822,7 +816,7 @@ fn spawn_axle_attachment(
                 screen_aligned_attachment_transform(placement, scale, z.next(), camera_rotation),
                 Visibility::Inherited,
             ),
-            crate::make_stroke(Color::srgba(0.0, 0.0, 0.0, 0.0), BORDER_THICKNESS),
+            crate::make_stroke(Color::srgba(0.0, 0.0, 0.0, 0.0), BORDER_WIDTH_PX),
             SpriteOnly,
             Collider::circle(0.5),
             VIRTUAL_LAYER_OBJ,
@@ -1033,7 +1027,7 @@ fn spawn_tracer_attachment(
                 },
                 Visibility::Inherited,
             ),
-            crate::make_stroke(Color::srgba(0.0, 0.0, 0.0, 0.0), BORDER_THICKNESS),
+            crate::make_stroke(Color::srgba(0.0, 0.0, 0.0, 0.0), BORDER_WIDTH_PX),
             TracerObject::default(),
             TracerSettings {
                 diameter: scale,
