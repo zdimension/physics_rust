@@ -232,6 +232,7 @@ pub fn left_release(
                     add_obj.write(AddObjectEvent::Gear {
                         center: click_pos,
                         radius: (draw_pos - click_pos).length(),
+                        angle: (pos - click_pos).to_angle(),
                         settings: gear_settings,
                     });
                     *state_button = Some(Gear(None));
@@ -529,7 +530,11 @@ pub fn left_pressed(
                             GearOutline::from_radius((draw_pos - click_pos).length(), gear_settings)
                         {
                             *overlay = OverlayState {
-                                draw_ent: Some((*draw_ent, Overlay::Gear(outline), click_pos)),
+                                draw_ent: Some((
+                                    *draw_ent,
+                                    Overlay::Gear(outline, (pos - click_pos).to_angle()),
+                                    click_pos,
+                                )),
                             };
                         }
                     }

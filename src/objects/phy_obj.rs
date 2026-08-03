@@ -70,6 +70,7 @@ pub struct PhysicalObject {
     fill_stroke: FillStroke,
     sleeping: SleepingDisabled,
     pos: Position,
+    rotation: Rotation,
     circle_visual: CircleVisual,
     attraction: Attraction,
 }
@@ -89,6 +90,7 @@ impl PhysicalObject {
             fill_stroke: FillStroke::default(),
             sleeping: SleepingDisabled, // todo: better
             pos,
+            rotation: Rotation::default(),
             circle_visual: CircleVisual(0.0),
             attraction: Attraction::default(),
         }
@@ -137,23 +139,26 @@ impl PhysicalObject {
     }
 
     pub fn freeform(points: &[Vec2], pos: Vec3) -> Option<Self> {
-        Self::freeform_path(polygon_path(points, true), pos)
+        Self::freeform_path(polygon_path(points, true), pos, 0.0)
     }
 
     pub fn freeform_path(
         path: bevy_prototype_lyon::prelude::tess::path::Path,
         pos: Vec3,
+        angle: f32,
     ) -> Option<Self> {
         let geometry = tessellate_path(&path)?;
-        Some(Self::make(
+        let mut object = Self::make(
             geometry.collider(),
             ShapeBundle::new(
                 path,
-                Transform::from_translation(pos),
+                Transform::from_translation(pos).with_rotation(Quat::from_rotation_z(angle)),
                 Visibility::Inherited,
             ),
             Position(pos.xy()),
-        ))
+        );
+        object.rotation = Rotation::radians(angle);
+        Some(object)
     }
 }
 
@@ -204,6 +209,14 @@ mod tests {
         let object = PhysicalObject::ball(1.0, Vec3::ZERO);
 
         assert_eq!(object.density, ColliderDensity(2.0));
+    }
+
+    #[test]
+    fn freeform_path_keeps_its_placement_orientation() {
+        let path = polygon_path(&[Vec2::ZERO, Vec2::X, Vec2::Y], true);
+        let object = PhysicalObject::freeform_path(path, Vec3::ZERO, 0.75).unwrap();
+
+        assert!((object.rotation.as_radians() - 0.75).abs() < 1.0e-6);
     }
 
     #[test]

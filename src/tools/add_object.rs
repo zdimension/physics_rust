@@ -51,6 +51,7 @@ pub enum AddObjectEvent {
     Gear {
         center: Vec2,
         radius: f32,
+        angle: f32,
         settings: GearSettings,
     },
     Plane {
@@ -182,13 +183,15 @@ pub fn process_add_object(
             Gear {
                 center,
                 radius,
+                angle,
                 settings,
             } => {
                 let Some(outline) = GearOutline::from_radius(radius, settings) else {
                     continue;
                 };
                 let gear_pos = z.pos(center);
-                let Some(object) = PhysicalObject::freeform_path(outline.path(), gear_pos) else {
+                let Some(object) = PhysicalObject::freeform_path(outline.path(), gear_pos, angle)
+                else {
                     continue;
                 };
                 let entity = commands
@@ -206,7 +209,7 @@ pub fn process_add_object(
                         entity,
                         local_pos: Vec2::ZERO,
                         z: gear_pos.z,
-                        rotation: Quat::IDENTITY,
+                        rotation: Quat::from_rotation_z(angle),
                     },
                     body2: body_hits_at(center, &query, &spatial_query, None).next(),
                     pos: center,

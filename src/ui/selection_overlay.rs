@@ -27,7 +27,7 @@ const SELECTION_COLOR: Color = Color::WHITE;
 pub enum Overlay {
     Rectangle(Vec2),
     Circle(f32),
-    Gear(GearOutline),
+    Gear(GearOutline, f32),
     Polygon(Vec<Vec2>, bool),
     Plane(Vec2, f32),
     Rotate(f32, f32, f32, Vec2),
@@ -268,6 +268,7 @@ pub fn process_draw_overlay(
                 draw_ent,
                 pos,
                 path,
+                0.0,
                 crate::make_fill(pink),
                 crate::make_stroke(pink, 0.0),
                 &mut commands,
@@ -308,7 +309,7 @@ pub fn process_draw_overlay(
     }
 
     let builder = GeometryBuilder::new();
-    let (thickness, color, fill, path) = match shape {
+    let (thickness, color, fill, path, rotation) = match shape {
         Overlay::Rectangle(size) => (
             5.0,
             Color::WHITE,
@@ -320,6 +321,7 @@ pub fn process_draw_overlay(
                     radii: None,
                 })
                 .build(),
+            0.0,
         ),
         Overlay::Circle(radius) => (
             5.0,
@@ -331,12 +333,14 @@ pub fn process_draw_overlay(
                     ..Default::default()
                 })
                 .build(),
+            0.0,
         ),
-        Overlay::Gear(outline) => (
+        Overlay::Gear(outline, angle) => (
             5.0,
             Color::WHITE,
             Color::srgba(0.0, 0.0, 0.0, 0.0),
             outline.path(),
+            angle,
         ),
         Overlay::Polygon(points, show_preview) => (
             5.0,
@@ -347,6 +351,7 @@ pub fn process_draw_overlay(
                 Color::srgba(0.0, 0.0, 0.0, 0.0)
             },
             polygon_path(&points, false),
+            0.0,
         ),
         Overlay::Plane(..) => unreachable!(),
         Overlay::Rotate(..) => unreachable!(),
@@ -358,6 +363,7 @@ pub fn process_draw_overlay(
             draw_ent,
             pos,
             path,
+            rotation,
             crate::make_fill(fill),
             crate::make_stroke(
                 color,
@@ -403,6 +409,7 @@ fn upsert_overlay_shape(
     draw_ent: Entity,
     pos: Vec2,
     path: bevy_prototype_lyon::prelude::tess::path::Path,
+    rotation: f32,
     fill: Fill,
     stroke: Stroke,
     commands: &mut Commands,
@@ -420,6 +427,7 @@ fn upsert_overlay_shape(
         Ok((mut root_shape, mut root_transform, root_fill, root_stroke)) => {
             root_shape.path = path;
             root_transform.translation = pos.extend(FOREGROUND_Z);
+            root_transform.rotation = Quat::from_rotation_z(rotation);
             if let Some(mut root_fill) = root_fill {
                 *root_fill = fill;
             } else {
@@ -435,7 +443,8 @@ fn upsert_overlay_shape(
             commands.entity(draw_ent).insert((
                 ShapeBundle::new(
                     path,
-                    Transform::from_translation(pos.extend(FOREGROUND_Z)),
+                    Transform::from_translation(pos.extend(FOREGROUND_Z))
+                        .with_rotation(Quat::from_rotation_z(rotation)),
                     Visibility::Inherited,
                 ),
                 fill,
