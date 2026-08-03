@@ -8,13 +8,20 @@ use avian2d::prelude::*;
 use bevy::log::info;
 use bevy::math::{Vec2, Vec2Swizzles, Vec3Swizzles};
 use bevy::prelude::*;
+use std::collections::HashSet;
 
 #[derive(Message)]
 pub struct SelectEvent {
     pub(crate) entities: Vec<Entity>,
     pub(crate) mode: SelectionMode,
     pub(crate) open_menu: bool,
+    /// Direct object picks expand selection groups. Area-selection events leave
+    /// this false so an enclosure selects exactly the objects it contains.
+    pub(crate) expand_groups: bool,
 }
+
+#[derive(Component, Copy, Clone, Debug, PartialEq, Eq, Hash)]
+pub(crate) struct SelectionGroup(pub(crate) Entity);
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum SelectionMode {
@@ -43,14 +50,25 @@ pub fn process_select(
     selected: Query<Entity, With<Selected>>,
     springs: Query<(), With<SpringObject>>,
     spring_handles: Query<(Entity, &SpringEndHandle)>,
+    groups: Query<(Entity, &SelectionGroup)>,
 ) {
     for SelectEvent {
         entities,
         mode,
         open_menu,
+        expand_groups,
     } in events.read()
     {
-        let entities = normalize_selection(entities.iter().copied(), &springs, &spring_handles);
+        let direct_toggle_removes = *expand_groups
+            && entities
+                .first()
+                .is_some_and(|entity| selected.contains(*entity));
+        let entities = if *expand_groups {
+            expand_selection_groups(entities.iter().copied(), &groups)
+        } else {
+            entities.clone()
+        };
+        let entities = normalize_selection(entities, &springs, &spring_handles);
         if entities.is_empty() {
             info!("Setting selection to nothing");
         } else {
@@ -77,6 +95,18 @@ pub fn process_select(
                         commands.entity(entity).remove::<Selected>();
                     }
                     Vec::new()
+                } else if *expand_groups {
+                    let mut selected_after = selected_before;
+                    for entity in entities.iter().copied() {
+                        if direct_toggle_removes {
+                            commands.entity(entity).remove::<Selected>();
+                            selected_after.retain(|selected| *selected != entity);
+                        } else {
+                            commands.entity(entity).insert(Selected);
+                            push_unique(&mut selected_after, entity);
+                        }
+                    }
+                    selected_after
                 } else {
                     let mut selected_after = selected_before;
                     for entity in entities.iter().copied() {
@@ -100,6 +130,26 @@ pub fn process_select(
             });
         }
     }
+}
+
+fn expand_selection_groups(
+    entities: impl IntoIterator<Item = Entity>,
+    groups: &Query<(Entity, &SelectionGroup)>,
+) -> Vec<Entity> {
+    let mut expanded = entities.into_iter().fold(Vec::new(), |mut result, entity| {
+        push_unique(&mut result, entity);
+        result
+    });
+    let group_ids = expanded
+        .iter()
+        .filter_map(|entity| groups.get(*entity).ok().map(|(_, group)| group.0))
+        .collect::<HashSet<_>>();
+    for (entity, group) in groups {
+        if group_ids.contains(&group.0) {
+            push_unique(&mut expanded, entity);
+        }
+    }
+    expanded
 }
 
 fn normalize_selection(
@@ -178,6 +228,7 @@ pub fn process_select_enclosed(
                 entities: selected,
                 mode: *mode,
                 open_menu: *open_menu,
+                expand_groups: false,
             });
         } else if let Some(fallback_add_object) = fallback_add_object.clone() {
             add_object.write(fallback_add_object);
@@ -186,6 +237,7 @@ pub fn process_select_enclosed(
                 entities: vec![],
                 mode: *mode,
                 open_menu: *open_menu,
+                expand_groups: false,
             });
         }
     }
@@ -204,6 +256,7 @@ pub fn process_select_under_mouse(
     mut menu_event: MessageWriter<ContextMenuEvent>,
     colliders: Query<(Entity, &Collider, &GlobalTransform), Without<ColliderDisabled>>,
     selected_entities: Query<Entity, With<Selected>>,
+    selection_groups: Query<(Entity, &SelectionGroup)>,
     spring_handles: Query<(), With<SpringEndHandle>>,
     mut commands: Commands,
     screen_pos: Res<MousePos>,
@@ -220,15 +273,33 @@ pub fn process_select_under_mouse(
         }
         let selected = collider_under_point(pos, &colliders);
 
-        if open_menu
+        let preserve_current_selection = open_menu
             && mode == SelectionMode::Replace
             && selected.is_some_and(|entity| {
                 selected_entities.contains(entity) && !spring_handles.contains(entity)
-            })
-        {
-            menu_event.write(ContextMenuEvent {
-                screen_pos: screen_pos.xy(),
-                target: WindowSelectionTarget::from_entities(selected_entities.iter()),
+            });
+        if preserve_current_selection {
+            let clicked = selected.unwrap();
+            let group_is_fully_selected = match selection_groups.get(clicked) {
+                Ok((_, group)) => selection_groups
+                    .iter()
+                    .filter(|(_, candidate)| candidate.0 == group.0)
+                    .all(|(entity, _)| selected_entities.contains(entity)),
+                Err(_) => true,
+            };
+            if group_is_fully_selected {
+                menu_event.write(ContextMenuEvent {
+                    screen_pos: screen_pos.xy(),
+                    target: WindowSelectionTarget::from_entities(selected_entities.iter()),
+                });
+                continue;
+            }
+
+            select.write(SelectEvent {
+                entities: selected_entities.iter().chain(Some(clicked)).collect(),
+                mode,
+                open_menu,
+                expand_groups: true,
             });
             continue;
         }
@@ -237,6 +308,7 @@ pub fn process_select_under_mouse(
             entities: selected.into_iter().collect(),
             mode,
             open_menu,
+            expand_groups: true,
         });
     }
 }
@@ -288,6 +360,80 @@ fn collider_at_transform(
     transformed.set_scale(scale.xy(), 10);
     let angle = rotation.to_euler(EulerRot::XYZ).2;
     (transformed, translation.xy(), Rotation::radians(angle))
+}
+
+#[cfg(test)]
+mod selection_tests {
+    use super::*;
+
+    fn selection_app() -> App {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .insert_resource(MousePos::default())
+            .add_message::<SelectEvent>()
+            .add_message::<ContextMenuEvent>()
+            .add_systems(Update, process_select);
+        app
+    }
+
+    #[test]
+    fn direct_selection_expands_groups_but_area_selection_does_not() {
+        let mut app = selection_app();
+        let group_id = app.world_mut().spawn_empty().id();
+        let first = app.world_mut().spawn(SelectionGroup(group_id)).id();
+        let second = app.world_mut().spawn(SelectionGroup(group_id)).id();
+
+        app.world_mut().write_message(SelectEvent {
+            entities: vec![first],
+            mode: SelectionMode::Replace,
+            open_menu: false,
+            expand_groups: true,
+        });
+        app.update();
+        assert!(app.world().entity(first).contains::<Selected>());
+        assert!(app.world().entity(second).contains::<Selected>());
+
+        app.world_mut().write_message(SelectEvent {
+            entities: vec![first],
+            mode: SelectionMode::Replace,
+            open_menu: false,
+            expand_groups: false,
+        });
+        app.update();
+        assert!(app.world().entity(first).contains::<Selected>());
+        assert!(!app.world().entity(second).contains::<Selected>());
+    }
+
+    #[test]
+    fn direct_toggle_changes_a_partially_selected_group_as_one_unit() {
+        let mut app = selection_app();
+        let group_id = app.world_mut().spawn_empty().id();
+        let first = app
+            .world_mut()
+            .spawn((SelectionGroup(group_id), Selected))
+            .id();
+        let second = app.world_mut().spawn(SelectionGroup(group_id)).id();
+
+        app.world_mut().write_message(SelectEvent {
+            entities: vec![first],
+            mode: SelectionMode::Toggle,
+            open_menu: false,
+            expand_groups: true,
+        });
+        app.update();
+        assert!(!app.world().entity(first).contains::<Selected>());
+        assert!(!app.world().entity(second).contains::<Selected>());
+
+        app.world_mut().write_message(SelectEvent {
+            entities: vec![second],
+            mode: SelectionMode::Toggle,
+            open_menu: false,
+            expand_groups: true,
+        });
+        app.update();
+        assert!(app.world().entity(first).contains::<Selected>());
+        assert!(app.world().entity(second).contains::<Selected>());
+    }
 }
 
 #[cfg(test)]

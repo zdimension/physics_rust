@@ -1,6 +1,7 @@
 use crate::tools::add_object::DepthSorter;
 use crate::mouse_tracking::MainCamera;
 use crate::lyon_compat::ScreenSpaceShapeMaterial;
+use crate::mouse::select::SelectionGroup;
 use crate::ui::images::GuiIcons;
 use crate::ui::menu_item::MenuItem;
 use crate::ui::{InitialPos, Selected, Subwindow, WindowSelectionTarget, bool_checkbox};
@@ -54,6 +55,8 @@ impl CameraFollow {
 enum SelectionAction {
     Invert,
     DeselectAll,
+    Group { targets: Vec<Entity> },
+    Ungroup { targets: Vec<Entity> },
     Move {
         targets: Vec<Entity>,
         to: ZOrder,
@@ -78,6 +81,7 @@ impl SelectionWindow {
         mut commands: Commands,
         mut actions: MessageWriter<SelectionAction>,
         physical_objects: Query<(), With<RigidBody>>,
+        selection_groups: Query<&SelectionGroup>,
         gui_icons: Res<GuiIcons>,
         mut camera_follow: ResMut<CameraFollow>,
     ) {
@@ -116,6 +120,41 @@ impl SelectionWindow {
                             targets: target.iter().collect(),
                             to: ZOrder::Front,
                         });
+                    }
+
+                    let targets = target.iter().collect::<Vec<_>>();
+                    let (show_group, show_ungroup) =
+                        group_action_visibility(&targets, &selection_groups);
+                    if show_group || show_ungroup {
+                        ui.separator();
+                        let mut group_clicked = false;
+                        let mut ungroup_clicked = false;
+                        if show_group && show_ungroup {
+                            ui.columns(2, |columns| {
+                                group_clicked = columns[0]
+                                    .add(MenuItem::button(None, "Group"))
+                                    .clicked();
+                                ungroup_clicked = columns[1]
+                                    .add(MenuItem::button(None, "Ungroup"))
+                                    .clicked();
+                            });
+                        } else if show_group {
+                            group_clicked =
+                                ui.add(MenuItem::button(None, "Group")).clicked();
+                        } else {
+                            ungroup_clicked =
+                                ui.add(MenuItem::button(None, "Ungroup")).clicked();
+                        }
+                        if group_clicked {
+                            actions.write(SelectionAction::Group {
+                                targets: targets.clone(),
+                            });
+                        }
+                        if ungroup_clicked {
+                            actions.write(SelectionAction::Ungroup {
+                                targets: targets.clone(),
+                            });
+                        }
                     }
 
                     let physical_target = match target.entities.as_slice() {
@@ -162,6 +201,22 @@ impl SelectionWindow {
     }
 }
 
+fn group_action_visibility(
+    targets: &[Entity],
+    groups: &Query<&SelectionGroup>,
+) -> (bool, bool) {
+    let first_group = targets
+        .first()
+        .and_then(|entity| groups.get(*entity).ok())
+        .map(|group| group.0);
+    let all_in_same_group = first_group.is_some()
+        && targets
+            .iter()
+            .all(|entity| groups.get(*entity).is_ok_and(|group| Some(group.0) == first_group));
+    let any_grouped = targets.iter().any(|entity| groups.contains(*entity));
+    (!targets.is_empty() && !all_in_same_group, any_grouped)
+}
+
 fn update_camera_follow(
     mut follow: ResMut<CameraFollow>,
     targets: Query<(&Position, &Rotation), With<RigidBody>>,
@@ -205,6 +260,7 @@ fn process_selection_actions(
     globals: Query<&GlobalTransform>,
     mut mesh_materials: Query<&mut MeshMaterial2d<ColorMaterial>>,
     mut shape_materials: Query<&mut MeshMaterial2d<ScreenSpaceShapeMaterial>>,
+    selection_groups: Query<(Entity, &SelectionGroup)>,
     mut depth: ResMut<DepthSorter>,
     mut commands: Commands,
 ) {
@@ -212,6 +268,12 @@ fn process_selection_actions(
         match action {
             SelectionAction::Invert => invert_selection(&selected, &selectable, &mut commands),
             SelectionAction::DeselectAll => deselect_everything(&selected, &mut commands),
+            SelectionAction::Group { targets } => {
+                group_selected(targets, &selection_groups, &mut commands)
+            }
+            SelectionAction::Ungroup { targets } => {
+                ungroup_selected(targets, &selection_groups, &mut commands)
+            }
             SelectionAction::Move { targets, to } => move_selected_z(
                 targets,
                 *to,
@@ -222,6 +284,45 @@ fn process_selection_actions(
                 &mut shape_materials,
                 &mut depth,
             ),
+        }
+    }
+}
+
+fn group_selected(
+    targets: &[Entity],
+    groups: &Query<(Entity, &SelectionGroup)>,
+    commands: &mut Commands,
+) {
+    let Some(&group_id) = targets.first() else {
+        return;
+    };
+    let existing_groups = targets
+        .iter()
+        .filter_map(|entity| groups.get(*entity).ok().map(|(_, group)| group.0))
+        .collect::<HashSet<_>>();
+    let mut members = targets.iter().copied().collect::<HashSet<_>>();
+    for (entity, group) in groups {
+        if existing_groups.contains(&group.0) {
+            members.insert(entity);
+        }
+    }
+    for entity in members {
+        commands.entity(entity).insert(SelectionGroup(group_id));
+    }
+}
+
+fn ungroup_selected(
+    targets: &[Entity],
+    groups: &Query<(Entity, &SelectionGroup)>,
+    commands: &mut Commands,
+) {
+    let removed_groups = targets
+        .iter()
+        .filter_map(|entity| groups.get(*entity).ok().map(|(_, group)| group.0))
+        .collect::<HashSet<_>>();
+    for (entity, group) in groups {
+        if removed_groups.contains(&group.0) {
+            commands.entity(entity).remove::<SelectionGroup>();
         }
     }
 }
@@ -349,6 +450,47 @@ mod tests {
                 ChildOf(parent),
             ))
             .id()
+    }
+
+    #[test]
+    fn grouping_merges_existing_groups_and_ungrouping_dissolves_them() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .add_message::<SelectionAction>()
+            .init_resource::<DepthSorter>()
+            .add_systems(Update, process_selection_actions);
+
+        let old_group = app.world_mut().spawn_empty().id();
+        let first = app
+            .world_mut()
+            .spawn(SelectionGroup(old_group))
+            .id();
+        let second = app
+            .world_mut()
+            .spawn(SelectionGroup(old_group))
+            .id();
+        let third = app.world_mut().spawn_empty().id();
+
+        app.world_mut().write_message(SelectionAction::Group {
+            targets: vec![second, third],
+        });
+        app.update();
+
+        for entity in [first, second, third] {
+            assert_eq!(
+                app.world().entity(entity).get::<SelectionGroup>(),
+                Some(&SelectionGroup(second))
+            );
+        }
+
+        app.world_mut().write_message(SelectionAction::Ungroup {
+            targets: vec![third],
+        });
+        app.update();
+
+        for entity in [first, second, third] {
+            assert!(!app.world().entity(entity).contains::<SelectionGroup>());
+        }
     }
 
     #[test]

@@ -126,6 +126,7 @@ pub fn mouse_long_or_moved(
                         entities: under_mouse.into_iter().collect(),
                         mode: SelectionMode::Replace,
                         open_menu: false,
+                        expand_groups: true,
                     });
                 }
 
