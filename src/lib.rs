@@ -63,6 +63,7 @@ mod skin;
 mod tools;
 mod ui;
 mod update_from;
+mod script;
 
 /// Standard object-outline width in physical screen pixels.
 const BORDER_WIDTH_PX: f32 = 1.0;
