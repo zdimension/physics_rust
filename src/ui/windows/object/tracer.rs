@@ -5,7 +5,7 @@ use crate::egui_systems;
 use crate::objects::tracer::{TracerObject, TracerSettings};
 use crate::ui::{
     InitialPos, Subwindow, WindowSelectionTarget, component_slider_mut,
-    window_matching_entities,
+    window_matching_entities, window_title,
 };
 
 egui_systems!(TracerWindow::show);
@@ -37,7 +37,7 @@ impl TracerWindow {
                 continue;
             }
 
-            egui::Window::new("Tracer")
+            egui::Window::new(window_title(target, "Tracer"))
                 .auto_sized()
                 .subwindow(id, ctx, &mut initial_pos, &mut commands, |ui, _commands| {
                     component_slider_mut(

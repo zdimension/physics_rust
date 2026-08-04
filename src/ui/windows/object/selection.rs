@@ -1,7 +1,9 @@
-use crate::tools::add_object::DepthSorter;
-use crate::mouse_tracking::MainCamera;
 use crate::lyon_compat::ScreenSpaceShapeMaterial;
-use crate::mouse::select::SelectionGroup;
+use crate::mouse::select::{SelectEvent, SelectionGroup, SelectionMode};
+use crate::mouse_tracking::MainCamera;
+use crate::objects::kind::{ObjectKind, ObjectKinds};
+use crate::tools::ToolIcons;
+use crate::tools::add_object::DepthSorter;
 use crate::ui::images::GuiIcons;
 use crate::ui::menu_item::MenuItem;
 use crate::ui::{InitialPos, Selected, Subwindow, WindowSelectionTarget, bool_checkbox};
@@ -9,6 +11,7 @@ use avian2d::prelude::*;
 use bevy::prelude::*;
 use bevy::transform::TransformSystems;
 use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
+use egui::{Popup, RectAlign, SetOpenCommand};
 use std::collections::{HashMap, HashSet};
 
 #[derive(Default, Component)]
@@ -80,17 +83,72 @@ impl SelectionWindow {
         mut egui_ctx: EguiContexts,
         mut commands: Commands,
         mut actions: MessageWriter<SelectionAction>,
+        mut select_events: MessageWriter<SelectEvent>,
         physical_objects: Query<(), With<RigidBody>>,
         selection_groups: Query<&SelectionGroup>,
+        object_kinds: ObjectKinds,
+        tool_icons: Res<ToolIcons>,
         gui_icons: Res<GuiIcons>,
         mut camera_follow: ResMut<CameraFollow>,
     ) {
         let ctx = egui_ctx.ctx_mut().expect("primary egui context");
         for (id, target, mut initial_pos) in wnds.iter_mut() {
-            egui::Window::new("Select")
+            let kind_selections = ObjectKind::ALL
+                .into_iter()
+                .filter_map(|kind| {
+                    let entities = target
+                        .iter()
+                        .filter(|entity| object_kinds.get(*entity) == Some(kind))
+                        .collect::<Vec<_>>();
+                    (!entities.is_empty()).then(|| {
+                        let title = object_kinds.selection_title(entities.iter().copied());
+                        (kind, entities, title)
+                    })
+                })
+                .collect::<Vec<_>>();
+            egui::Window::new(target.title_or("Select"))
                 .default_size(egui::Vec2::ZERO)
                 .resizable(false)
                 .subwindow(id, ctx, &mut initial_pos, &mut commands, |ui, _commands| {
+                    if kind_selections.len() >= 2 {
+                        let select_menu =
+                            ui.add(MenuItem::menu(None, "Select", gui_icons.arrow_right));
+                        Popup::menu(&select_menu)
+                            .id(select_menu.id.with("object kinds"))
+                            .align(RectAlign::RIGHT_START)
+                            .align_alternatives(&[])
+                            .layout(egui::Layout::top_down(egui::Align::Min))
+                            .open_memory(
+                                select_menu
+                                    .hovered()
+                                    .then_some(SetOpenCommand::Bool(true)),
+                            )
+                            .show(|ui| {
+                                for (kind, entities, title) in &kind_selections {
+                                    if ui
+                                        .add(MenuItem::button(
+                                            Some(object_kind_icon(*kind, &tool_icons)),
+                                            format!("Select {}", kind.plural()),
+                                        ).shrink_to_fit())
+                                        .clicked()
+                                    {
+                                        select_events.write(SelectEvent {
+                                            entities: entities.clone(),
+                                            mode: SelectionMode::Replace,
+                                            open_menu: false,
+                                            expand_groups: false,
+                                        });
+                                        _commands.entity(id).insert(
+                                            WindowSelectionTarget::from_entities(
+                                                entities.iter().copied(),
+                                            )
+                                            .with_title(title.clone()),
+                                        );
+                                        ui.close();
+                                    }
+                                }
+                            });
+                    }
                     if ui
                         .add(MenuItem::button(None, "Invert selection"))
                         .clicked()
@@ -198,6 +256,21 @@ impl SelectionWindow {
                     }
                 });
         }
+    }
+}
+
+fn object_kind_icon(kind: ObjectKind, icons: &ToolIcons) -> egui::TextureId {
+    match kind {
+        ObjectKind::Polygon => icons.egui_icon_polygon,
+        ObjectKind::Box => icons.egui_icon_box,
+        ObjectKind::Circle => icons.egui_icon_circle,
+        ObjectKind::Plane => icons.egui_icon_plane,
+        ObjectKind::Spring => icons.egui_icon_spring,
+        ObjectKind::FixJoint => icons.egui_icon_fixjoint,
+        ObjectKind::Axle => icons.egui_icon_hinge,
+        ObjectKind::Tracer => icons.egui_icon_tracer,
+        ObjectKind::LaserPen => icons.egui_icon_laserpen,
+        ObjectKind::Thruster => icons.egui_icon_thruster,
     }
 }
 

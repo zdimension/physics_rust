@@ -197,6 +197,7 @@ pub struct ContextMenuEvent {
 #[derive(Component, Clone, Debug, Default)]
 pub struct WindowSelectionTarget {
     pub entities: Vec<Entity>,
+    title: Option<String>,
 }
 
 impl WindowSelectionTarget {
@@ -208,12 +209,29 @@ impl WindowSelectionTarget {
                 }
                 acc
             }),
+            title: None,
         }
+    }
+
+    pub(crate) fn with_title(mut self, title: String) -> Self {
+        self.title = Some(title);
+        self
+    }
+
+    pub(crate) fn title_or<'a>(&'a self, fallback: &'a str) -> &'a str {
+        self.title.as_deref().unwrap_or(fallback)
     }
 
     pub fn iter(&self) -> impl DoubleEndedIterator<Item = Entity> + '_ {
         self.entities.iter().copied()
     }
+}
+
+pub(crate) fn window_title<'a>(
+    target: Option<&'a WindowSelectionTarget>,
+    fallback: &'a str,
+) -> &'a str {
+    target.map_or(fallback, |target| target.title_or(fallback))
 }
 
 pub(crate) fn window_target_entities(

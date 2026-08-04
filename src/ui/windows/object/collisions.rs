@@ -2,7 +2,7 @@ use crate::egui_systems;
 use crate::ui::images::GuiIcons;
 use crate::ui::{
     InitialPos, Subwindow, WindowSelectionTarget, component_checkbox, edit_components,
-    window_matching_entities,
+    window_matching_entities, window_title,
 };
 use avian2d::prelude::*;
 use bevy::prelude::{ChildOf, Commands, Component, Entity, Query, Res, With};
@@ -52,7 +52,9 @@ impl CollisionsWindow {
                 continue;
             }
 
-            egui::Window::new("Collisions").auto_sized().subwindow(
+            egui::Window::new(window_title(target, "Collisions"))
+                .auto_sized()
+                .subwindow(
                 id,
                 ctx,
                 &mut initial_pos,

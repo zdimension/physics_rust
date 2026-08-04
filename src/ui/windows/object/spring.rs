@@ -5,7 +5,7 @@ use crate::egui_systems;
 use crate::objects::spring::SpringObject;
 use crate::ui::{
     InitialPos, Subwindow, WindowSelectionTarget, component_slider, max_f32,
-    window_matching_entities,
+    window_matching_entities, window_title,
 };
 
 egui_systems!(SpringWindow::show);
@@ -54,7 +54,7 @@ impl SpringWindow {
                     .max(1.0),
             });
 
-            egui::Window::new("Springs")
+            egui::Window::new(window_title(target, "Springs"))
                 .auto_sized()
                 .subwindow(id, ctx, &mut initial_pos, &mut commands, |ui, commands| {
                     component_slider(

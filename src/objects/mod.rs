@@ -12,6 +12,7 @@ use bevy_egui::egui::ecolor::Hsva;
 pub(crate) mod air;
 pub(crate) mod attraction;
 pub(crate) mod axle;
+pub(crate) mod kind;
 pub(crate) mod laser;
 pub(crate) mod phy_obj;
 pub(crate) mod plane;

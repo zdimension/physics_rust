@@ -1,6 +1,8 @@
 use crate::egui_systems;
 use crate::objects::ColorComponent;
-use crate::ui::{InitialPos, Subwindow, WindowSelectionTarget, window_matching_entities};
+use crate::ui::{
+    InitialPos, Subwindow, WindowSelectionTarget, window_matching_entities, window_title,
+};
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
 
@@ -31,7 +33,7 @@ impl AppearanceWindow {
                 commands.entity(id).despawn();
                 continue;
             };
-            egui::Window::new("Appearance")
+            egui::Window::new(window_title(target, "Appearance"))
                 .auto_sized()
                 .subwindow(id, ctx, &mut initial_pos, &mut commands, |ui, _commands| {
                     let mut hsva = color.0;

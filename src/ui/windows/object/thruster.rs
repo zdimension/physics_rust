@@ -7,7 +7,7 @@ use crate::objects::thruster::ThrusterSettings;
 use crate::ui::images::GuiIcons;
 use crate::ui::{
     InitialPos, Subwindow, WindowSelectionTarget, component_slider, image_checkbox, shared_bool,
-    window_matching_entities,
+    window_matching_entities, window_title,
 };
 
 egui_systems!(ThrusterWindow::show);
@@ -40,7 +40,7 @@ impl ThrusterWindow {
                 continue;
             }
 
-            egui::Window::new("Thrusters")
+            egui::Window::new(window_title(target, "Thrusters"))
                 .auto_sized()
                 .subwindow(id, ctx, &mut initial_pos, &mut commands, |ui, commands| {
                     component_slider(

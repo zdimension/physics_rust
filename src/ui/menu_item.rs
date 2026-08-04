@@ -11,6 +11,7 @@ pub struct MenuItem {
     text: WidgetText,
     icon_right: Option<egui::widgets::Image<'static>>,
     selected: bool,
+    fill_width: bool,
 }
 
 impl MenuItem {
@@ -29,6 +30,7 @@ impl MenuItem {
             text: text.into(),
             icon_right: None,
             selected: false,
+            fill_width: true,
         }
     }
 
@@ -47,6 +49,11 @@ impl MenuItem {
         self.selected = selected;
         self
     }
+
+    pub fn shrink_to_fit(mut self) -> Self {
+        self.fill_width = false;
+        self
+    }
 }
 
 impl Widget for MenuItem {
@@ -56,6 +63,7 @@ impl Widget for MenuItem {
             text,
             icon_right,
             selected,
+            fill_width,
         } = self;
         let button_padding = ui.spacing().button_padding;
         let icon_count = 1 + icon_right.is_some() as usize;
@@ -75,7 +83,9 @@ impl Widget for MenuItem {
         desired_size.y = desired_size.y.at_least(ui.spacing().interact_size.y);
         desired_size += button_padding * 2.0;
 
-        desired_size.x = desired_size.x.at_least(ui.available_width());
+        if fill_width {
+            desired_size.x = desired_size.x.at_least(ui.available_width());
+        }
 
         let (rect, response) = ui.allocate_at_least(desired_size, Sense::click());
         response

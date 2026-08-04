@@ -13,7 +13,7 @@ use crate::tools::gear::{GearOutline, GearSettings, gearify_path};
 use crate::tools::polygon::tessellate_path;
 use crate::ui::images::GuiIcons;
 use crate::ui::{
-    InitialPos, SceneState, Subwindow, WindowSelectionTarget, window_target_entities,
+    InitialPos, SceneState, Subwindow, WindowSelectionTarget, window_target_entities, window_title,
 };
 use avian2d::parry::shape::TypedShape;
 use avian2d::prelude::*;
@@ -119,7 +119,7 @@ impl GeometryActionsWindow {
                 object_has_attachment(entity, &springs, &fixed_joints, &revolute_joints)
             });
 
-            egui::Window::new("Geom actions")
+            egui::Window::new(window_title(target, "Geom actions"))
                 .resizable(false)
                 .default_size(egui::Vec2::ZERO)
                 .subwindow(id, ctx, &mut initial_pos, &mut commands, |ui, _commands| {

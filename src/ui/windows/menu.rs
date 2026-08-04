@@ -1,5 +1,6 @@
 use crate::mouse_tracking::MainCamera;
 use crate::objects::laser::LaserSettings;
+use crate::objects::kind::ObjectKinds;
 use crate::objects::spring::{SpringEndHandle, SpringObject};
 use crate::objects::plane::PlaneObject;
 use crate::objects::tracer::TracerSettings;
@@ -85,12 +86,14 @@ impl MenuWindow {
         mut cameras: Query<&mut Transform, With<MainCamera>>,
         mut zoom2scene: MessageWriter<ZoomToScene>,
         planes: Query<(), With<PlaneObject>>,
+        object_kinds: ObjectKinds,
     ) {
         let ctx = egui_ctx.ctx_mut().expect("primary egui context");
         for (wnd_id, entity, target, mut info_wnd, mut initial_pos) in wnds.iter_mut() {
             let targets = target
                 .map(|target| target.iter().collect::<Vec<_>>())
                 .unwrap_or_else(|| entity.map(ChildOf::parent).into_iter().collect());
+            let object_title = object_kinds.selection_title(targets.iter().copied());
             egui::Window::new("context menu")
                 .default_size(egui::Vec2::ZERO)
                 .resizable(false)
@@ -134,7 +137,8 @@ impl MenuWindow {
 
                                         let new_wnd = commands.spawn((
                                             <$wnd as Default>::default(),
-                                            WindowSelectionTarget::from_entities(targets.iter().copied()),
+                                            WindowSelectionTarget::from_entities(targets.iter().copied())
+                                                .with_title(object_title.clone()),
                                             InitialPos::initial(menu.rect.right_top())
                                         )).id();
 
@@ -191,7 +195,8 @@ impl MenuWindow {
                         if item!("Show plot", plot) {
                             commands.spawn((
                                 PlotWindow::default(),
-                                WindowSelectionTarget::from_entities(targets.iter().copied()),
+                                WindowSelectionTarget::from_entities(targets.iter().copied())
+                                    .with_title(object_title.clone()),
                                 InitialPos::persistent(pos2(100.0, 100.0)),
                             ));
                             commands.entity(wnd_id).despawn();

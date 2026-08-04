@@ -6,7 +6,7 @@ use crate::objects::phy_obj::{FrictionModel, RefractiveIndex};
 use crate::ui::images::GuiIcons;
 use crate::ui::{
     InitialPos, Subwindow, WindowSelectionTarget, component_slider, edit_components, image_radio,
-    shared_value, window_matching_entities,
+    shared_value, window_matching_entities, window_title,
 };
 use avian2d::prelude::*;
 use bevy::prelude::{ChildOf, Commands, Component, Entity, Query, Res, With, Without};
@@ -96,7 +96,7 @@ impl MaterialWindow {
                     .map(|attraction| attraction.falloff)
             }));
 
-            egui::Window::new("Material")
+            egui::Window::new(window_title(target, "Material"))
                 .auto_sized()
                 .subwindow(id, ctx, &mut initial_pos, &mut commands, |ui, commands| {
                     if !density_targets.is_empty() {

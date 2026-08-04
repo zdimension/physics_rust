@@ -3,7 +3,7 @@ use crate::objects::MotorComponent;
 use crate::ui::images::GuiIcons;
 use crate::ui::{
     InitialPos, Subwindow, TriState, WindowSelectionTarget, component_checkbox, component_slider,
-    window_matching_entities,
+    window_matching_entities, window_title,
 };
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
@@ -37,7 +37,7 @@ impl AxleWindow {
                 continue;
             }
 
-            egui::Window::new("Axle")
+            egui::Window::new(window_title(target, "Axle"))
                 .auto_sized()
                 .subwindow(id, ctx, &mut initial_pos, &mut commands, |ui, commands| {
                     let enabled = component_checkbox(

@@ -1,6 +1,8 @@
 use crate::egui_systems;
 use crate::measures::{AggregateMeasureData, aggregate_measures};
-use crate::ui::{InitialPos, Subwindow, WindowSelectionTarget, window_target_entities};
+use crate::ui::{
+    InitialPos, Subwindow, WindowSelectionTarget, window_target_entities, window_title,
+};
 use avian2d::prelude::*;
 use bevy::prelude::{ChildOf, Commands, Component, Entity, Query, Res, With};
 use bevy_egui::egui::Ui;
@@ -32,7 +34,7 @@ impl InformationWindow {
         for (id, parent, target, mut initial_pos) in wnds.iter_mut() {
             let targets = window_target_entities(target, parent);
             let aggregate = aggregate_measures(targets, &ents, &body_positions, gravity.0);
-            egui::Window::new("info").subwindow(
+            egui::Window::new(window_title(target, "info")).subwindow(
                 id,
                 ctx,
                 &mut initial_pos,

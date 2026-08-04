@@ -2,6 +2,7 @@ use crate::measures::{AggregateMeasureData, AggregateMeasures, aggregate_measure
 use crate::ui::images::GuiIcons;
 use crate::ui::{
     InitialPos, Subwindow, WindowSelectionTarget, bool_checkbox, window_target_entities,
+    window_title,
 };
 use avian2d::prelude::*;
 use bevy::prelude::ChildOf;
@@ -256,7 +257,9 @@ impl PlotWindow {
                     })
                     .collect();
             }
-            egui::Window::new("plot").resizable(true).subwindow(
+            egui::Window::new(window_title(target, "plot"))
+                .resizable(true)
+                .subwindow(
                 id,
                 ctx,
                 &mut initial_pos,

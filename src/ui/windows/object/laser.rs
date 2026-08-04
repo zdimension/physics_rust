@@ -2,7 +2,7 @@ use crate::egui_systems;
 use crate::objects::laser::LaserSettings;
 use crate::ui::{
     InitialPos, Subwindow, WindowSelectionTarget, component_slider_mut,
-    window_matching_entities,
+    window_matching_entities, window_title,
 };
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
@@ -34,7 +34,7 @@ impl LaserWindow {
                 commands.entity(id).despawn();
                 continue;
             }
-            egui::Window::new("Laser pens")
+            egui::Window::new(window_title(target, "Laser pens"))
                 .auto_sized()
                 .subwindow(id, ctx, &mut initial_pos, &mut commands, |ui, _commands| {
                     component_slider_mut(
