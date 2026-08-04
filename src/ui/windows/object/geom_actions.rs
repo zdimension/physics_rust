@@ -12,6 +12,7 @@ use crate::tools::add_object::{
 use crate::tools::gear::{GearOutline, GearSettings, gearify_path};
 use crate::tools::polygon::tessellate_path;
 use crate::ui::images::GuiIcons;
+use crate::ui::windows::menu::MenuWindow;
 use crate::ui::{
     InitialPos, SceneState, Subwindow, WindowSelectionTarget, window_target_entities, window_title,
 };
@@ -23,7 +24,10 @@ use bevy_egui::{EguiContexts, EguiPrimaryContextPass, egui};
 
 pub fn add_systems(app: &mut App) {
     app.add_message::<GeometryActionEvent>()
-        .add_systems(EguiPrimaryContextPass, GeometryActionsWindow::show)
+        .add_systems(
+            EguiPrimaryContextPass,
+            GeometryActionsWindow::show.after(MenuWindow::show),
+        )
         .add_systems(Update, process_geometry_actions);
 }
 

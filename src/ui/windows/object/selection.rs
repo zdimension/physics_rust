@@ -6,6 +6,7 @@ use crate::tools::ToolIcons;
 use crate::tools::add_object::DepthSorter;
 use crate::ui::images::GuiIcons;
 use crate::ui::menu_item::MenuItem;
+use crate::ui::windows::menu::MenuWindow;
 use crate::ui::{InitialPos, Selected, Subwindow, WindowSelectionTarget, bool_checkbox};
 use avian2d::prelude::*;
 use bevy::prelude::*;
@@ -20,7 +21,10 @@ pub struct SelectionWindow;
 pub fn add_systems(app: &mut App) {
     app.init_resource::<CameraFollow>()
         .add_message::<SelectionAction>()
-        .add_systems(EguiPrimaryContextPass, SelectionWindow::show)
+        .add_systems(
+            EguiPrimaryContextPass,
+            SelectionWindow::show.after(MenuWindow::show),
+        )
         .add_systems(PreUpdate, process_selection_actions)
         .add_systems(
             PostUpdate,

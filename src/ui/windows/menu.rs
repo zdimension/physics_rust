@@ -10,7 +10,7 @@ use crate::tools::ToolIcons;
 use crate::tools::add_object::{AttachmentLinks, despawn_attachment_links};
 use crate::ui::images::GuiIcons;
 use crate::ui::{InitialPos, Subwindow, TemporaryWindow, WindowSelectionTarget};
-use crate::{CAMERA_Z, egui_systems};
+use crate::CAMERA_Z;
 use avian2d::prelude::*;
 use bevy::camera::primitives::Aabb;
 use bevy::math::Vec3Swizzles;
@@ -18,7 +18,7 @@ use bevy::prelude::ChildOf;
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 use bevy_egui::egui::{Separator, pos2};
-use bevy_egui::{EguiContexts, egui};
+use bevy_egui::{EguiContexts, EguiPrimaryContextPass, egui};
 use std::time::Duration;
 
 use crate::ui::windows::object::appearance::AppearanceWindow;
@@ -43,10 +43,25 @@ use crate::ui::windows::scene::background::BackgroundWindow;
 use crate::ui::menu_item::MenuItem;
 use crate::ui::windows::object::axle::AxleWindow;
 
-egui_systems! {
-    MenuWindow::show,
-    handle_zoom_to_scene,
-    event ZoomToScene
+pub fn add_systems(app: &mut App) {
+    app.add_message::<ZoomToScene>().add_systems(
+        EguiPrimaryContextPass,
+        (
+            MenuWindow::show
+                .before(AppearanceWindow::show)
+                .before(AxleWindow::show)
+                .before(BackgroundWindow::show)
+                .before(CollisionsWindow::show)
+                .before(InformationWindow::show)
+                .before(LaserWindow::show)
+                .before(MaterialWindow::show)
+                .before(PlotWindow::show)
+                .before(SpringWindow::show)
+                .before(ThrusterWindow::show)
+                .before(TracerWindow::show),
+            handle_zoom_to_scene,
+        ),
+    );
 }
 
 #[derive(Default, Component)]
@@ -56,7 +71,7 @@ pub struct MenuWindow {
 }
 
 impl MenuWindow {
-    fn show(
+    pub(crate) fn show(
         mut wnds: Query<(
             Entity,
             Option<&ChildOf>,
@@ -139,7 +154,7 @@ impl MenuWindow {
                                             <$wnd as Default>::default(),
                                             WindowSelectionTarget::from_entities(targets.iter().copied())
                                                 .with_title(object_title.clone()),
-                                            InitialPos::initial(menu.rect.right_top())
+                                            InitialPos::attached(wnd_id, menu.rect.right_top(), ctx)
                                         )).id();
 
                                         info_wnd.selected_item = Some((our_id, new_wnd));
@@ -261,7 +276,7 @@ impl MenuWindow {
 }
 
 #[derive(Message)]
-struct ZoomToScene;
+pub(crate) struct ZoomToScene;
 
 fn handle_zoom_to_scene(
     mut events: MessageReader<ZoomToScene>,

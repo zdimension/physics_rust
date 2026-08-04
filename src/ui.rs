@@ -37,7 +37,6 @@ egui_systems! {
     mod scale_bar,
     crate::grid::draw_grid,
     ui_example,
-    process_temporary_windows,
     remove_empty_target_windows,
     remove_temporary_windows,
 }
@@ -164,9 +163,15 @@ impl AsPos2 for Pos2 {
     }
 }
 
-#[derive(Component)]
+#[derive(Component, Copy, Clone, Debug)]
 pub enum InitialPos {
     Pos(Pos2, Pos2),
+    Attached {
+        parent: Entity,
+        top_offset: f32,
+        fallback_anchor: Pos2,
+        size: Option<egui::Vec2>,
+    },
     ScreenCenter,
 }
 
@@ -178,6 +183,20 @@ impl InitialPos {
     fn persistent(pos: impl AsPos2) -> InitialPos {
         let pos = pos.as_pos2();
         Self::Pos(pos, pos)
+    }
+
+    fn attached(parent: Entity, anchor: Pos2, ctx: &Context) -> impl Bundle {
+        let top_offset =
+            window_rect(ctx, parent).map_or(0.0, |parent_rect| anchor.y - parent_rect.top());
+        (
+            Self::Attached {
+                parent,
+                top_offset,
+                fallback_anchor: anchor,
+                size: None,
+            },
+            TemporaryWindow,
+        )
     }
 
     /*fn update<T>(&mut self, resp: InnerResponse<T>) {
@@ -523,25 +542,6 @@ pub fn handle_context_menu(
     }
 }
 
-fn process_temporary_windows(
-    wnds: Query<(Entity, &InitialPos, &TemporaryWindow)>,
-    mut commands: Commands,
-) {
-    for (wnd, pos, _) in wnds.iter() {
-        // todo: really detect whether window was moved
-        let InitialPos::Pos(begin, current) = *pos else {
-            continue;
-        };
-        if begin.distance(current) > 1.0 {
-            info!(
-                "marking window {:?} as persistent (initial {:?} != current {:?})",
-                wnd, begin, current
-            );
-            commands.entity(wnd).remove::<TemporaryWindow>();
-        }
-    }
-}
-
 fn remove_empty_target_windows(
     mut commands: Commands,
     wnds: Query<(Entity, &WindowSelectionTarget)>,
@@ -564,6 +564,29 @@ impl<'a> BevyIdThing for egui::Window<'a> {
     fn id_bevy(self, id: Entity) -> Self {
         self.id(Id::new(id))
     }
+}
+
+fn window_rect(ctx: &Context, id: Entity) -> Option<egui::Rect> {
+    let id = Id::new(id);
+    ctx.read_response(id.with("move"))
+        .map(|response| response.rect)
+        .or_else(|| ctx.memory(|memory| memory.area_rect(id)))
+}
+
+fn attached_window_position(
+    parent_rect: egui::Rect,
+    child_size: Option<egui::Vec2>,
+    content_rect: egui::Rect,
+    top_offset: f32,
+) -> Pos2 {
+    let fits_on_right = child_size
+        .is_none_or(|size| parent_rect.right() + size.x <= content_rect.right() + f32::EPSILON);
+    let x = if fits_on_right {
+        parent_rect.right()
+    } else {
+        parent_rect.left() - child_size.unwrap().x
+    };
+    pos2(x, parent_rect.top() + top_offset)
 }
 
 /*impl Into<Pos2> for &InitialPos {
@@ -594,9 +617,19 @@ impl<'a> Subwindow for egui::Window<'a> {
     ) {
         let mut open = true;
         let center = ctx.input(|i| i.content_rect().size()) / 2.0;
-        let (wnd, begin) = match initial_pos {
-            InitialPos::Pos(begin, _) => {
-                (self.pivot(Align2::LEFT_TOP).default_pos(*begin), *begin) // heu... du coup Ã§a marche pas ?
+        let (wnd, begin) = match *initial_pos {
+            InitialPos::Pos(begin, _) => (self.pivot(Align2::LEFT_TOP).default_pos(begin), begin),
+            InitialPos::Attached {
+                parent,
+                top_offset,
+                fallback_anchor,
+                size,
+            } => {
+                let content_rect = ctx.input(|input| input.content_rect());
+                let pos = window_rect(ctx, parent).map_or(fallback_anchor, |parent_rect| {
+                    attached_window_position(parent_rect, size, content_rect, top_offset)
+                });
+                (self.pivot(Align2::LEFT_TOP).current_pos(pos), pos)
             }
             InitialPos::ScreenCenter => {
                 /*let input = ctx.input(|i| i.screen_rect);*/
@@ -606,12 +639,27 @@ impl<'a> Subwindow for egui::Window<'a> {
                 (self, zero)
             }
         };
-        wnd.id_bevy(id)
+        let response = wnd
+            .id_bevy(id)
             .open(&mut open)
             .show_translucent(ctx, |ui| contents(ui, commands))
-            .map(|resp| {
-                *initial_pos = InitialPos::Pos(begin, resp.response.rect.left_top());
-            });
+            .map(|resp| resp.response);
+        if let Some(response) = response {
+            let current = response.rect.left_top();
+            if response.dragged() {
+                info!("marking window {id:?} as persistent after a user drag");
+                *initial_pos = InitialPos::Pos(current, current);
+                commands.entity(id).remove::<TemporaryWindow>();
+            } else {
+                match initial_pos {
+                    InitialPos::Pos(_, stored_current) => *stored_current = current,
+                    InitialPos::Attached { size, .. } => *size = Some(response.rect.size()),
+                    InitialPos::ScreenCenter => {
+                        *initial_pos = InitialPos::Pos(begin, current);
+                    }
+                }
+            }
+        }
         if !open {
             info!("closing window");
             commands.entity(id).despawn();
@@ -757,6 +805,40 @@ impl<'a> WindowExt for egui::Window<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn attached_window_is_placed_on_the_right_when_it_fits() {
+        let parent = egui::Rect::from_min_size(pos2(100.0, 40.0), egui::vec2(80.0, 200.0));
+        let screen = egui::Rect::from_min_size(Pos2::ZERO, egui::vec2(500.0, 400.0));
+
+        let pos = attached_window_position(parent, Some(egui::vec2(150.0, 100.0)), screen, 35.0);
+
+        assert_eq!(pos, pos2(parent.right(), parent.top() + 35.0));
+    }
+
+    #[test]
+    fn attached_window_moves_to_the_left_when_the_right_is_too_narrow() {
+        let parent = egui::Rect::from_min_size(pos2(300.0, 40.0), egui::vec2(80.0, 200.0));
+        let screen = egui::Rect::from_min_size(Pos2::ZERO, egui::vec2(500.0, 400.0));
+        let child_size = egui::vec2(150.0, 100.0);
+
+        let pos = attached_window_position(parent, Some(child_size), screen, 35.0);
+
+        assert_eq!(pos, pos2(parent.left() - child_size.x, parent.top() + 35.0));
+    }
+
+    #[test]
+    fn attached_window_tracks_parent_movement() {
+        let parent = egui::Rect::from_min_size(pos2(100.0, 40.0), egui::vec2(80.0, 200.0));
+        let moved_parent = parent.translate(egui::vec2(25.0, 15.0));
+        let screen = egui::Rect::from_min_size(Pos2::ZERO, egui::vec2(500.0, 400.0));
+        let size = Some(egui::vec2(150.0, 100.0));
+
+        let initial = attached_window_position(parent, size, screen, 35.0);
+        let moved = attached_window_position(moved_parent, size, screen, 35.0);
+
+        assert_eq!(moved - initial, egui::vec2(25.0, 15.0));
+    }
 
     #[test]
     fn deferred_numeric_edits_do_not_change_or_signal_until_focus_is_lost() {
