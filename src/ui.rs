@@ -647,7 +647,6 @@ impl<'a> Subwindow for egui::Window<'a> {
         if let Some(response) = response {
             let current = response.rect.left_top();
             if response.dragged() {
-                info!("marking window {id:?} as persistent after a user drag");
                 *initial_pos = InitialPos::Pos(current, current);
                 commands.entity(id).remove::<TemporaryWindow>();
             } else {
