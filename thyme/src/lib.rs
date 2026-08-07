@@ -1,8 +1,9 @@
+use chumsky::input::*;
+use chumsky::pratt::*;
+use chumsky::prelude::*;
 use logos::Logos;
 use std::borrow::Cow;
 use std::fmt::Display;
-use chumsky::prelude::*;
-use chumsky::input::*;
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 enum Number {
@@ -22,7 +23,7 @@ enum Value<'a> {
 
 #[derive(Logos, Clone, Debug, PartialEq)]
 #[logos(skip r"[ \t\r\n\f]+")]
-#[logos(skip (r"//[^\r\n]*", allow_greedy = true))]
+#[logos(skip(r"//[^\r\n]*", allow_greedy = true))]
 #[logos(skip r"/\*([^*]|\*[^/])*\*/")]
 enum Token<'a> {
     Error,
@@ -45,7 +46,6 @@ enum Token<'a> {
 
     #[token("=")]
     Assign,*/
-
     #[token("{")]
     BraceOpen,
 
@@ -73,7 +73,7 @@ enum Token<'a> {
     #[token(".")]
     Dot,
 
-    #[regex(r"(>=|<=|==|!=|&&|\|\|\+\+|\.\.|:=|->)", priority=3)]
+    #[regex(r"(>=|<=|==|!=|&&|\|\||\+\+|\.\.|:=|->)", priority = 3)]
     #[regex(r"[+\-*/%&|^!<>?=:]")]
     Op(&'a str),
 
@@ -189,13 +189,13 @@ mod tests {
     use super::*;
 
     fn parse_source(source: &str) -> Spanned<Expr<'_>> {
-        let lexer = Token::lexer(source).spanned().map(|(token, span)| {
-            (token.unwrap_or(Token::Error), span.into())
-        });
-        let token_stream = Stream::from_iter(lexer).map(
-            (0..source.len()).into(),
-            |(token, span): (_, _)| (token, span),
-        );
+        let lexer = Token::lexer(source)
+            .spanned()
+            .map(|(token, span)| (token.unwrap_or(Token::Error), span.into()));
+        let token_stream = Stream::from_iter(lexer)
+            .map((0..source.len()).into(), |(token, span): (_, _)| {
+                (token, span)
+            });
 
         block_parser()
             .then_ignore(end())
@@ -215,6 +215,32 @@ mod tests {
         match &expr.0 {
             Expr::Symbol(actual) => assert_eq!(*actual, expected),
             other => panic!("expected symbol {expected:?}, got {other:#?}"),
+        }
+    }
+
+    fn assert_binary<'ast, 'src>(
+        expr: &'ast Expr<'src>,
+        expected: BinaryOp,
+    ) -> (&'ast Spanned<Expr<'src>>, &'ast Spanned<Expr<'src>>) {
+        match expr {
+            Expr::Binary(lhs, actual, rhs) => {
+                assert_eq!(*actual, expected);
+                (lhs, rhs)
+            }
+            other => panic!("expected {expected:?}, got {other:#?}"),
+        }
+    }
+
+    fn assert_unary<'ast, 'src>(
+        expr: &'ast Expr<'src>,
+        expected: UnaryOp,
+    ) -> &'ast Spanned<Expr<'src>> {
+        match expr {
+            Expr::Unary(actual, rhs) => {
+                assert_eq!(*actual, expected);
+                rhs
+            }
+            other => panic!("expected {expected:?}, got {other:#?}"),
         }
     }
 
@@ -278,6 +304,39 @@ mod tests {
     }
 
     #[test]
+    fn pratt_parser_uses_the_thyme_precedence_table() {
+        let ast = parse_source("a || b && c .. d == e < f ++ g + h * -i ^ j");
+
+        let (a, and) = assert_binary(single_expr(&ast), BinaryOp::Or);
+        assert_symbol(a, "a");
+        let (b, range) = assert_binary(&and.0, BinaryOp::And);
+        assert_symbol(b, "b");
+        let (c, equality) = assert_binary(&range.0, BinaryOp::Range);
+        assert_symbol(c, "c");
+        let (d, relation) = assert_binary(&equality.0, BinaryOp::Eq);
+        assert_symbol(d, "d");
+        let (e, concat) = assert_binary(&relation.0, BinaryOp::Less);
+        assert_symbol(e, "e");
+        let (f, sum) = assert_binary(&concat.0, BinaryOp::ListConcat);
+        assert_symbol(f, "f");
+        let (g, product) = assert_binary(&sum.0, BinaryOp::Add);
+        assert_symbol(g, "g");
+        let (h, negation) = assert_binary(&product.0, BinaryOp::Mul);
+        assert_symbol(h, "h");
+        let power = assert_unary(&negation.0, UnaryOp::Neg);
+        let (i, j) = assert_binary(&power.0, BinaryOp::Pow);
+        assert_symbol(i, "i");
+        assert_symbol(j, "j");
+
+        let subtraction = parse_source("a - b - c");
+        let (lhs, c) = assert_binary(single_expr(&subtraction), BinaryOp::Sub);
+        let (a, b) = assert_binary(&lhs.0, BinaryOp::Sub);
+        assert_symbol(a, "a");
+        assert_symbol(b, "b");
+        assert_symbol(c, "c");
+    }
+
+    #[test]
     fn deeply_nested_functions_do_not_cause_exponential_backtracking() {
         let depth = 32;
         let source = format!("{}0{}", "{".repeat(depth), "}".repeat(depth));
@@ -289,7 +348,7 @@ pub type Span = SimpleSpan;
 pub type Spanned<T> = (T, Span);
 
 // in increasing order of Algodoo precedence
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 enum BinaryOp {
     // < ->
     Assign,
@@ -325,11 +384,11 @@ enum BinaryOp {
     Pow,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 enum UnaryOp {
     Not,
     Neg,
-    Pos
+    Pos,
 }
 
 #[derive(Debug)]
@@ -359,8 +418,8 @@ block_inner
       [ ";" ]
     ;
      */
-fn block_parser<'tokens, 'src: 'tokens, I>(
-) -> impl Parser<'tokens, I, Spanned<Expr<'src>>, extra::Err<Rich<'tokens, Token<'src>, Span>>> + Clone
+fn block_parser<'tokens, 'src: 'tokens, I>()
+-> impl Parser<'tokens, I, Spanned<Expr<'src>>, extra::Err<Rich<'tokens, Token<'src>, Span>>> + Clone
 where
     I: ValueInput<'tokens, Token = Token<'src>, Span = Span>,
 {
@@ -372,18 +431,23 @@ fn block_with_expr<'tokens, 'src: 'tokens, I, P>(
 ) -> impl Parser<'tokens, I, Spanned<Expr<'src>>, extra::Err<Rich<'tokens, Token<'src>, Span>>> + Clone
 where
     I: ValueInput<'tokens, Token = Token<'src>, Span = Span>,
-    P: Parser<'tokens, I, Spanned<Expr<'src>>, extra::Err<Rich<'tokens, Token<'src>, Span>>> + Clone,
+    P: Parser<'tokens, I, Spanned<Expr<'src>>, extra::Err<Rich<'tokens, Token<'src>, Span>>>
+        + Clone,
 {
-    expr
-        .clone()
+    expr.clone()
         .separated_by(just(Token::Semicolon))
         .allow_trailing()
         .collect::<Vec<_>>()
-        .map_with(|stmts, e| (Expr::Seq(stmts.into_iter().map(Box::new).collect()), e.span()))
+        .map_with(|stmts, e| {
+            (
+                Expr::Seq(stmts.into_iter().map(Box::new).collect()),
+                e.span(),
+            )
+        })
 }
 
-fn expr_parser<'tokens, 'src: 'tokens, I>(
-) -> impl Parser<'tokens, I, Spanned<Expr<'src>>, extra::Err<Rich<'tokens, Token<'src>, Span>>> + Clone
+fn expr_parser<'tokens, 'src: 'tokens, I>()
+-> impl Parser<'tokens, I, Spanned<Expr<'src>>, extra::Err<Rich<'tokens, Token<'src>, Span>>> + Clone
 where
     I: ValueInput<'tokens, Token = Token<'src>, Span = Span>,
 {
@@ -425,7 +489,7 @@ where
         zero_arg_function = "{" [ block_inner ] "}"
         arg_list = expression [ "," arg_list ]
         general_function = [ "(" [ arg_list ] ")" "=>" ]? zero_arg_function
-        
+
          */
         let zero_arg_function = block_with_expr(expr.clone())
             .delimited_by(just(Token::BraceOpen), just(Token::BraceClose));
@@ -436,7 +500,9 @@ where
             .then_ignore(just(Token::LambdaArrow))
             .or_not()
             .then(zero_arg_function)
-            .map_with(|(params, body), e| Expr::Func(params.unwrap_or_default(), e.span(), Box::new(body)));
+            .map_with(|(params, body), e| {
+                Expr::Func(params.unwrap_or_default(), e.span(), Box::new(body))
+            });
 
         let atom = val
             .or(ident.map(Expr::Symbol))
@@ -496,112 +562,84 @@ where
             |f, args, e| (Expr::Call(Box::new(f), args), e.span()),
         );
 
-        // ^ (right associative)
-        let op = just(Token::Op("^")).to(BinaryOp::Pow);
-        let exponent = recursive(|exponent| {
-            call_unparenthesized
-                .clone()
-                .then(op.then(exponent).or_not())
-                .map_with(|(lhs, exponent), e| match exponent {
-                    Some((op, rhs)) => (
-                        Expr::Binary(Box::new(lhs), op, Box::new(rhs)),
-                        e.span(),
-                    ),
-                    None => lhs,
-                })
-        })
+        // These binding powers come directly from the table in thyme.md.
+        let operator_expr = call_unparenthesized
+            .pratt((
+                infix(
+                    right(14),
+                    just(Token::Op("^")).to(BinaryOp::Pow),
+                    |lhs, op, rhs, e| (Expr::Binary(Box::new(lhs), op, Box::new(rhs)), e.span()),
+                ),
+                prefix(
+                    13,
+                    select! {
+                        Token::Op("!") => UnaryOp::Not,
+                        Token::Op("-") => UnaryOp::Neg,
+                        Token::Op("+") => UnaryOp::Pos,
+                    },
+                    |op, rhs, e| (Expr::Unary(op, Box::new(rhs)), e.span()),
+                ),
+                infix(
+                    left(12),
+                    select! {
+                        Token::Op("*") => BinaryOp::Mul,
+                        Token::Op("/") => BinaryOp::Div,
+                        Token::Op("%") => BinaryOp::Mod,
+                    },
+                    |lhs, op, rhs, e| (Expr::Binary(Box::new(lhs), op, Box::new(rhs)), e.span()),
+                ),
+                infix(
+                    left(11),
+                    select! {
+                        Token::Op("+") => BinaryOp::Add,
+                        Token::Op("-") => BinaryOp::Sub,
+                    },
+                    |lhs, op, rhs, e| (Expr::Binary(Box::new(lhs), op, Box::new(rhs)), e.span()),
+                ),
+                infix(
+                    left(10),
+                    just(Token::Op("++")).to(BinaryOp::ListConcat),
+                    |lhs, op, rhs, e| (Expr::Binary(Box::new(lhs), op, Box::new(rhs)), e.span()),
+                ),
+                infix(
+                    left(9),
+                    select! {
+                        Token::Op("<") => BinaryOp::Less,
+                        Token::Op("<=") => BinaryOp::LessEq,
+                        Token::Op(">") => BinaryOp::Greater,
+                        Token::Op(">=") => BinaryOp::GreaterEq,
+                    },
+                    |lhs, op, rhs, e| (Expr::Binary(Box::new(lhs), op, Box::new(rhs)), e.span()),
+                ),
+                infix(
+                    left(8),
+                    select! {
+                        Token::Op("==") => BinaryOp::Eq,
+                        Token::Op("!=") => BinaryOp::NotEq,
+                    },
+                    |lhs, op, rhs, e| (Expr::Binary(Box::new(lhs), op, Box::new(rhs)), e.span()),
+                ),
+                infix(
+                    left(5),
+                    just(Token::Op("..")).to(BinaryOp::Range),
+                    |lhs, op, rhs, e| (Expr::Binary(Box::new(lhs), op, Box::new(rhs)), e.span()),
+                ),
+                infix(
+                    left(4),
+                    just(Token::Op("&&")).to(BinaryOp::And),
+                    |lhs, op, rhs, e| (Expr::Binary(Box::new(lhs), op, Box::new(rhs)), e.span()),
+                ),
+                infix(
+                    left(3),
+                    just(Token::Op("||")).to(BinaryOp::Or),
+                    |lhs, op, rhs, e| (Expr::Binary(Box::new(lhs), op, Box::new(rhs)), e.span()),
+                ),
+            ))
             .boxed();
 
-        // unary: ! - + (prefix)
-        let unary_op = just(Token::Op("!")).to(UnaryOp::Not)
-            .or(just(Token::Op("-")).to(UnaryOp::Neg))
-            .or(just(Token::Op("+")).to(UnaryOp::Pos));
-        let unary = unary_op.then(exponent.clone())
-            .map_with(|(op, expr), e| (Expr::Unary(op, Box::new(expr)), e.span()))
-            .or(exponent.clone())
-            .boxed();
-
-        // * / %
-        let op = just(Token::Op("*")).to(BinaryOp::Mul)
-            .or(just(Token::Op("/")).to(BinaryOp::Div))
-            .or(just(Token::Op("%")).to(BinaryOp::Mod));
-        let product = unary
-            .clone()
-            .foldl_with(op.then(unary).repeated(), |a, (op, b), e| {
-                (Expr::Binary(Box::new(a), op, Box::new(b)), e.span())
-            })
-            .boxed();
-
-        // + -
-        let op = just(Token::Op("+")).to(BinaryOp::Add)
-            .or(just(Token::Op("-")).to(BinaryOp::Sub));
-        let sum = product
-            .clone()
-            .foldl_with(op.then(product).repeated(), |a, (op, b), e| {
-                (Expr::Binary(Box::new(a), op, Box::new(b)), e.span())
-            })
-            .boxed();
-
-        // ++
-        let op = just(Token::Op("++")).to(BinaryOp::ListConcat);
-        let list_concat = sum
-            .clone()
-            .foldl_with(op.then(sum).repeated(), |a, (op, b), e| {
-                (Expr::Binary(Box::new(a), op, Box::new(b)), e.span())
-            }).boxed();
-
-        // < <= > >=
-        let op = just(Token::Op("<")).to(BinaryOp::Less)
-            .or(just(Token::Op("<=")).to(BinaryOp::LessEq))
-            .or(just(Token::Op(">")).to(BinaryOp::Greater))
-            .or(just(Token::Op(">=")).to(BinaryOp::GreaterEq));
-        let rel_comp = list_concat
-            .clone()
-            .foldl_with(op.then(list_concat).repeated(), |a, (op, b), e| {
-                (Expr::Binary(Box::new(a), op, Box::new(b)), e.span())
-            })
-            .boxed();
-
-        // == !=
-        let op = just(Token::Op("==")).to(BinaryOp::Eq)
-            .or(just(Token::Op("!=")).to(BinaryOp::NotEq));
-        let compare = rel_comp
-            .clone()
-            .foldl_with(op.then(rel_comp).repeated(), |a, (op, b), e| {
-                (Expr::Binary(Box::new(a), op, Box::new(b)), e.span())
-            })
-            .boxed();
-
-        // ..
-        let op = just(Token::Op("..")).to(BinaryOp::Range);
-        let range = compare
-            .clone()
-            .foldl_with(op.then(compare).repeated(), |a, (op, b), e| {
-                (Expr::Binary(Box::new(a), op, Box::new(b)), e.span())
-            })
-            .boxed();
-
-        // &&
-        let op = just(Token::Op("&&")).to(BinaryOp::And);
-        let and = range
-            .clone()
-            .foldl_with(op.then(range).repeated(), |a, (op, b), e| {
-                (Expr::Binary(Box::new(a), op, Box::new(b)), e.span())
-            })
-            .boxed();
-
-        // ||
-        let op = just(Token::Op("||")).to(BinaryOp::Or);
-        let or = and
-            .clone()
-            .foldl_with(op.then(and).repeated(), |a, (op, b), e| {
-                (Expr::Binary(Box::new(a), op, Box::new(b)), e.span())
-            })
-            .boxed();
-
-        // ternary: a ? b : c 
+        // ternary: a ? b : c
         // right associative: (true ? false : true ? 1 : 2) is parsed as (true ? false : (true ? 1 : 2))
-        let ternary = or
+        let ternary = operator_expr
             .then(
                 just(Token::Op("?"))
                     .ignore_then(expr.clone())
@@ -611,11 +649,7 @@ where
             )
             .map_with(|(cond, branches), e| match branches {
                 Some((true_expr, false_expr)) => (
-                    Expr::Ternary(
-                        Box::new(cond),
-                        Box::new(true_expr),
-                        Box::new(false_expr),
-                    ),
+                    Expr::Ternary(Box::new(cond), Box::new(true_expr), Box::new(false_expr)),
                     e.span(),
                 ),
                 None => cond,
@@ -626,36 +660,24 @@ where
         // right associative but Algodoo rejects it if there's more than one token on the left size (e.g. 1 + a->{2} breaks the parser)
         let class_assign = ternary
             .clone()
-            .then(
-                just(Token::Op("->"))
-                    .ignore_then(expr.clone())
-                    .or_not(),
-            )
-            .map_with(|(obj, class_expr), e| {
-                match class_expr {
-                    Some(class_expr) => (
-                        Expr::Binary(
-                            Box::new(obj),
-                            BinaryOp::ClassAssign,
-                            Box::new(class_expr),
-                        ),
-                        e.span(),
-                    ),
-                    None => obj,
-                }
+            .then(just(Token::Op("->")).ignore_then(expr.clone()).or_not())
+            .map_with(|(obj, class_expr), e| match class_expr {
+                Some(class_expr) => (
+                    Expr::Binary(Box::new(obj), BinaryOp::ClassAssign, Box::new(class_expr)),
+                    e.span(),
+                ),
+                None => obj,
             })
             .boxed();
 
         // assignment: a = b or a := b (right associative)
-        let op = just(Token::Op("=")).to(BinaryOp::Assign)
+        let op = just(Token::Op("="))
+            .to(BinaryOp::Assign)
             .or(just(Token::Op(":=")).to(BinaryOp::Declare));
         let assignment = class_assign
             .then(op.then(expr.clone()).or_not())
             .map_with(|(lhs, assignment), e| match assignment {
-                Some((op, rhs)) => (
-                    Expr::Binary(Box::new(lhs), op, Box::new(rhs)),
-                    e.span(),
-                ),
+                Some((op, rhs)) => (Expr::Binary(Box::new(lhs), op, Box::new(rhs)), e.span()),
                 None => lhs,
             })
             .boxed();
