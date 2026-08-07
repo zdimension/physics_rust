@@ -2,4 +2,4 @@
 rustflags = ["-C", "target-cpu=native"]
 
 [target.x86_64-pc-windows-msvc]
-linker = "rust-lld.exe"
+linker = "lld-link.exe"

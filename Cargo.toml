@@ -68,3 +68,7 @@ opt-level = 3
 [[bin]]
 name = "physics_rust"
 path = "src/main.rs"
+
+[workspace]
+members = ["thyme"]
+resolver = "3"

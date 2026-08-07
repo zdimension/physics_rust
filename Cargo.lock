@@ -6023,6 +6023,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "thyme"
+version = "0.1.0"
+dependencies = [
+ "ariadne",
+ "chumsky",
+ "encoding_rs",
+ "logos",
+]
+
+[[package]]
 name = "tiff"
 version = "0.11.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"

@@ -500,7 +500,7 @@ Scene.addBox {
     textScale = 0.30000001;
     geomID = 346;
     pos = [-5.5092421, 0.47828674];
-    text = "     3 ß";
+    text = "     3 ù";
     entityID = 639;
     buttonMirror = "3";
     controllerAcc = 0;
@@ -508,7 +508,7 @@ Scene.addBox {
     drawBorder = false;
     onCollide = (e)=>{
         e.other.color == [0.5, 0.5, 0.5, 1.0] ? {
-            e.other.text = "ß";
+            e.other.text = "ù";
             e.other.collideSet == 1 ? {e.this.collideSet = 2} : {
                 e.this.collideSet = 1;
                 e.other.collideSet = 4
@@ -2763,7 +2763,7 @@ Scene.addBox {
     textScale = 0.30000001;
     geomID = 404;
     pos = [-4.2542429, 0.47828674];
-    text = "     3 ß";
+    text = "     3 ù";
     entityID = 697;
     buttonMirror = "3";
     controllerAcc = 0;
@@ -2771,7 +2771,7 @@ Scene.addBox {
     drawBorder = false;
     onCollide = (e)=>{
         e.other.color == [0.5, 0.5, 0.5, 1.0] ? {
-            e.other.text = "ß";
+            e.other.text = "ù";
             e.other.collideSet == 1 ? {e.this.collideSet = 2} : {
                 e.this.collideSet = 1;
                 e.other.collideSet = 4
