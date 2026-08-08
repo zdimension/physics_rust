@@ -13,6 +13,57 @@ use std::rc::Rc;
 
 use crate::Symbol;
 
+fn parse_decimal_number(slice: &str) -> Number {
+    match slice.parse::<i32>() {
+        Ok(number) => Number::Int(number),
+        Err(_) => Number::Float(slice.parse().expect("invalid decimal number")),
+    }
+}
+
+fn lex_digit_leading_number<'src>(lex: &mut logos::Lexer<'src, Token<'src>>) -> Number {
+    let remainder = lex.remainder().as_bytes();
+
+    // Leave both dots for the range operator instead of consuming the first as `1.`.
+    if remainder.starts_with(b"..") {
+        return parse_decimal_number(lex.slice());
+    }
+
+    let mut consumed = 0;
+    let mut is_float = false;
+
+    if remainder.first() == Some(&b'.') {
+        is_float = true;
+        consumed += 1;
+        while remainder.get(consumed).is_some_and(u8::is_ascii_digit) {
+            consumed += 1;
+        }
+    }
+
+    if matches!(remainder.get(consumed), Some(b'e' | b'E')) {
+        let exponent_start = consumed;
+        consumed += 1;
+        if matches!(remainder.get(consumed), Some(b'+' | b'-')) {
+            consumed += 1;
+        }
+        let digits_start = consumed;
+        while remainder.get(consumed).is_some_and(u8::is_ascii_digit) {
+            consumed += 1;
+        }
+        if consumed == digits_start {
+            consumed = exponent_start;
+        } else {
+            is_float = true;
+        }
+    }
+
+    lex.bump(consumed);
+    if is_float {
+        Number::Float(lex.slice().parse().expect("invalid float literal"))
+    } else {
+        parse_decimal_number(lex.slice())
+    }
+}
+
 #[derive(Logos, Clone, Debug, PartialEq)]
 #[logos(skip r"[ \t\r\n\f]+")]
 #[logos(skip(r"//[^\r\n]*", allow_greedy = true))]
@@ -64,21 +115,16 @@ pub enum Token<'a> {
     #[regex(r"[a-zA-Z_][a-zA-Z0-9_]*")]
     Ident(&'a str),
 
-    #[regex(r"[0-9]+", |lex| match lex.slice().parse() {
-        Ok(num) => Some(Number::Int(num)),
-        Err(_) => Some(Number::Float(lex.slice().parse().unwrap())),
-    }, priority = 3)]
+    #[regex(r"[0-9]+", lex_digit_leading_number, priority = 3)]
     // * because Algodoo allows simply `0x` or `0b`.
     #[regex(r"0x[0-9a-fA-F]*", |lex| Number::Int(i32::from_str_radix(&lex.slice()[lex.slice().len().saturating_sub(8).max(2)..], 16).unwrap_or(0)), priority = 4)]
     #[regex(r"0b[01]*", |lex| Number::Int(i32::from_str_radix(&lex.slice()[lex.slice().len().saturating_sub(8).max(2)..], 2).unwrap_or(0)), priority = 4)]
-    Int(Number),
-
-    #[token("-inf", |_| f32::NEG_INFINITY)]
-    #[token("+inf", |_| f32::INFINITY)]
-    #[token("∞", |_| f32::INFINITY)]
-    #[token("NaN", |_| f32::NAN)]
-    #[regex(r"(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?", |lex| lex.slice().parse::<f32>().expect("float parse error: unexpected!"))]
-    Float(f32),
+    #[token("-inf", |_| Number::Float(f32::NEG_INFINITY))]
+    #[token("+inf", |_| Number::Float(f32::INFINITY))]
+    #[token("∞", |_| Number::Float(f32::INFINITY))]
+    #[token("NaN", |_| Number::Float(f32::NAN))]
+    #[regex(r"\.\d+(?:[eE][+-]?\d+)?", |lex| Number::Float(lex.slice().parse::<f32>().expect("float parse error: unexpected!")))]
+    Number(Number),
 
     #[regex(r#""(?:[^"\\]|\\.)*""#, |lex| {
         let slice = lex.slice();
@@ -147,11 +193,10 @@ impl<'a> Display for Token<'a> {
             Token::Dot => write!(f, "."),
             Token::Op(op) => write!(f, "{}", op),
             Token::Ident(ident) => write!(f, "{}", ident),
-            Token::Int(num) => match num {
+            Token::Number(num) => match num {
                 Number::Int(n) => write!(f, "{}", n),
                 Number::Float(n) => write!(f, "{}", n),
             },
-            Token::Float(flt) => write!(f, "{}", flt),
             Token::Str(s) => write!(f, "\"{}\"", s), // todo: escapes
         }
     }
@@ -266,7 +311,7 @@ impl Display for Number {
                 x if x.is_infinite() && x.is_sign_positive() => write!(f, "inf"),
                 x if x.is_infinite() && x.is_sign_negative() => write!(f, "-inf"),
                 x => write!(f, "{}", x),
-            }
+            },
         }
     }
 }
@@ -341,10 +386,7 @@ impl<W: Write> PrettyPrinter<W> {
         writeln!(self.out, "{:indent$}{s}", "", indent = self.indent * 4)
     }
 
-    fn indented(
-        &mut self,
-        f: impl FnOnce(&mut Self) -> fmt::Result,
-    ) -> fmt::Result {
+    fn indented(&mut self, f: impl FnOnce(&mut Self) -> fmt::Result) -> fmt::Result {
         self.indent += 1;
         let result = f(self);
         self.indent -= 1;
@@ -456,9 +498,7 @@ impl Expr {
                 printer.write(" : ")?;
                 false_expr.0.pretty(printer)
             }
-            Expr::Func(func_def) => {
-                func_def.pretty(printer)
-            }
+            Expr::Func(func_def) => func_def.pretty(printer),
             Expr::Seq(stmts) => {
                 printer.write("{ ")?;
                 if stmts.len() > 1 {
@@ -542,8 +582,7 @@ where
         let val = select! {
             Token::Null => Expr::Value(Literal::Null),
             Token::Bool(b) => Expr::Value(Literal::Bool(b)),
-            Token::Int(n) => Expr::Value(Literal::Number(n)),
-            Token::Float(f) => Expr::Value(Literal::Number(Number::Float(f))),
+            Token::Number(number) => Expr::Value(Literal::Number(number)),
             Token::Str(s) => Expr::Value(Literal::Str(Rc::from(s.as_ref()))),
         }
         .labelled("value");
@@ -945,10 +984,39 @@ mod tests {
         assert!(matches!(parsed_number("2147483648"), Number::Float(value) if value.is_finite()));
         assert_eq!(parsed_number("0xff"), Number::Int(255));
         assert_eq!(parsed_number("0b101101"), Number::Int(45));
+        assert_eq!(parsed_number("1."), Number::Float(1.0));
+        assert_eq!(parsed_number(".5"), Number::Float(0.5));
         assert_eq!(parsed_number("1.25"), Number::Float(1.25));
+        assert_eq!(parsed_number("1.e2"), Number::Float(100.0));
+        assert_eq!(parsed_number("1e2"), Number::Float(100.0));
         assert_eq!(parsed_number("+inf"), Number::Float(f32::INFINITY));
         assert_eq!(parsed_number("-inf"), Number::Float(f32::NEG_INFINITY));
         assert!(matches!(parsed_number("NaN"), Number::Float(value) if value.is_nan()));
+    }
+
+    #[test]
+    fn adjacent_range_dots_are_not_consumed_by_float_literals() {
+        let ast = parse_source("1..5");
+        let (start, end) = assert_binary(single_expr(&ast), BinaryOp::Range);
+        assert!(matches!(
+            start.0,
+            Expr::Value(Literal::Number(Number::Int(1)))
+        ));
+        assert!(matches!(
+            end.0,
+            Expr::Value(Literal::Number(Number::Int(5)))
+        ));
+
+        let decimal_ast = parse_source("1.25..5");
+        let (start, end) = assert_binary(single_expr(&decimal_ast), BinaryOp::Range);
+        assert!(matches!(
+            start.0,
+            Expr::Value(Literal::Number(Number::Float(1.25)))
+        ));
+        assert!(matches!(
+            end.0,
+            Expr::Value(Literal::Number(Number::Int(5)))
+        ));
     }
 
     #[test]
@@ -983,7 +1051,9 @@ mod tests {
     }
 }
 
-pub fn parse_thyme<'src, 'tok>(source: &'src str) -> ParseResult<Spanned<Expr>, chumsky::error::Rich<'tok, Token<'src>>> {
+pub fn parse_thyme<'src, 'tok>(
+    source: &'src str,
+) -> ParseResult<Spanned<Expr>, chumsky::error::Rich<'tok, Token<'src>>> {
     let lexer = Token::lexer(source)
         .spanned()
         .map(|(token, span)| (token.unwrap_or(Token::Error), span.into()));

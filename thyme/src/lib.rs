@@ -282,8 +282,15 @@ impl Display for Value {
                 None => f.write_str("object"),
             },
             Self::Function(function) => match &*function.0 {
-                FunctionValue::Intrinsic(intrinsic) => write!(f, "intrinsic function with {} arguments (id {})", function.arity(), intrinsic.id.into_raw()),
-                FunctionValue::User(def) => def.definition.pretty(&mut parse::PrettyPrinter::new(f))
+                FunctionValue::Intrinsic(intrinsic) => write!(
+                    f,
+                    "intrinsic function with {} arguments (id {})",
+                    function.arity(),
+                    intrinsic.id.into_raw()
+                ),
+                FunctionValue::User(def) => {
+                    def.definition.pretty(&mut parse::PrettyPrinter::new(f))
+                }
             },
         }
     }
@@ -298,7 +305,9 @@ impl PartialEq for Value {
             (Self::Bool(a), Self::Bool(b)) => a == b,
             (Self::Number(a), Self::Number(b)) => match (a, b) {
                 (Number::Int(a), Number::Int(b)) => a == b,
-                (Number::Int(i), Number::Float(f)) | (Number::Float(f), Number::Int(i)) => (*i as f32) == *f,
+                (Number::Int(i), Number::Float(f)) | (Number::Float(f), Number::Int(i)) => {
+                    (*i as f32) == *f
+                }
                 (Number::Float(a), Number::Float(b)) => a == b,
             },
             (Self::Str(a), Self::Str(b)) => a == b,
@@ -612,8 +621,6 @@ impl Default for Runtime {
         Self::new()
     }
 }
-
-
 
 #[cfg(test)]
 mod tests {

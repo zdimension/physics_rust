@@ -3,7 +3,8 @@ use std::{cell::RefCell, collections::HashMap};
 use dumpster::unsync::Gc;
 
 use crate::{
-    Environment, Function, FunctionValue, Host, List, Runtime, Symbol, UserFunction, Value, parse::{BinaryOp, Expr, Literal, Number, Span, UnaryOp},
+    Environment, Function, FunctionValue, Host, List, Runtime, Symbol, UserFunction, Value,
+    parse::{BinaryOp, Expr, Literal, Number, Span, UnaryOp},
 };
 
 pub struct Evaluator<'runtime, 'host> {
@@ -121,90 +122,141 @@ impl<'runtime, 'host> Evaluator<'runtime, 'host> {
                 self.apply_unary(
                     |value| match op {
                         UnaryOp::Neg => match value {
-                            Value::Number(Number::Int(num)) => Ok(Value::Number(Number::Int(num.wrapping_neg()))),
-                            Value::Number(Number::Float(num)) => Ok(Value::Number(Number::Float(-num))),
-                            _ => Err(format!(
-                                "Cannot negate non-number value {value}"
-                            )),
+                            Value::Number(Number::Int(num)) => {
+                                Ok(Value::Number(Number::Int(num.wrapping_neg())))
+                            }
+                            Value::Number(Number::Float(num)) => {
+                                Ok(Value::Number(Number::Float(-num)))
+                            }
+                            _ => Err(format!("Cannot negate non-number value {value}")),
                         },
                         UnaryOp::Pos => match value {
                             Value::Number(num) => Ok(Value::Number(num)),
-                            _ => Err(format!(
-                                "Cannot posivate non-number value {value}"
-                            )),
+                            _ => Err(format!("Cannot posivate non-number value {value}")),
                         },
                         UnaryOp::Not => match value {
                             Value::Bool(b) => Ok(Value::Bool(!b)),
-                            _ => Err(format!(
-                                "Cannot invert non-boolean value {value}"
-                            )),
+                            _ => Err(format!("Cannot invert non-boolean value {value}")),
                         },
                     },
                     value,
                 )?
-            },
+            }
             Expr::Binary(left, op, right) => {
                 let left_value = self.eval_expr(&left.0, env)?;
                 let right_value = self.eval_expr(&right.0, env)?;
-                let (left_value, right_value) = (self.collapse(left_value)?, self.collapse(right_value)?);
+                let (left_value, right_value) =
+                    (self.collapse(left_value)?, self.collapse(right_value)?);
 
-                let (int, float, other): (fn(i32, i32) -> Result<Value, String>, fn(f32, f32) -> Value, Option<fn(Value, Value) -> Result<Value, String>>) = match *op {
-                    
+                let (int, float, other): (
+                    fn(i32, i32) -> Result<Value, String>,
+                    fn(f32, f32) -> Value,
+                    Option<fn(Value, Value) -> Result<Value, String>>,
+                ) = match *op {
                     // Algodoo always performs float exponentiation
-                    BinaryOp::Pow => (|l, r| Ok((l as f32).powf(r as f32).into()), |l, r| l.powf(r).into(), None),
+                    BinaryOp::Pow => (
+                        |l, r| Ok((l as f32).powf(r as f32).into()),
+                        |l, r| l.powf(r).into(),
+                        None,
+                    ),
 
-                    BinaryOp::Mul => (|l, r| Ok(l.wrapping_mul(r).into()), |l, r| (l * r).into(), None),
-                    BinaryOp::Div => (|l, r| if r == 0 { Err("Division by zero".to_string()) } else { Ok((l / r).into()) }, |l, r| (l / r).into(), None),
-                    BinaryOp::Mod => (|l, r| if r == 0 { Err("Modulus by zero".to_string()) } else { Ok((l % r).into()) }, |l, r| (l % r).into(), None),
+                    BinaryOp::Mul => (
+                        |l, r| Ok(l.wrapping_mul(r).into()),
+                        |l, r| (l * r).into(),
+                        None,
+                    ),
+                    BinaryOp::Div => (
+                        |l, r| {
+                            if r == 0 {
+                                Err("Division by zero".to_string())
+                            } else {
+                                Ok((l / r).into())
+                            }
+                        },
+                        |l, r| (l / r).into(),
+                        None,
+                    ),
+                    BinaryOp::Mod => (
+                        |l, r| {
+                            if r == 0 {
+                                Err("Modulus by zero".to_string())
+                            } else {
+                                Ok((l % r).into())
+                            }
+                        },
+                        |l, r| (l % r).into(),
+                        None,
+                    ),
 
-                    BinaryOp::Add => (|l, r| Ok(l.wrapping_add(r).into()), |l, r| (l + r).into(), Some(|l, r| match (l, r) {
-                        (Value::Str(ls), Value::Str(rs)) => Ok(Value::Str(format!("{ls}{rs}").into())),
-                        (l, r) => Err(format!(
-                            "Cannot add values {l} and {r}"
-                        )),
-                    })),
-                    BinaryOp::Sub => (|l, r| Ok(l.wrapping_sub(r).into()), |l, r| (l - r).into(), None),
+                    BinaryOp::Add => (
+                        |l, r| Ok(l.wrapping_add(r).into()),
+                        |l, r| (l + r).into(),
+                        Some(|l, r| match (l, r) {
+                            (Value::Str(ls), Value::Str(rs)) => {
+                                Ok(Value::Str(format!("{ls}{rs}").into()))
+                            }
+                            (l, r) => Err(format!("Cannot add values {l} and {r}")),
+                        }),
+                    ),
+                    BinaryOp::Sub => (
+                        |l, r| Ok(l.wrapping_sub(r).into()),
+                        |l, r| (l - r).into(),
+                        None,
+                    ),
 
                     BinaryOp::ListConcat => match (left_value, right_value) {
                         (Value::List(left_list), Value::List(right_list)) => {
-                            let new_list = left_list.0.iter().chain(right_list.0.iter()).cloned().collect();
-                            return Ok(Value::List(List(new_list)))
+                            let new_list = left_list
+                                .0
+                                .iter()
+                                .chain(right_list.0.iter())
+                                .cloned()
+                                .collect();
+                            return Ok(Value::List(List(new_list)));
                         }
-                        (l, r) => return Err(format!(
-                            "Cannot concatenate non-list values {l} and {r}"
-                        )),
+                        (l, r) => {
+                            return Err(format!("Cannot concatenate non-list values {l} and {r}"));
+                        }
                     },
 
-                    BinaryOp::Less => (|l, r| Ok((l < r).into()), |l, r| (l < r).into(), Some(|l, r| match (l, r) {
-                        (Value::Str(ls), Value::Str(rs)) => Ok((ls < rs).into()),
-                        (l, r) => Err(format!(
-                            "Cannot compare values {l} and {r}"
-                        )),
-                    })),
-                    BinaryOp::LessEq => (|l, r| Ok((l <= r).into()), |l, r| (l <= r).into(), Some(|l, r| match (l, r) {
-                        (Value::Str(ls), Value::Str(rs)) => Ok((ls <= rs).into()),
-                        (l, r) => Err(format!(
-                            "Cannot compare values {l} and {r}"
-                        )),
-                    })),
-                    BinaryOp::Greater => (|l, r| Ok((l > r).into()), |l, r| (l > r).into(), Some(|l, r| match (l, r) {
-                        (Value::Str(ls), Value::Str(rs)) => Ok((ls > rs).into()),
-                        (l, r) => Err(format!(
-                            "Cannot compare values {l} and {r}"
-                        )),
-                    })),
-                    BinaryOp::GreaterEq => (|l, r| Ok((l >= r).into()), |l, r| (l >= r).into(), Some(|l, r| match (l, r) {
-                        (Value::Str(ls), Value::Str(rs)) => Ok((ls >= rs).into()),
-                        (l, r) => Err(format!(
-                            "Cannot compare values {l} and {r}"
-                        )),
-                    })),
+                    BinaryOp::Less => (
+                        |l, r| Ok((l < r).into()),
+                        |l, r| (l < r).into(),
+                        Some(|l, r| match (l, r) {
+                            (Value::Str(ls), Value::Str(rs)) => Ok((ls < rs).into()),
+                            (l, r) => Err(format!("Cannot compare values {l} and {r}")),
+                        }),
+                    ),
+                    BinaryOp::LessEq => (
+                        |l, r| Ok((l <= r).into()),
+                        |l, r| (l <= r).into(),
+                        Some(|l, r| match (l, r) {
+                            (Value::Str(ls), Value::Str(rs)) => Ok((ls <= rs).into()),
+                            (l, r) => Err(format!("Cannot compare values {l} and {r}")),
+                        }),
+                    ),
+                    BinaryOp::Greater => (
+                        |l, r| Ok((l > r).into()),
+                        |l, r| (l > r).into(),
+                        Some(|l, r| match (l, r) {
+                            (Value::Str(ls), Value::Str(rs)) => Ok((ls > rs).into()),
+                            (l, r) => Err(format!("Cannot compare values {l} and {r}")),
+                        }),
+                    ),
+                    BinaryOp::GreaterEq => (
+                        |l, r| Ok((l >= r).into()),
+                        |l, r| (l >= r).into(),
+                        Some(|l, r| match (l, r) {
+                            (Value::Str(ls), Value::Str(rs)) => Ok((ls >= rs).into()),
+                            (l, r) => Err(format!("Cannot compare values {l} and {r}")),
+                        }),
+                    ),
 
                     BinaryOp::Eq => return Ok((left_value == right_value).into()),
                     BinaryOp::NotEq => return Ok((left_value != right_value).into()),
 
                     BinaryOp::Range => {
-                        // the operation is defined with a recursive Thyme function in thyme.cfg so we can 
+                        // the operation is defined with a recursive Thyme function in thyme.cfg so we can
                         // be lazy here
                         return Ok(match (left_value, right_value) {
                             (Value::Number(Number::Int(l)), Value::Number(r)) => {
@@ -214,70 +266,90 @@ impl<'runtime, 'host> Evaluator<'runtime, 'host> {
                             (Value::Number(Number::Float(l)), Value::Number(r)) => {
                                 let count = (r.to_f32_lossy() - l).floor() as i32;
                                 let range = 0..=count;
-                                Value::List(List(range.map(|n| Value::Number((l + n as f32).into())).collect()))
+                                Value::List(List(
+                                    range
+                                        .map(|n| Value::Number((l + n as f32).into()))
+                                        .collect(),
+                                ))
                             }
-                            (l, r) => return Err(format!(
-                                "Cannot create a range from non-number values {l} and {r}"
-                            )),
-                        })
+                            (l, r) => {
+                                return Err(format!(
+                                    "Cannot create a range from non-number values {l} and {r}"
+                                ));
+                            }
+                        });
                     }
 
-                    BinaryOp::And => return self.apply_binary(
-                        |l, r| match (l, r) {
-                            (Value::Bool(lb), Value::Bool(rb)) => Ok(Value::Bool(lb && rb)),
-                            (l, r) => Err(format!(
-                                "Cannot apply logical AND to non-boolean values {l} and {r}"
-                            )),
-                        },
-                        left_value,
-                        right_value,
-                    ),
-                    BinaryOp::Or => return self.apply_binary(
-                        |l, r| match (l, r) {
-                            (Value::Bool(lb), Value::Bool(rb)) => Ok(Value::Bool(lb || rb)),
-                            (l, r) => Err(format!(
-                                "Cannot apply logical OR to non-boolean values {l} and {r}"
-                            )),
-                        },
-                        left_value,
-                        right_value,
-                    ),
+                    BinaryOp::And => {
+                        return self.apply_binary(
+                            |l, r| match (l, r) {
+                                (Value::Bool(lb), Value::Bool(rb)) => Ok(Value::Bool(lb && rb)),
+                                (l, r) => Err(format!(
+                                    "Cannot apply logical AND to non-boolean values {l} and {r}"
+                                )),
+                            },
+                            left_value,
+                            right_value,
+                        );
+                    }
+                    BinaryOp::Or => {
+                        return self.apply_binary(
+                            |l, r| match (l, r) {
+                                (Value::Bool(lb), Value::Bool(rb)) => Ok(Value::Bool(lb || rb)),
+                                (l, r) => Err(format!(
+                                    "Cannot apply logical OR to non-boolean values {l} and {r}"
+                                )),
+                            },
+                            left_value,
+                            right_value,
+                        );
+                    }
 
                     BinaryOp::ClassAssign => todo!(),
-                    
+
                     BinaryOp::Assign => todo!(),
                     BinaryOp::Declare => todo!(),
-                    
                 };
-                
-                self.apply_binary(move |left_value, right_value| {
-                    Ok(match (left_value, right_value) {
-                        (Value::Number(left_num), Value::Number(right_num)) => {
-                            use Number::*;
-                            match (left_num, right_num) {
-                                (Int(l), Int(r)) => int(l, r)?,
-                                (Int(l), Float(r)) => float(l as f32, r),
-                                (Float(l), Int(r)) => float(l, r as f32),
-                                (Float(l), Float(r)) => float(l, r),
+
+                self.apply_binary(
+                    move |left_value, right_value| {
+                        Ok(match (left_value, right_value) {
+                            (Value::Number(left_num), Value::Number(right_num)) => {
+                                use Number::*;
+                                match (left_num, right_num) {
+                                    (Int(l), Int(r)) => int(l, r)?,
+                                    (Int(l), Float(r)) => float(l as f32, r),
+                                    (Float(l), Int(r)) => float(l, r as f32),
+                                    (Float(l), Float(r)) => float(l, r),
+                                }
                             }
-                        }
-                        (left, right) => match other {
-                            Some(handler) => handler(left, right)?,
-                            None => return Err(format!(
-                                "Cannot apply binary operation to values {left} and {right}"
-                            )),
-                        },
-                    })
-                }, left_value, right_value)?
+                            (left, right) => match other {
+                                Some(handler) => handler(left, right)?,
+                                None => {
+                                    return Err(format!(
+                                        "Cannot apply binary operation to values {left} and {right}"
+                                    ));
+                                }
+                            },
+                        })
+                    },
+                    left_value,
+                    right_value,
+                )?
             }
         })
     }
 
     /// applies a handler to a value. If the value is a list, then recursively applies the handler to each element.
-    fn apply_unary(&mut self, handler: impl FnOnce(Value) -> Result<Value, String> + Copy, value: Value) -> Result<Value, String> {
+    fn apply_unary(
+        &mut self,
+        handler: impl FnOnce(Value) -> Result<Value, String> + Copy,
+        value: Value,
+    ) -> Result<Value, String> {
         match value {
             Value::List(list) => {
-                let new_list = list.0
+                let new_list = list
+                    .0
                     .iter()
                     .map(|element| self.apply_unary(handler, element.clone()))
                     .collect::<Result<Gc<[_]>, _>>()?;
@@ -287,7 +359,12 @@ impl<'runtime, 'host> Evaluator<'runtime, 'host> {
         }
     }
 
-    fn apply_binary(&mut self, handler: impl FnOnce(Value, Value) -> Result<Value, String> + Copy, left: Value, right: Value) -> Result<Value, String> {
+    fn apply_binary(
+        &mut self,
+        handler: impl FnOnce(Value, Value) -> Result<Value, String> + Copy,
+        left: Value,
+        right: Value,
+    ) -> Result<Value, String> {
         match (left, right) {
             (Value::List(left_list), Value::List(right_list)) => {
                 if left_list.0.len() != right_list.0.len() {
@@ -297,17 +374,19 @@ impl<'runtime, 'host> Evaluator<'runtime, 'host> {
                         right_list.0.len()
                     ));
                 }
-                let new_list = left_list.0
+                let new_list = left_list
+                    .0
                     .iter()
                     .zip(right_list.0.iter())
-                    .map(|(left_element, right_element)| self.apply_binary(handler, left_element.clone(), right_element.clone()))
+                    .map(|(left_element, right_element)| {
+                        self.apply_binary(handler, left_element.clone(), right_element.clone())
+                    })
                     .collect::<Result<Gc<[_]>, _>>()?;
                 Ok(Value::List(List(new_list)))
             }
             (left, right) => handler(left, right),
         }
     }
-
 
     pub fn call_function(
         &mut self,

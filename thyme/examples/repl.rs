@@ -15,7 +15,7 @@ fn main() {
         ) -> Result<Option<thyme::PropertyId>, thyme::HostError> {
             todo!()
         }
-    
+
         fn get_property(
             &mut self,
             object: thyme::NativeObjectId,
@@ -23,7 +23,7 @@ fn main() {
         ) -> Result<thyme::Value, thyme::HostError> {
             todo!()
         }
-    
+
         fn set_property(
             &mut self,
             object: thyme::NativeObjectId,
@@ -32,7 +32,7 @@ fn main() {
         ) -> Result<(), thyme::HostError> {
             todo!()
         }
-    
+
         fn call_intrinsic(
             &mut self,
             intrinsic: thyme::IntrinsicId,
@@ -61,7 +61,7 @@ fn main() {
         if trimmed == "exit" || trimmed == "quit" {
             break;
         }
-        
+
         match thyme::parse::parse_thyme(trimmed).into_result() {
             Ok((expr, _)) => match evaluator.eval_expr(&expr, &env) {
                 Ok(out) => println!("{out}"),
@@ -71,7 +71,9 @@ fn main() {
                 use ariadne::{Color, Label, Report, ReportKind, Source};
                 for err in errs {
                     Report::build(ReportKind::Error, ((), err.span().into_range()))
-                        .with_config(ariadne::Config::new().with_index_type(ariadne::IndexType::Byte))
+                        .with_config(
+                            ariadne::Config::new().with_index_type(ariadne::IndexType::Byte),
+                        )
                         .with_code(3)
                         .with_message(err.to_string())
                         .with_label(
