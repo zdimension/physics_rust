@@ -460,12 +460,22 @@ impl Expr {
                 func_def.pretty(printer)
             }
             Expr::Seq(stmts) => {
-                for (i, stmt) in stmts.iter().enumerate() {
-                    if i > 0 {
-                        printer.write_char(';')?;
-                        printer.line("")?;
-                    }
-                    stmt.0.pretty(printer)?;
+                printer.write("{ ")?;
+                if stmts.len() > 1 {
+                    printer.write("\n")?;
+                    printer.indented(|printer| {
+                        for stmt in stmts.iter() {
+                            stmt.0.pretty(printer)?;
+                            printer.write(";\n")?;
+                        }
+                        Ok(())
+                    })?;
+                    printer.write("}")?;
+                } else if stmts.len() == 1 {
+                    stmts[0].0.pretty(printer)?;
+                    printer.write(" }")?;
+                } else {
+                    printer.write("}")?;
                 }
                 Ok(())
             }
@@ -475,14 +485,16 @@ impl Expr {
 
 impl UserFunctionDef {
     pub fn pretty(&self, printer: &mut PrettyPrinter<impl Write>) -> fmt::Result {
-        printer.write_char('(')?;
-        for (i, param) in self.params.iter().enumerate() {
-            if i > 0 {
-                printer.write(", ")?;
+        if !self.params.is_empty() {
+            printer.write_char('(')?;
+            for (i, param) in self.params.iter().enumerate() {
+                if i > 0 {
+                    printer.write(", ")?;
+                }
+                printer.write(param.as_str())?;
             }
-            printer.write(param.as_str())?;
+            printer.write(") => ")?;
         }
-        printer.write(") => ")?;
         self.body.0.pretty(printer)
     }
 }
