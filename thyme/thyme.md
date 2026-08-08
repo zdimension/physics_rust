@@ -1,4 +1,4 @@
-Obtained through trial and error using the `infix` statement.
+Obtained through trial and error using the `infix` statement. Later confirmed through binary analysis.
 
 | Precedence |  Associativity/form  | Operators               |   |   |
 | ---------: | :------------------: | ----------------------- | - | - |
@@ -17,3 +17,13 @@ Obtained through trial and error using the `infix` statement.
 |          2 |         right        | `?:`                    |   |   |
 |    below 0 | special/right-greedy | `->`                    |   |   |
 | below `->` |         right        | `=` `:=`                |   |   |
+
+TODO: Thyme has a special "error" value:
+```thyme
+> 1 && {1/0}
+14790539 ms: - WARNING - Failed to evaluate: 1 / 0, Division by zero
+14790539 ms: - WARNING - Failed to evaluate: 1 && {1 / 0}, Failed: and(1, error)
+error
+```
+
+So instead of throwing errors we should print warnings and propagate that error value.

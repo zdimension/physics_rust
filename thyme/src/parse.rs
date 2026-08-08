@@ -1,11 +1,15 @@
 use chumsky::input::*;
 use chumsky::pratt::*;
 use chumsky::prelude::*;
-use std::borrow::Cow;
-use std::fmt::Display;
-use std::rc::Rc;
 use dumpster::{Trace, TraceWith, Visitor, unsync::Gc};
 use logos::Logos;
+use std::borrow::Cow;
+use std::fmt;
+use std::fmt::Display;
+use std::fmt::Write;
+use std::ops::Add;
+use std::ops::Sub;
+use std::rc::Rc;
 
 use crate::Symbol;
 
@@ -13,7 +17,7 @@ use crate::Symbol;
 #[logos(skip r"[ \t\r\n\f]+")]
 #[logos(skip(r"//[^\r\n]*", allow_greedy = true))]
 #[logos(skip r"/\*([^*]|\*[^/])*\*/")]
-enum Token<'a> {
+pub enum Token<'a> {
     Error,
 
     #[token("false", |_| false)]
@@ -169,7 +173,7 @@ pub type Spanned<T> = (T, Span);
 
 // in increasing order of Algodoo precedence
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-enum BinaryOp {
+pub enum BinaryOp {
     // < ->
     Assign,
     Declare,
@@ -205,7 +209,7 @@ enum BinaryOp {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-enum UnaryOp {
+pub enum UnaryOp {
     Not,
     Neg,
     Pos,
@@ -218,8 +222,69 @@ pub enum Number {
     Float(f32),
 }
 
+impl Number {
+    /// Returns the largest integer less than or equal to this number. Returns 0 for NaN and negative infinity, and i32::MAX for positive infinity.
+    pub fn floor(self) -> i32 {
+        match self {
+            Number::Int(n) => n,
+            Number::Float(f) => i32::try_from(f.floor() as i64).unwrap_or_else(|_| {
+                if f.is_nan() || f.is_sign_negative() {
+                    0
+                } else {
+                    i32::MAX
+                }
+            }),
+        }
+    }
+
+    pub fn to_f32_lossy(self) -> f32 {
+        match self {
+            Number::Int(n) => n as f32,
+            Number::Float(f) => f,
+        }
+    }
+
+    /*pub fn thyme_display(&self) -> Cow<'_, str> {
+        match self {
+            Number::Int(n) => n.to_string().into(),
+            Number::Float(f) => match f {
+                f if f.is_nan() => "NaN".into(),
+                f if f.is_infinite() && f.is_sign_positive() => "inf".into(),
+                f if f.is_infinite() && f.is_sign_negative() => "-inf".into(),
+                f => f.to_string().into(),
+            }
+        }
+    }*/
+}
+
+impl Display for Number {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Number::Int(n) => write!(f, "{}", n),
+            Number::Float(flt) => match flt {
+                x if x.is_nan() => write!(f, "NaN"),
+                x if x.is_infinite() && x.is_sign_positive() => write!(f, "inf"),
+                x if x.is_infinite() && x.is_sign_negative() => write!(f, "-inf"),
+                x => write!(f, "{}", x),
+            }
+        }
+    }
+}
+
+impl From<i32> for Number {
+    fn from(n: i32) -> Self {
+        Number::Int(n)
+    }
+}
+
+impl From<f32> for Number {
+    fn from(n: f32) -> Self {
+        Number::Float(n)
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
-enum Literal {
+pub enum Literal {
     Null,
     Bool(bool),
     Number(Number),
@@ -235,6 +300,8 @@ pub struct UserFunctionDef {
 #[derive(Debug)]
 pub enum Expr {
     Error,
+    // this is semantically useless but we need it to be able to pretty-print ASTs at runtime
+    Parenthesized(Box<Spanned<Self>>),
     Value(Literal),
     List(Vec<Spanned<Self>>),
     Symbol(Symbol),
@@ -250,6 +317,174 @@ pub enum Expr {
     Func(UserFunctionDef),
     /// a; b (optional trailing ;)
     Seq(Vec<Box<Spanned<Self>>>),
+}
+
+pub struct PrettyPrinter<W> {
+    out: W,
+    indent: usize,
+}
+
+impl<W: Write> PrettyPrinter<W> {
+    pub fn new(out: W) -> Self {
+        Self { out, indent: 0 }
+    }
+
+    fn write(&mut self, s: &str) -> fmt::Result {
+        self.out.write_str(s)
+    }
+
+    fn write_char(&mut self, c: char) -> fmt::Result {
+        self.out.write_char(c)
+    }
+
+    fn line(&mut self, s: &str) -> fmt::Result {
+        writeln!(self.out, "{:indent$}{s}", "", indent = self.indent * 4)
+    }
+
+    fn indented(
+        &mut self,
+        f: impl FnOnce(&mut Self) -> fmt::Result,
+    ) -> fmt::Result {
+        self.indent += 1;
+        let result = f(self);
+        self.indent -= 1;
+        result
+    }
+}
+
+impl Expr {
+    pub fn pretty_print(&self) -> String {
+        let mut result = String::new();
+        self.pretty(&mut PrettyPrinter::new(&mut result)).unwrap();
+        result
+    }
+
+    pub fn pretty(&self, printer: &mut PrettyPrinter<impl Write>) -> fmt::Result {
+        match self {
+            Expr::Error => printer.write("<error>"),
+            Expr::Parenthesized(expr) => {
+                printer.write_char('(')?;
+                expr.0.pretty(printer)?;
+                printer.write_char(')')
+            }
+            Expr::Value(lit) => match lit {
+                Literal::Null => printer.write("null"),
+                Literal::Bool(b) => write!(printer.out, "{}", b),
+                Literal::Number(n) => write!(printer.out, "{}", n),
+                Literal::Str(s) => {
+                    printer.write_char('"')?;
+                    for c in s.chars() {
+                        match c {
+                            '\n' => printer.write("\\n")?,
+                            '\t' => printer.write("\\t")?,
+                            '\\' => printer.write("\\\\")?,
+                            '"' => printer.write("\\\"")?,
+                            _ => printer.write_char(c)?,
+                        }
+                    }
+                    printer.write_char('"')
+                }
+            },
+            Expr::List(items) => {
+                printer.write_char('[')?;
+                for (i, item) in items.iter().enumerate() {
+                    if i > 0 {
+                        printer.write(", ")?;
+                    }
+                    item.0.pretty(printer)?;
+                }
+                printer.write_char(']')
+            }
+            Expr::Symbol(sym) => printer.write(sym.as_str()),
+            Expr::Member(object, member) => {
+                object.0.pretty(printer)?;
+                printer.write_char('.')?;
+                printer.write(member.0.as_str())
+            }
+            Expr::Call(func, args) => {
+                func.0.pretty(printer)?;
+                printer.write_char('(')?;
+                for (i, arg) in args.0.iter().enumerate() {
+                    if i > 0 {
+                        printer.write(", ")?;
+                    }
+                    arg.0.pretty(printer)?;
+                }
+                printer.write_char(')')
+            }
+            Expr::Binary(lhs, op, rhs) => {
+                lhs.0.pretty(printer)?;
+                printer.write_char(' ')?;
+                use BinaryOp::*;
+                printer.write(match op {
+                    Assign => "=",
+                    Declare => ":=",
+                    ClassAssign => "->",
+                    Or => "||",
+                    And => "&&",
+                    Range => "..",
+                    Eq => "==",
+                    NotEq => "!=",
+                    Less => "<",
+                    LessEq => "<=",
+                    Greater => ">",
+                    GreaterEq => ">=",
+                    ListConcat => "++",
+                    Add => "+",
+                    Sub => "-",
+                    Mul => "*",
+                    Div => "/",
+                    Mod => "%",
+                    Pow => "^",
+                })?;
+                printer.write_char(' ')?;
+                rhs.0.pretty(printer)
+            }
+            Expr::Unary(op, expr) => {
+                use UnaryOp::*;
+                printer.write_char(match op {
+                    Not => '!',
+                    Neg => '-',
+                    Pos => '+',
+                })?;
+                expr.0.pretty(printer)
+            }
+            Expr::Ternary(cond, true_expr, false_expr) => {
+                cond.0.pretty(printer)?;
+                printer.write(" ? ")?;
+                true_expr.0.pretty(printer)?;
+                printer.write(" : ")?;
+                false_expr.0.pretty(printer)
+            }
+            Expr::Func(func_def) => {
+                func_def.pretty(printer)
+            }
+            Expr::Seq(stmts) => {
+                for (i, stmt) in stmts.iter().enumerate() {
+                    if i > 0 {
+                        printer.write_char(';')?;
+                        printer.line("")?;
+                    }
+                    stmt.0.pretty(printer)?;
+                }
+                Ok(())
+            }
+        }
+    }
+}
+
+impl UserFunctionDef {
+    pub fn pretty(&self, printer: &mut PrettyPrinter<impl Write>) -> fmt::Result {
+        printer.write_char('(')?;
+        for (i, param) in self.params.iter().enumerate() {
+            if i > 0 {
+                printer.write(", ")?;
+            }
+            printer.write(param.as_str())?;
+        }
+        printer.write(") => ")?;
+        self.body.0.pretty(printer)
+    }
 }
 
 /*
@@ -354,7 +589,7 @@ where
             .or(expr
                 .clone()
                 .delimited_by(just(Token::ParenOpen), just(Token::ParenClose))
-                .map_with(|expr, _e| expr.0))
+                .map_with(|expr, _e| Expr::Parenthesized(Box::new(expr))))
             .or(list_parentheses)
             .map_with(|expr, e| (expr, e.span()))
             // Attempt to recover anything that looks like a parenthesised expression but contains errors
@@ -610,7 +845,7 @@ mod tests {
         let source = format!("{}0{}", "{".repeat(depth), "}".repeat(depth));
         parse_source(&source);
     }
-        fn parse_source(source: &str) -> Spanned<Expr> {
+    fn parse_source(source: &str) -> Spanned<Expr> {
         let lexer = Token::lexer(source)
             .spanned()
             .map(|(token, span)| (token.unwrap_or(Token::Error), span.into()));
@@ -665,7 +900,7 @@ mod tests {
 
     #[test]
     fn lexes_computer_phn_without_errors() {
-        let source = read_auto_encoding(include_bytes!("../examples/computer.phn"));
+        let source = read_auto_encoding(include_bytes!("../snippets/computer.phn"));
         let mut lexer = Token::lexer(&source);
 
         while let Some(token) = lexer.next() {
@@ -680,7 +915,7 @@ mod tests {
 
     #[test]
     fn parses_computer_phn_without_errors() {
-        let source = read_auto_encoding(include_bytes!("../examples/computer.phn"));
+        let source = read_auto_encoding(include_bytes!("../snippets/computer.phn"));
         parse_source(&source);
     }
 
@@ -734,4 +969,15 @@ mod tests {
             other => panic!("expected function, got {other:#?}"),
         }
     }
+}
+
+pub fn parse_thyme<'src, 'tok>(source: &'src str) -> ParseResult<Spanned<Expr>, chumsky::error::Rich<'tok, Token<'src>>> {
+    let lexer = Token::lexer(source)
+        .spanned()
+        .map(|(token, span)| (token.unwrap_or(Token::Error), span.into()));
+    let token_stream = Stream::from_iter(lexer)
+        .map((0..source.len()).into(), |(token, span): (_, _)| {
+            (token, span)
+        });
+    block_parser().parse(token_stream)
 }

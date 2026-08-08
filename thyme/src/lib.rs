@@ -1,4 +1,3 @@
-
 use dumpster::{Trace, TraceWith, Visitor, unsync::Gc};
 use std::borrow::{Borrow, Cow};
 use std::cell::RefCell;
@@ -6,7 +5,7 @@ use std::collections::HashMap;
 use std::fmt::{self, Debug, Display};
 use std::rc::Rc;
 
-use crate::parse::{Number, UserFunctionDef};
+use crate::parse::{Expr, Number, UserFunctionDef};
 
 pub mod eval;
 pub mod parse;
@@ -218,6 +217,7 @@ impl Debug for Function {
 pub enum Value {
     Null,
     Void,
+    Undefined,
     Bool(bool),
     Number(Number),
     Str(Rc<str>),
@@ -226,11 +226,108 @@ pub enum Value {
     Function(Function),
 }
 
+impl Value {
+    /*fn thyme_display(&self) -> Cow<'_, str> {
+        match self {
+            Self::Null => "null".into(),
+            Self::Void => "void".into(),
+            Self::Undefined => "undefined".into(),
+            Self::Bool(value) => value.to_string().into(),
+            Self::Number(n) => n.thyme_display(),
+            Self::Str(value) => value.as_ref().into(),
+            Self::List(list) => {
+                let mut result = String::from("[");
+                for (i, value) in list.0.iter().enumerate() {
+                    if i != 0 {
+                        result.push_str(", ");
+                    }
+                    result.push_str(&value.thyme_display());
+                }
+                result.push(']');
+                result.into()
+            }
+            Self::Object(object) => match object.native_id() {
+                Some(id) => format!("native({})", id.into_raw()).into(),
+                None => "object".into(),
+            },
+            Self::Function(function) => match &*function.0 {
+                FunctionValue::Intrinsic(intrinsic) => format!("intrinsic function with {} arguments (id {})", function.arity(), intrinsic.id.into_raw()).into(),
+                FunctionValue::User(def) => def.definition.to_string().into(),
+            },
+        }
+    }*/
+}
+
+impl Display for Value {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Null => f.write_str("null"),
+            Self::Void => f.write_str("void"),
+            Self::Undefined => f.write_str("undefined"),
+            Self::Bool(value) => Display::fmt(value, f),
+            Self::Number(n) => Display::fmt(n, f),
+            Self::Str(value) => Display::fmt(value, f),
+            Self::List(list) => {
+                f.write_str("[")?;
+                for (i, value) in list.0.iter().enumerate() {
+                    if i != 0 {
+                        f.write_str(", ")?;
+                    }
+                    Display::fmt(value, f)?;
+                }
+                f.write_str("]")
+            }
+            Self::Object(object) => match object.native_id() {
+                Some(id) => write!(f, "native({})", id.into_raw()),
+                None => f.write_str("object"),
+            },
+            Self::Function(function) => match &*function.0 {
+                FunctionValue::Intrinsic(intrinsic) => write!(f, "intrinsic function with {} arguments (id {})", function.arity(), intrinsic.id.into_raw()),
+                FunctionValue::User(def) => def.definition.pretty(&mut parse::PrettyPrinter::new(f))
+            },
+        }
+    }
+}
+
+impl PartialEq for Value {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Null, Self::Null)
+            | (Self::Void, Self::Void)
+            | (Self::Undefined, Self::Undefined) => true,
+            (Self::Bool(a), Self::Bool(b)) => a == b,
+            (Self::Number(a), Self::Number(b)) => match (a, b) {
+                (Number::Int(a), Number::Int(b)) => a == b,
+                (Number::Int(i), Number::Float(f)) | (Number::Float(f), Number::Int(i)) => (*i as f32) == *f,
+                (Number::Float(a), Number::Float(b)) => a == b,
+            },
+            (Self::Str(a), Self::Str(b)) => a == b,
+            (Self::List(a), Self::List(b)) => a.as_slice() == b.as_slice(),
+            (Self::Object(a), Self::Object(b)) => Gc::ptr_eq(&a.0, &b.0),
+            (Self::Function(a), Self::Function(b)) => Gc::ptr_eq(&a.0, &b.0),
+            _ => false,
+        }
+    }
+}
+
+impl<T: Into<Number>> From<T> for Value {
+    fn from(value: T) -> Self {
+        Self::Number(value.into())
+    }
+}
+
+impl From<bool> for Value {
+    fn from(value: bool) -> Self {
+        Self::Bool(value)
+    }
+}
+
 impl Debug for Value {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Null => f.write_str("Null"),
             Self::Void => f.write_str("Void"),
+            Self::Undefined => f.write_str("Undefined"),
             Self::Bool(value) => f.debug_tuple("Bool").field(value).finish(),
             Self::Number(value) => f.debug_tuple("Number").field(value).finish(),
             Self::Str(value) => f.debug_tuple("Str").field(value).finish(),
@@ -248,9 +345,28 @@ struct ClassObject {
 }
 
 #[derive(Trace)]
-struct Environment {
+pub struct Environment {
     parent: Option<Gc<Environment>>,
     bindings: RefCell<HashMap<Symbol, Value>>,
+}
+
+impl Environment {
+    pub fn new_root() -> Self {
+        Self {
+            parent: None,
+            bindings: RefCell::new(HashMap::new()),
+        }
+    }
+
+    pub fn get(&self, name: impl AsRef<str>) -> Option<Value> {
+        if let Some(value) = self.bindings.borrow().get(name.as_ref()) {
+            Some(value.clone())
+        } else {
+            self.parent
+                .as_ref()
+                .and_then(|parent| parent.get(name.as_ref()))
+        }
+    }
 }
 
 #[cfg(test)]
@@ -261,7 +377,7 @@ thread_local! {
 #[cfg(test)]
 impl Drop for Environment {
     fn drop(&mut self) {
-        ENVIRONMENT_DROPS.set(ENVIRONMENT_DROPS.get() + 1);
+        ENVIRONMENT_DROPS.with(|cell| cell.set(cell.get() + 1));
     }
 }
 
@@ -278,7 +394,7 @@ struct IntrinsicFunction {
     id: IntrinsicId,
 }
 
-struct UserFunction {
+pub struct UserFunction {
     definition: UserFunctionDef,
     env: Gc<Environment>,
 }
@@ -497,13 +613,15 @@ impl Default for Runtime {
     }
 }
 
+
+
 #[cfg(test)]
 mod tests {
     use chumsky::span::Span;
 
-use crate::parse::Expr;
+    use crate::parse::Expr;
 
-use super::*;
+    use super::*;
 
     #[test]
     fn opaque_ids_round_trip_without_sharing_types() {
@@ -660,4 +778,3 @@ use super::*;
         assert!(ENVIRONMENT_DROPS.get() > drops_before);
     }
 }
-
