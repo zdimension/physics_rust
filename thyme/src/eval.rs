@@ -143,10 +143,83 @@ impl<'runtime, 'host> Evaluator<'runtime, 'host> {
                 )?
             }
             Expr::Binary(left, op, right) => {
-                let left_value = self.eval_expr(&left.0, env)?;
                 let right_value = self.eval_expr(&right.0, env)?;
-                let (left_value, right_value) =
-                    (self.collapse(left_value)?, self.collapse(right_value)?);
+
+                match *op {
+                    BinaryOp::Declare | BinaryOp::Assign => {
+                        /*let Expr::Symbol(left) = &left.0 else {
+                            return Err(format!(
+                                "Cannot declare non-symbol value {left:?} at {:?}", left.1
+                            ));
+                        };
+                        env.declare(left.as_str(), right_value.clone());
+                        return Ok(right_value);*/
+                        match &left.0 {
+                            Expr::Symbol(left) => {
+                                if *op == BinaryOp::Declare {
+                                    env.declare(left.as_str(), right_value.clone());
+                                } else {
+                                    env.set(left.as_str(), right_value.clone());
+                                }
+                            }
+                            Expr::Member(object, (member, member_span)) => {
+                                /*let object_value = self.eval_expr(&object.0, env)?;
+                                let Value::Object(object) = object_value else {
+                                    return Err(format!(
+                                        "Cannot assign to member {member} of non-object value \
+                                         {object_value} at {member_span:?}"
+                                    ));
+                                };
+
+                                if let Some(object_id) = object.native_id() {
+                                    match self
+                                        .host
+                                        .resolve_property(object_id, member.as_str())
+                                        .map_err(|error| {
+                                            format!(
+                                                "Failed to resolve native property {member} at \
+                                                 {member_span:?}: {error}"
+                                            )
+                                        })? {
+                                        Some(property_id) => self
+                                            .host
+                                            .set_property(object_id, property_id, &right_value)
+                                            .map_err(|error| {
+                                                format!(
+                                                    "Failed to set native property {member} at \
+                                                     {member_span:?}: {error}"
+                                                )
+                                            })?,
+                                        None => object.set_field(member.as_str(), right_value.clone()),
+                                    }
+                                } else {
+                                    object.set_field(member.as_str(), right_value.clone());
+                                }*/
+                                todo!()
+                            }
+                            _ => {
+                                return Err(format!(
+                                    "Cannot assign to non-symbol value {left:?} at {:?}",
+                                    left.1
+                                ));
+                            }
+                        }
+                        return Ok(right_value);
+                    }
+                    _ => {}
+                }
+
+                let left_value = self.eval_expr(&left.0, env)?;
+                let left_value = self.collapse(left_value)?;
+
+                match *op {
+                    BinaryOp::ClassAssign => {
+                        todo!()
+                    }
+                    _ => {}
+                }
+
+                let right_value = self.collapse(right_value)?;
 
                 let (int, float, other): (
                     fn(i32, i32) -> Result<Value, String>,
@@ -305,10 +378,7 @@ impl<'runtime, 'host> Evaluator<'runtime, 'host> {
                         );
                     }
 
-                    BinaryOp::ClassAssign => todo!(),
-
-                    BinaryOp::Assign => todo!(),
-                    BinaryOp::Declare => todo!(),
+                    BinaryOp::ClassAssign | BinaryOp::Assign | BinaryOp::Declare => unreachable!("should have been handled earlier"),
                 };
 
                 self.apply_binary(

@@ -359,6 +359,11 @@ pub struct Environment {
     bindings: RefCell<HashMap<Symbol, Value>>,
 }
 
+pub enum InsertionState<T> {
+    UpdatedOrCreated,
+    NotFound(T),
+}
+
 impl Environment {
     pub fn new_root() -> Self {
         Self {
@@ -375,6 +380,54 @@ impl Environment {
                 .as_ref()
                 .and_then(|parent| parent.get(name.as_ref()))
         }
+    }
+
+    /// Creates or replaces the binding for a name in this environment.
+    pub fn declare(&self, name: impl Into<Symbol>, value: Value) -> Option<Value> {
+        self.bindings
+            .borrow_mut()
+            .insert(name.into(), value)
+    }
+
+    fn set_rec(
+        &self,
+        name: impl AsRef<str>,
+        value: Value,
+        root: bool
+    ) -> InsertionState<Value> {
+        match self.bindings.borrow_mut().entry(name.as_ref().into()) {
+            std::collections::hash_map::Entry::Occupied(mut entry) => {
+                entry.insert(value);
+                InsertionState::UpdatedOrCreated
+            }
+            std::collections::hash_map::Entry::Vacant(entry) => {
+                if let Some(parent) = &self.parent {
+                    match parent.set_rec(name.as_ref(), value, false) {
+                        InsertionState::UpdatedOrCreated => InsertionState::UpdatedOrCreated,
+                        InsertionState::NotFound(value) => {
+                            if root {
+                                entry.insert(value);
+                                InsertionState::UpdatedOrCreated
+                            } else {
+                                InsertionState::NotFound(value)
+                            }
+                        }
+                    }
+                } else {
+                    if root {
+                        entry.insert(value);
+                        InsertionState::UpdatedOrCreated
+                    } else {
+                        InsertionState::NotFound(value)
+                    }
+                }
+            }
+        }
+    }
+
+    /// Sets the value of an existing binding in this environment or a parent, or creates a new binding in this environment if none exists
+    pub fn set(&self, name: impl AsRef<str>, value: Value) {
+        self.set_rec(name, value, true);
     }
 }
 
