@@ -1,24 +1,511 @@
 use chumsky::input::*;
 use chumsky::pratt::*;
 use chumsky::prelude::*;
+use dumpster::{Trace, TraceWith, Visitor, unsync::Gc};
 use logos::Logos;
-use std::borrow::Cow;
-use std::fmt::Display;
+use std::borrow::{Borrow, Cow};
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::fmt::{self, Debug, Display};
+use std::rc::Rc;
 
-#[derive(Copy, Clone, Debug, PartialEq)]
-enum Number {
+/// A Thyme number. Algodoo keeps integers and floats as distinct runtime types.
+#[derive(Copy, Clone, Debug, PartialEq, Trace)]
+pub enum Number {
     Int(i32),
     Float(f32),
 }
 
-#[derive(Debug)]
-enum Value<'a> {
+/// An internable, cheaply cloned Thyme identifier.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Trace)]
+pub struct Symbol(Rc<str>);
+
+impl Symbol {
+    pub fn new(value: impl AsRef<str>) -> Self {
+        Self(Rc::from(value.as_ref()))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl From<&str> for Symbol {
+    fn from(value: &str) -> Self {
+        Self::new(value)
+    }
+}
+
+impl From<String> for Symbol {
+    fn from(value: String) -> Self {
+        Self(Rc::from(value))
+    }
+}
+
+impl AsRef<str> for Symbol {
+    fn as_ref(&self) -> &str {
+        self.as_str()
+    }
+}
+
+impl Borrow<str> for Symbol {
+    fn borrow(&self) -> &str {
+        self.as_str()
+    }
+}
+
+impl Display for Symbol {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+macro_rules! opaque_id {
+    ($name:ident) => {
+        #[repr(transparent)]
+        #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Trace)]
+        pub struct $name(u64);
+
+        impl $name {
+            pub const fn from_raw(raw: u64) -> Self {
+                Self(raw)
+            }
+
+            pub const fn into_raw(self) -> u64 {
+                self.0
+            }
+        }
+    };
+}
+
+opaque_id!(NativeObjectId);
+opaque_id!(IntrinsicId);
+opaque_id!(PropertyId);
+
+/// An immutable Thyme list, shared by the garbage collector.
+#[derive(Clone, Trace)]
+pub struct List(Gc<[Value]>);
+
+impl List {
+    pub fn new(values: impl IntoIterator<Item = Value>) -> Self {
+        Self(values.into_iter().collect())
+    }
+
+    pub fn as_slice(&self) -> &[Value] {
+        &self.0
+    }
+}
+
+impl Default for List {
+    fn default() -> Self {
+        Self::new([])
+    }
+}
+
+impl From<Vec<Value>> for List {
+    fn from(values: Vec<Value>) -> Self {
+        Self(Gc::from(values))
+    }
+}
+
+impl Debug for List {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("List").field("len", &self.0.len()).finish()
+    }
+}
+
+/// A cloneable handle to a dynamic Thyme object.
+#[derive(Clone, Trace)]
+pub struct Object(Gc<ClassObject>);
+
+impl Object {
+    pub fn new() -> Self {
+        Self(Gc::new(ClassObject {
+            fields: RefCell::new(HashMap::new()),
+            native: None,
+        }))
+    }
+
+    pub fn native(id: NativeObjectId) -> Self {
+        Self(Gc::new(ClassObject {
+            fields: RefCell::new(HashMap::new()),
+            native: Some(id),
+        }))
+    }
+
+    pub fn native_id(&self) -> Option<NativeObjectId> {
+        self.0.native
+    }
+
+    pub fn field(&self, name: &str) -> Option<Value> {
+        self.0.fields.borrow().get(name).cloned()
+    }
+
+    pub fn set_field(&self, name: impl Into<Symbol>, value: Value) -> Option<Value> {
+        self.0.fields.borrow_mut().insert(name.into(), value)
+    }
+
+    pub fn remove_field(&self, name: &str) -> Option<Value> {
+        self.0.fields.borrow_mut().remove(name)
+    }
+}
+
+impl Default for Object {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Debug for Object {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Object")
+            .field("native", &self.native_id())
+            .finish_non_exhaustive()
+    }
+}
+
+/// A cloneable handle to either a user function or a host-provided intrinsic.
+#[derive(Clone, Trace)]
+pub struct Function(Gc<FunctionValue>);
+
+impl Function {
+    pub fn intrinsic(id: IntrinsicId, name: impl AsRef<str>, arity: usize) -> Self {
+        Self(Gc::new(FunctionValue::Intrinsic(IntrinsicFunction {
+            name: Rc::from(name.as_ref()),
+            arity,
+            id,
+        })))
+    }
+
+    pub fn name(&self) -> Option<&str> {
+        match &*self.0 {
+            FunctionValue::User(_) => None,
+            FunctionValue::Intrinsic(intrinsic) => Some(&intrinsic.name),
+        }
+    }
+
+    pub fn arity(&self) -> usize {
+        match &*self.0 {
+            FunctionValue::User(user) => user.definition.params.len(),
+            FunctionValue::Intrinsic(intrinsic) => intrinsic.arity,
+        }
+    }
+
+    pub fn intrinsic_id(&self) -> Option<IntrinsicId> {
+        match &*self.0 {
+            FunctionValue::User(_) => None,
+            FunctionValue::Intrinsic(intrinsic) => Some(intrinsic.id),
+        }
+    }
+}
+
+impl Debug for Function {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match &*self.0 {
+            FunctionValue::User(user) => f
+                .debug_struct("Function")
+                .field("kind", &"user")
+                .field("arity", &user.definition.params.len())
+                .finish(),
+            FunctionValue::Intrinsic(intrinsic) => f
+                .debug_struct("Function")
+                .field("kind", &"intrinsic")
+                .field("name", &intrinsic.name)
+                .field("arity", &intrinsic.arity)
+                .field("id", &intrinsic.id)
+                .finish(),
+        }
+    }
+}
+
+/// A value visible to Thyme programs and host implementations.
+#[derive(Clone, Trace)]
+pub enum Value {
     Null,
     Void,
     Bool(bool),
     Number(Number),
-    Str(Cow<'a, str>),
-    List(Vec<Self>),
+    Str(Rc<str>),
+    List(List),
+    Object(Object),
+    Function(Function),
+}
+
+impl Debug for Value {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Null => f.write_str("Null"),
+            Self::Void => f.write_str("Void"),
+            Self::Bool(value) => f.debug_tuple("Bool").field(value).finish(),
+            Self::Number(value) => f.debug_tuple("Number").field(value).finish(),
+            Self::Str(value) => f.debug_tuple("Str").field(value).finish(),
+            Self::List(value) => Debug::fmt(value, f),
+            Self::Object(value) => Debug::fmt(value, f),
+            Self::Function(value) => Debug::fmt(value, f),
+        }
+    }
+}
+
+#[derive(Trace)]
+struct ClassObject {
+    fields: RefCell<HashMap<Symbol, Value>>,
+    native: Option<NativeObjectId>,
+}
+
+#[derive(Trace)]
+struct Environment {
+    parent: Option<Gc<Environment>>,
+    bindings: RefCell<HashMap<Symbol, Value>>,
+}
+
+#[cfg(test)]
+thread_local! {
+    static ENVIRONMENT_DROPS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+#[cfg(test)]
+impl Drop for Environment {
+    fn drop(&mut self) {
+        ENVIRONMENT_DROPS.set(ENVIRONMENT_DROPS.get() + 1);
+    }
+}
+
+#[derive(Trace)]
+enum FunctionValue {
+    User(UserFunction),
+    Intrinsic(IntrinsicFunction),
+}
+
+#[derive(Trace)]
+struct IntrinsicFunction {
+    name: Rc<str>,
+    arity: usize,
+    id: IntrinsicId,
+}
+
+#[derive(Clone, Debug)]
+struct UserFunctionDef {
+    params: Rc<[Symbol]>,
+    body: Rc<Spanned<Expr>>,
+}
+
+struct UserFunction {
+    definition: UserFunctionDef,
+    env: Gc<Environment>,
+}
+
+// SAFETY: `UserFunctionDef` contains no `Gc` pointers. The captured environment is the only field
+// that participates in the collector's object graph.
+unsafe impl<V: Visitor> TraceWith<V> for UserFunction {
+    fn accept(&self, visitor: &mut V) -> Result<(), ()> {
+        self.env.accept(visitor)
+    }
+}
+
+/// The category of a failure reported by the game-side host.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum HostErrorKind {
+    UnknownObject,
+    UnknownProperty,
+    InvalidType,
+    Intrinsic,
+    Other,
+}
+
+/// A structured error crossing the host/runtime boundary.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HostError {
+    kind: HostErrorKind,
+    message: Rc<str>,
+}
+
+impl HostError {
+    pub fn new(kind: HostErrorKind, message: impl AsRef<str>) -> Self {
+        Self {
+            kind,
+            message: Rc::from(message.as_ref()),
+        }
+    }
+
+    pub fn kind(&self) -> HostErrorKind {
+        self.kind
+    }
+
+    pub fn message(&self) -> &str {
+        &self.message
+    }
+}
+
+impl Display for HostError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for HostError {}
+
+/// The Bevy-independent interface implemented by the embedding application.
+///
+/// This trait is intentionally neither `Send` nor `Sync`: a Thyme runtime is confined to one
+/// thread, and the host may query a thread-local game world.
+pub trait Host {
+    fn resolve_property(
+        &mut self,
+        object: NativeObjectId,
+        name: &str,
+    ) -> Result<Option<PropertyId>, HostError>;
+
+    fn get_property(
+        &mut self,
+        object: NativeObjectId,
+        property: PropertyId,
+    ) -> Result<Value, HostError>;
+
+    fn set_property(
+        &mut self,
+        object: NativeObjectId,
+        property: PropertyId,
+        value: &Value,
+    ) -> Result<(), HostError>;
+
+    fn call_intrinsic(
+        &mut self,
+        intrinsic: IntrinsicId,
+        arguments: &[Value],
+    ) -> Result<Value, HostError>;
+}
+
+/// The roots and host-property bindings owned by one Thyme interpreter.
+///
+/// The embedding application controls object evaluation order. In particular, the Bevy adapter
+/// can visit objects in z-order and request each object's bindings separately. Properties within
+/// one object are stored in a `HashMap`, so their evaluation order is intentionally unspecified.
+#[derive(Trace)]
+pub struct Runtime {
+    globals: Gc<Environment>,
+    native_bindings: RefCell<HashMap<NativeObjectId, HashMap<PropertyId, Function>>>,
+}
+
+impl Runtime {
+    pub fn new() -> Self {
+        Self {
+            globals: Gc::new(Environment {
+                parent: None,
+                bindings: RefCell::new(HashMap::new()),
+            }),
+            native_bindings: RefCell::new(HashMap::new()),
+        }
+    }
+
+    pub fn global(&self, name: &str) -> Option<Value> {
+        self.globals.bindings.borrow().get(name).cloned()
+    }
+
+    pub fn set_global(&self, name: impl Into<Symbol>, value: Value) -> Option<Value> {
+        self.globals
+            .bindings
+            .borrow_mut()
+            .insert(name.into(), value)
+    }
+
+    /// Creates or replaces the function bound to a native property.
+    pub fn bind_property(
+        &self,
+        object: NativeObjectId,
+        property: PropertyId,
+        function: Function,
+    ) -> Option<Function> {
+        self.native_bindings
+            .borrow_mut()
+            .entry(object)
+            .or_default()
+            .insert(property, function)
+    }
+
+    pub fn property_binding(
+        &self,
+        object: NativeObjectId,
+        property: PropertyId,
+    ) -> Option<Function> {
+        self.native_bindings
+            .borrow()
+            .get(&object)
+            .and_then(|properties| properties.get(&property))
+            .cloned()
+    }
+
+    /// Returns a stable snapshot of one object's bindings for this frame.
+    ///
+    /// The host chooses when to call this method and therefore controls object order. The order of
+    /// entries in the returned vector is unspecified. Taking a snapshot permits the evaluator to
+    /// remove a binding after an evaluation or setter failure without borrowing the binding table
+    /// for the duration of user code.
+    pub fn property_bindings_for(&self, object: NativeObjectId) -> Vec<(PropertyId, Function)> {
+        self.native_bindings
+            .borrow()
+            .get(&object)
+            .map(|properties| {
+                properties
+                    .iter()
+                    .map(|(&property, function)| (property, function.clone()))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// Applies the assignment behavior shared by all native properties.
+    ///
+    /// A function value creates or replaces a per-frame binding without calling the setter. Any
+    /// other value first clears the old binding, then reaches the host setter. The host remains
+    /// responsible for property-specific type checking.
+    pub fn assign_native_property<H: Host + ?Sized>(
+        &self,
+        host: &mut H,
+        object: NativeObjectId,
+        property: PropertyId,
+        value: Value,
+    ) -> Result<(), HostError> {
+        match value {
+            Value::Function(function) => {
+                self.bind_property(object, property, function);
+                Ok(())
+            }
+            value => {
+                self.unbind_property(object, property);
+                host.set_property(object, property, &value)
+            }
+        }
+    }
+
+    /// Removes a binding, including after a future evaluation or host-setter failure.
+    pub fn unbind_property(
+        &self,
+        object: NativeObjectId,
+        property: PropertyId,
+    ) -> Option<Function> {
+        let mut bindings = self.native_bindings.borrow_mut();
+        let removed = bindings
+            .get_mut(&object)
+            .and_then(|properties| properties.remove(&property));
+        if bindings.get(&object).is_some_and(HashMap::is_empty) {
+            bindings.remove(&object);
+        }
+        removed
+    }
+
+    pub fn binding_count(&self) -> usize {
+        self.native_bindings
+            .borrow()
+            .values()
+            .map(HashMap::len)
+            .sum()
+    }
+}
+
+impl Default for Runtime {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 #[derive(Logos, Clone, Debug, PartialEq)]
@@ -77,8 +564,8 @@ enum Token<'a> {
         Err(_) => Some(Number::Float(lex.slice().parse().unwrap())),
     }, priority = 3)]
     // * because Algodoo allows simply `0x` or `0b`.
-    #[regex(r"0x[0-9a-fA-F]*", |lex| Number::Int(i32::from_str_radix(&lex.slice()[2..lex.slice().len().saturating_sub(8).max(2)], 16).unwrap_or(0)), priority = 4)]
-    #[regex(r"0b[01]*", |lex| Number::Int(i32::from_str_radix(&lex.slice()[2..lex.slice().len().saturating_sub(8).max(2)], 2).unwrap_or(0)), priority = 4)]
+    #[regex(r"0x[0-9a-fA-F]*", |lex| Number::Int(i32::from_str_radix(&lex.slice()[lex.slice().len().saturating_sub(8).max(2)..], 16).unwrap_or(0)), priority = 4)]
+    #[regex(r"0b[01]*", |lex| Number::Int(i32::from_str_radix(&lex.slice()[lex.slice().len().saturating_sub(8).max(2)..], 2).unwrap_or(0)), priority = 4)]
     Int(Number),
 
     #[token("-inf", |_| f32::NEG_INFINITY)]
@@ -165,7 +652,7 @@ impl<'a> Display for Token<'a> {
     }
 }
 
-fn read_auto_encoding(source: &[u8]) -> Cow<str> {
+fn read_auto_encoding(source: &[u8]) -> Cow<'_, str> {
     // try decoding utf8 then 1252
     match std::str::from_utf8(source) {
         Ok(s) => Cow::Borrowed(s),
@@ -180,7 +667,7 @@ fn read_auto_encoding(source: &[u8]) -> Cow<str> {
 mod tests {
     use super::*;
 
-    fn parse_source(source: &str) -> Spanned<Expr<'_>> {
+    fn parse_source(source: &str) -> Spanned<Expr> {
         let lexer = Token::lexer(source)
             .spanned()
             .map(|(token, span)| (token.unwrap_or(Token::Error), span.into()));
@@ -196,24 +683,24 @@ mod tests {
             .unwrap_or_else(|errors| panic!("parse errors: {errors:#?}"))
     }
 
-    fn single_expr<'ast, 'src>(ast: &'ast Spanned<Expr<'src>>) -> &'ast Expr<'src> {
+    fn single_expr(ast: &Spanned<Expr>) -> &Expr {
         match &ast.0 {
             Expr::Seq(exprs) if exprs.len() == 1 => &exprs[0].0,
             other => panic!("expected one expression, got {other:#?}"),
         }
     }
 
-    fn assert_symbol(expr: &Spanned<Expr<'_>>, expected: &str) {
+    fn assert_symbol(expr: &Spanned<Expr>, expected: &str) {
         match &expr.0 {
-            Expr::Symbol(actual) => assert_eq!(*actual, expected),
+            Expr::Symbol(actual) => assert_eq!(actual.as_str(), expected),
             other => panic!("expected symbol {expected:?}, got {other:#?}"),
         }
     }
 
-    fn assert_binary<'ast, 'src>(
-        expr: &'ast Expr<'src>,
+    fn assert_binary<'ast>(
+        expr: &'ast Expr,
         expected: BinaryOp,
-    ) -> (&'ast Spanned<Expr<'src>>, &'ast Spanned<Expr<'src>>) {
+    ) -> (&'ast Spanned<Expr>, &'ast Spanned<Expr>) {
         match expr {
             Expr::Binary(lhs, actual, rhs) => {
                 assert_eq!(*actual, expected);
@@ -223,10 +710,7 @@ mod tests {
         }
     }
 
-    fn assert_unary<'ast, 'src>(
-        expr: &'ast Expr<'src>,
-        expected: UnaryOp,
-    ) -> &'ast Spanned<Expr<'src>> {
+    fn assert_unary(expr: &Expr, expected: UnaryOp) -> &Spanned<Expr> {
         match expr {
             Expr::Unary(actual, rhs) => {
                 assert_eq!(*actual, expected);
@@ -255,6 +739,212 @@ mod tests {
     fn parses_computer_phn_without_errors() {
         let source = read_auto_encoding(include_bytes!("../examples/computer.phn"));
         parse_source(&source);
+    }
+
+    fn parsed_number(source: &str) -> Number {
+        let ast = parse_source(source);
+        match single_expr(&ast) {
+            Expr::Value(Literal::Number(number)) => *number,
+            other => panic!("expected a number literal, got {other:#?}"),
+        }
+    }
+
+    #[test]
+    fn parsed_numbers_preserve_algodoo_integer_and_float_types() {
+        assert_eq!(parsed_number("123"), Number::Int(123));
+        assert!(matches!(parsed_number("2147483648"), Number::Float(value) if value.is_finite()));
+        assert_eq!(parsed_number("0xff"), Number::Int(255));
+        assert_eq!(parsed_number("0b101101"), Number::Int(45));
+        assert_eq!(parsed_number("1.25"), Number::Float(1.25));
+        assert_eq!(parsed_number("+inf"), Number::Float(f32::INFINITY));
+        assert_eq!(parsed_number("-inf"), Number::Float(f32::NEG_INFINITY));
+        assert!(matches!(parsed_number("NaN"), Number::Float(value) if value.is_nan()));
+    }
+
+    #[test]
+    fn parsed_names_strings_and_parameters_are_owned() {
+        let symbol = parse_source("some_name");
+        match single_expr(&symbol) {
+            Expr::Symbol(value) => assert_eq!(value.as_str(), "some_name"),
+            other => panic!("expected symbol, got {other:#?}"),
+        }
+
+        let string = parse_source(r#""hello\nworld""#);
+        match single_expr(&string) {
+            Expr::Value(Literal::Str(value)) => assert_eq!(&**value, "hello\nworld"),
+            other => panic!("expected string literal, got {other:#?}"),
+        }
+
+        let function = parse_source("(first, second) => { first }");
+        match single_expr(&function) {
+            Expr::Func(definition) => {
+                assert_eq!(definition.params[0].as_str(), "first");
+                assert_eq!(definition.params[1].as_str(), "second");
+                let Expr::Seq(body) = &definition.body.0 else {
+                    panic!(
+                        "expected function body sequence, got {:#?}",
+                        definition.body.0
+                    );
+                };
+                assert_symbol(&body[0], "first");
+            }
+            other => panic!("expected function, got {other:#?}"),
+        }
+    }
+
+    #[test]
+    fn opaque_ids_round_trip_without_sharing_types() {
+        let object = NativeObjectId::from_raw(7);
+        let intrinsic = IntrinsicId::from_raw(7);
+        let property = PropertyId::from_raw(7);
+
+        assert_eq!(object.into_raw(), 7);
+        assert_eq!(intrinsic.into_raw(), 7);
+        assert_eq!(property.into_raw(), 7);
+        assert_ne!(
+            std::any::type_name_of_val(&object),
+            std::any::type_name_of_val(&property)
+        );
+    }
+
+    struct FakeHost {
+        set: Option<(NativeObjectId, PropertyId, Value)>,
+    }
+
+    impl Host for FakeHost {
+        fn resolve_property(
+            &mut self,
+            _object: NativeObjectId,
+            name: &str,
+        ) -> Result<Option<PropertyId>, HostError> {
+            Ok((name == "position").then(|| PropertyId::from_raw(3)))
+        }
+
+        fn get_property(
+            &mut self,
+            _object: NativeObjectId,
+            _property: PropertyId,
+        ) -> Result<Value, HostError> {
+            Ok(Value::Number(Number::Int(12)))
+        }
+
+        fn set_property(
+            &mut self,
+            object: NativeObjectId,
+            property: PropertyId,
+            value: &Value,
+        ) -> Result<(), HostError> {
+            self.set = Some((object, property, value.clone()));
+            Ok(())
+        }
+
+        fn call_intrinsic(
+            &mut self,
+            _intrinsic: IntrinsicId,
+            arguments: &[Value],
+        ) -> Result<Value, HostError> {
+            arguments
+                .first()
+                .cloned()
+                .ok_or_else(|| HostError::new(HostErrorKind::Intrinsic, "expected one argument"))
+        }
+    }
+
+    #[test]
+    fn host_dispatch_preserves_number_types_and_unknown_properties_fall_back() {
+        let object = NativeObjectId::from_raw(1);
+        let property = PropertyId::from_raw(3);
+        let mut host = FakeHost { set: None };
+
+        assert_eq!(
+            host.resolve_property(object, "position").unwrap(),
+            Some(property)
+        );
+        assert_eq!(host.resolve_property(object, "dynamicField").unwrap(), None);
+        assert!(matches!(
+            host.get_property(object, property).unwrap(),
+            Value::Number(Number::Int(12))
+        ));
+
+        let result = host
+            .call_intrinsic(
+                IntrinsicId::from_raw(5),
+                &[Value::Number(Number::Float(2.5))],
+            )
+            .unwrap();
+        assert!(matches!(result, Value::Number(Number::Float(2.5))));
+    }
+
+    #[test]
+    fn runtime_centrally_replaces_and_clears_native_bindings() {
+        let runtime = Runtime::new();
+        let object = NativeObjectId::from_raw(10);
+        let property = PropertyId::from_raw(20);
+        let first = Function::intrinsic(IntrinsicId::from_raw(1), "first", 0);
+        let second = Function::intrinsic(IntrinsicId::from_raw(2), "second", 0);
+
+        assert!(runtime.bind_property(object, property, first).is_none());
+        let replaced = runtime.bind_property(object, property, second).unwrap();
+        assert_eq!(replaced.intrinsic_id(), Some(IntrinsicId::from_raw(1)));
+        assert_eq!(runtime.binding_count(), 1);
+        assert_eq!(
+            runtime
+                .property_binding(object, property)
+                .unwrap()
+                .intrinsic_id(),
+            Some(IntrinsicId::from_raw(2))
+        );
+        let frame_snapshot = runtime.property_bindings_for(object);
+        assert_eq!(frame_snapshot.len(), 1);
+        assert_eq!(frame_snapshot[0].0, property);
+        assert_eq!(
+            frame_snapshot[0].1.intrinsic_id(),
+            Some(IntrinsicId::from_raw(2))
+        );
+        assert!(
+            runtime
+                .property_bindings_for(NativeObjectId::from_raw(999))
+                .is_empty()
+        );
+
+        let mut host = FakeHost { set: None };
+        runtime
+            .assign_native_property(
+                &mut host,
+                object,
+                property,
+                Value::Number(Number::Float(4.0)),
+            )
+            .unwrap();
+        assert_eq!(runtime.binding_count(), 0);
+        let (_, _, value) = host.set.unwrap();
+        assert!(matches!(value, Value::Number(Number::Float(4.0))));
+    }
+
+    #[test]
+    fn dumpster_collects_a_captured_environment_cycle() {
+        let drops_before = ENVIRONMENT_DROPS.get();
+        let environment = Gc::new(Environment {
+            parent: None,
+            bindings: RefCell::new(HashMap::new()),
+        });
+        let function = Function(Gc::new(FunctionValue::User(UserFunction {
+            definition: UserFunctionDef {
+                params: Rc::from([]),
+                body: Rc::new((Expr::Error, Span::new((), 0..0))),
+            },
+            env: environment.clone(),
+        })));
+        environment
+            .bindings
+            .borrow_mut()
+            .insert(Symbol::from("cycle"), Value::Function(function.clone()));
+
+        drop(function);
+        drop(environment);
+        dumpster::unsync::collect();
+
+        assert!(ENVIRONMENT_DROPS.get() > drops_before);
     }
 
     #[test]
@@ -383,14 +1073,22 @@ enum UnaryOp {
     Pos,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+enum Literal {
+    Null,
+    Bool(bool),
+    Number(Number),
+    Str(Rc<str>),
+}
+
 #[derive(Debug)]
-enum Expr<'src> {
+enum Expr {
     Error,
-    Value(Value<'src>),
+    Value(Literal),
     List(Vec<Spanned<Self>>),
-    Symbol(&'src str),
+    Symbol(Symbol),
     /// a.b
-    Member(Box<Spanned<Self>>, Spanned<&'src str>),
+    Member(Box<Spanned<Self>>, Spanned<Symbol>),
     /// f(a,b,c) or simply f a
     Call(Box<Spanned<Self>>, Spanned<Vec<Spanned<Self>>>),
     Binary(Box<Spanned<Self>>, BinaryOp, Box<Spanned<Self>>),
@@ -398,7 +1096,7 @@ enum Expr<'src> {
     // cond ? true_expr : false_expr
     Ternary(Box<Spanned<Self>>, Box<Spanned<Self>>, Box<Spanned<Self>>),
     /// (a,b,c)=>{...} or simply {...}
-    Func(Vec<&'src str>, Span, Box<Spanned<Self>>),
+    Func(UserFunctionDef),
     /// a; b (optional trailing ;)
     Seq(Vec<Box<Spanned<Self>>>),
 }
@@ -411,7 +1109,7 @@ block_inner
     ;
      */
 fn block_parser<'tokens, 'src: 'tokens, I>()
--> impl Parser<'tokens, I, Spanned<Expr<'src>>, extra::Err<Rich<'tokens, Token<'src>, Span>>> + Clone
+-> impl Parser<'tokens, I, Spanned<Expr>, extra::Err<Rich<'tokens, Token<'src>, Span>>> + Clone
 where
     I: ValueInput<'tokens, Token = Token<'src>, Span = Span>,
 {
@@ -420,11 +1118,10 @@ where
 
 fn block_with_expr<'tokens, 'src: 'tokens, I, P>(
     expr: P,
-) -> impl Parser<'tokens, I, Spanned<Expr<'src>>, extra::Err<Rich<'tokens, Token<'src>, Span>>> + Clone
+) -> impl Parser<'tokens, I, Spanned<Expr>, extra::Err<Rich<'tokens, Token<'src>, Span>>> + Clone
 where
     I: ValueInput<'tokens, Token = Token<'src>, Span = Span>,
-    P: Parser<'tokens, I, Spanned<Expr<'src>>, extra::Err<Rich<'tokens, Token<'src>, Span>>>
-        + Clone,
+    P: Parser<'tokens, I, Spanned<Expr>, extra::Err<Rich<'tokens, Token<'src>, Span>>> + Clone,
 {
     expr.clone()
         .separated_by(just(Token::Semicolon))
@@ -439,21 +1136,21 @@ where
 }
 
 fn expr_parser<'tokens, 'src: 'tokens, I>()
--> impl Parser<'tokens, I, Spanned<Expr<'src>>, extra::Err<Rich<'tokens, Token<'src>, Span>>> + Clone
+-> impl Parser<'tokens, I, Spanned<Expr>, extra::Err<Rich<'tokens, Token<'src>, Span>>> + Clone
 where
     I: ValueInput<'tokens, Token = Token<'src>, Span = Span>,
 {
     recursive(|expr| {
         let val = select! {
-            Token::Null => Expr::Value(Value::Null),
-            Token::Bool(b) => Expr::Value(Value::Bool(b)),
-            Token::Int(n) => Expr::Value(Value::Number(n)),
-            Token::Float(f) => Expr::Value(Value::Number(Number::Float(f))),
-            Token::Str(s) => Expr::Value(Value::Str(s)),
+            Token::Null => Expr::Value(Literal::Null),
+            Token::Bool(b) => Expr::Value(Literal::Bool(b)),
+            Token::Int(n) => Expr::Value(Literal::Number(n)),
+            Token::Float(f) => Expr::Value(Literal::Number(Number::Float(f))),
+            Token::Str(s) => Expr::Value(Literal::Str(Rc::from(s.as_ref()))),
         }
         .labelled("value");
 
-        let ident = select! { Token::Ident(ident) => ident }.labelled("identifier");
+        let ident = select! { Token::Ident(ident) => Symbol::from(ident) }.labelled("identifier");
 
         let items = expr
             .clone()
@@ -492,8 +1189,11 @@ where
             .then_ignore(just(Token::LambdaArrow))
             .or_not()
             .then(zero_arg_function)
-            .map_with(|(params, body), e| {
-                Expr::Func(params.unwrap_or_default(), e.span(), Box::new(body))
+            .map(|(params, body)| {
+                Expr::Func(UserFunctionDef {
+                    params: Rc::from(params.unwrap_or_default()),
+                    body: Rc::new(body),
+                })
             });
 
         let atom = val
@@ -503,7 +1203,7 @@ where
             .or(expr
                 .clone()
                 .delimited_by(just(Token::ParenOpen), just(Token::ParenClose))
-                .map_with(|expr, e| expr.0))
+                .map_with(|expr, _e| expr.0))
             .or(list_parentheses)
             .map_with(|expr, e| (expr, e.span()))
             // Attempt to recover anything that looks like a parenthesised expression but contains errors
