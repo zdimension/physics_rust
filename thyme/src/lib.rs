@@ -38,14 +38,6 @@ enum Token<'a> {
     #[token("=>")]
     LambdaArrow,
 
-    /*#[token("->")]
-    Arrow,
-
-    #[token(":=")]
-    Declare,
-
-    #[token("=")]
-    Assign,*/
     #[token("{")]
     BraceOpen,
 
