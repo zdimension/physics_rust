@@ -538,6 +538,7 @@ fn has_size(world: &World, entity: Entity) -> bool {
     is_box(world, entity)
         || world.get::<LaserSettings>(entity).is_some()
         || world.get::<TracerSettings>(entity).is_some()
+        || world.get::<SpringObject>(entity).is_some()
         || world.get::<SpringEndHandle>(entity).is_some()
         || world.get::<MotorComponent>(entity).is_some()
 }
@@ -550,6 +551,7 @@ fn get_size(world: &World, entity: Entity) -> Result<Value, HostError> {
         .get::<LaserSettings>(entity)
         .map(|v| v.size)
         .or_else(|| world.get::<TracerSettings>(entity).map(|v| v.diameter))
+        .or_else(|| world.get::<SpringObject>(entity).map(|v| v.unit_size))
         .or_else(|| world.get::<Transform>(entity).map(|v| v.scale.x))
         .ok_or_else(|| object_error("size"))?;
     Ok(Value::from(size))
@@ -564,12 +566,9 @@ fn set_size(world: &mut World, entity: Entity, value: &Value) -> Result<(), Host
         settings.size = size;
     } else if let Some(mut settings) = world.get_mut::<TracerSettings>(entity) {
         settings.diameter = size;
+    } else if let Some(mut spring) = world.get_mut::<SpringObject>(entity) {
+        spring.unit_size = size;
     } else {
-        if let Some(handle) = world.get::<SpringEndHandle>(entity).copied()
-            && let Some(mut spring) = world.get_mut::<SpringObject>(handle.spring)
-        {
-            spring.unit_size = size / 0.6;
-        }
         let mut transform = world
             .get_mut::<Transform>(entity)
             .ok_or_else(|| object_error("size"))?;
@@ -1164,7 +1163,7 @@ impl Host for WorldHost<'_> {
 mod tests {
     use super::*;
     use crate::objects::phy_obj::PhysicalObject;
-    use crate::objects::spring::SpringEnd;
+    use crate::objects::spring::{SpringEnd, SpringEndIndex};
 
     fn world() -> World {
         let mut world = World::new();
@@ -1552,5 +1551,43 @@ mod tests {
             42.0
         );
         assert_eq!(world.get::<ThrusterSettings>(thruster).unwrap().force, 12.0);
+    }
+
+    #[test]
+    fn spring_and_handle_sizes_are_independent() {
+        let mut engine = ScriptEngine::default();
+        let mut world = world();
+        let spring = world
+            .spawn(SpringObject {
+                end_a: SpringEnd::sky(Vec2::ZERO),
+                end_b: SpringEnd::sky(Vec2::X),
+                target_length: 1.0,
+                spring_constant: 100.0,
+                damping: 0.2,
+                unit_size: 0.5,
+                unit_count: 2,
+            })
+            .id();
+        let handle = world
+            .spawn((
+                SpringEndHandle {
+                    spring,
+                    end: SpringEndIndex::A,
+                },
+                Transform::from_scale(Vec3::splat(0.3)),
+            ))
+            .id();
+
+        engine
+            .set_selection_property(&mut world, &[spring], "size", "1")
+            .unwrap();
+        assert_eq!(world.get::<SpringObject>(spring).unwrap().unit_size, 1.0);
+        assert_eq!(world.get::<Transform>(handle).unwrap().scale.x, 0.3);
+
+        engine
+            .set_selection_property(&mut world, &[handle], "size", "0.8")
+            .unwrap();
+        assert_eq!(world.get::<Transform>(handle).unwrap().scale.x, 0.8);
+        assert_eq!(world.get::<SpringObject>(spring).unwrap().unit_size, 1.0);
     }
 }

@@ -397,7 +397,6 @@ fn update_spring_visuals(
                     SpringEndIndex::B => safe_length * 0.5,
                 };
                 let translation = Vec3::new(local_x, 0.0, endpoint_transform.translation.z);
-                let scale = Vec3::splat(endpoint_diameter(spring.unit_size));
                 let color = endpoint_color(
                     match endpoint.end {
                         SpringEndIndex::A => spring.end_a,
@@ -409,9 +408,6 @@ fn update_spring_visuals(
                 );
                 if endpoint_transform.translation != translation {
                     endpoint_transform.translation = translation;
-                }
-                if endpoint_transform.scale != scale {
-                    endpoint_transform.scale = scale;
                 }
                 if sprite.color != color {
                     sprite.color = color;
