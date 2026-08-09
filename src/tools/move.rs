@@ -30,9 +30,8 @@ pub fn process_move(
 ) {
     for MoveEvent { entity, pos } in events.read().copied() {
         if let Ok((mut transform, parent)) = attachments.get_mut(entity) {
-            let local_pos = parent
-                .and_then(|parent| parents.get(parent.parent()).ok())
-                .map_or(pos, |parent_transform| parent_transform.to_local(pos));
+            let parent = parent.and_then(|parent| parents.get(parent.parent()).ok());
+            let local_pos = attachment_local_position(parent, pos);
             transform.translation.x = local_pos.x;
             transform.translation.y = local_pos.y;
             continue;
@@ -47,6 +46,10 @@ pub fn process_move(
         vel.0 = Vec2::ZERO;
         ang_vel.0 = 0.0;
     }
+}
+
+pub(crate) fn attachment_local_position(parent: Option<&GlobalTransform>, world_pos: Vec2) -> Vec2 {
+    parent.map_or(world_pos, |parent| parent.to_local(world_pos))
 }
 
 #[derive(Clone, Debug)]

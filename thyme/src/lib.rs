@@ -821,6 +821,11 @@ impl Runtime {
         removed
     }
 
+    /// Removes every property binding owned by one native object.
+    pub fn unbind_object(&self, object: NativeObjectId) {
+        self.native_bindings.borrow_mut().remove(&object);
+    }
+
     pub fn binding_count(&self) -> usize {
         self.native_bindings
             .borrow()

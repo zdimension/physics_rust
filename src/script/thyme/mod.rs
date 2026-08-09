@@ -4,7 +4,7 @@ use bevy::{ecs::world::World, prelude::Resource};
 
 mod native;
 
-pub(crate) use native::ScriptEngine;
+pub(crate) use native::{SceneProperty, ScriptEngine};
 
 #[derive(Default, Resource)]
 pub(crate) struct Console {
@@ -93,7 +93,7 @@ mod tests {
 pub(crate) fn execute_console(world: &mut World) {
     let source = world.resource_mut::<Console>().pending.pop_front();
     let Some(source) = source else { return };
-    let engine = world
+    let mut engine = world
         .remove_non_send::<ScriptEngine>()
         .expect("Thyme engine");
     let result = engine.eval(world, source.trim());
@@ -108,7 +108,7 @@ pub(crate) fn execute_console(world: &mut World) {
 }
 
 pub(crate) fn evaluate_bindings(world: &mut World) {
-    let engine = world
+    let mut engine = world
         .remove_non_send::<ScriptEngine>()
         .expect("Thyme engine");
     let errors = engine.evaluate_bindings(world);

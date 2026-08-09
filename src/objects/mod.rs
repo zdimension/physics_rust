@@ -101,7 +101,7 @@ impl SettingComponent for ColorComponent {
 pub struct MotorComponent {
     pub enabled: bool,
     pub reversed: bool,
-    /// rpm
+    /// rad/s
     pub vel: f32,
     /// Nm
     pub torque: f32,
@@ -114,7 +114,7 @@ impl Default for MotorComponent {
         Self {
             enabled: false,
             reversed: false,
-            vel: 15.0,
+            vel: std::f32::consts::FRAC_PI_2,
             torque: 100.0,
             break_limit: f32::INFINITY,
         }

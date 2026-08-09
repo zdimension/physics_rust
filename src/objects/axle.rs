@@ -1,5 +1,3 @@
-use std::f32::consts::TAU;
-
 use avian2d::prelude::*;
 use bevy::prelude::*;
 
@@ -134,12 +132,26 @@ fn angular_motor_from(motor: MotorComponent) -> AngularMotor {
     let sign = if motor.reversed { -1.0 } else { 1.0 };
     AngularMotor {
         enabled: motor.enabled,
-        target_velocity: sign * motor.vel * TAU / 60.0,
+        target_velocity: sign * motor.vel,
         target_position: 0.0,
         max_torque: motor.torque,
         motor_model: MotorModel::AccelerationBased {
             stiffness: 0.0,
             damping: MOTOR_DAMPING,
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn motor_velocity_is_stored_in_radians_per_second() {
+        let motor = MotorComponent {
+            vel: 2.5,
+            ..default()
+        };
+        assert_eq!(angular_motor_from(motor).target_velocity, 2.5);
     }
 }

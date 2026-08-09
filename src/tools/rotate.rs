@@ -4,9 +4,9 @@ use bevy::prelude::{
     ChildOf, Entity, GlobalTransform, Message, MessageReader, Query, Transform, With, Without,
 };
 
-use crate::InvTransformPoint;
 use crate::objects::thruster::ThrusterSettings;
 use crate::tools::add_object::AttachmentKind;
+use crate::tools::r#move::attachment_local_position;
 
 #[derive(Clone, Message)]
 pub struct RotateEvent {
@@ -81,12 +81,18 @@ fn attachment_local_pose(
     world_pos: Vec2,
     world_angle: f32,
 ) -> (Vec2, Quat) {
-    let local_pos = parent.map_or(world_pos, |parent| parent.to_local(world_pos));
-    let parent_rotation = parent.map_or(Quat::IDENTITY, GlobalTransform::rotation);
     (
-        local_pos,
-        parent_rotation.inverse() * Quat::from_rotation_z(world_angle),
+        attachment_local_position(parent, world_pos),
+        attachment_local_rotation(parent, world_angle),
     )
+}
+
+pub(crate) fn attachment_local_rotation(
+    parent: Option<&GlobalTransform>,
+    world_angle: f32,
+) -> Quat {
+    let parent = parent.map_or(Quat::IDENTITY, GlobalTransform::rotation);
+    parent.inverse() * Quat::from_rotation_z(world_angle)
 }
 
 pub(crate) fn rotation_delta(state: &RotateState, click_pos: Vec2, mouse_pos: Vec2) -> f32 {

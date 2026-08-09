@@ -7,6 +7,7 @@ use crate::ui::{
 };
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
+use std::f32::consts::TAU;
 
 egui_systems!(AxleWindow::show);
 
@@ -68,8 +69,8 @@ impl AxleWindow {
                             commands,
                             &targets,
                             &ents,
-                            |motor| motor.vel,
-                            |motor, value| motor.vel = value,
+                            |motor| motor.vel * 60.0 / TAU,
+                            |motor, value| motor.vel = value * TAU / 60.0,
                             0.0..=450.0,
                             |slider| {
                                 slider

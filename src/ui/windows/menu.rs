@@ -30,7 +30,7 @@ use crate::ui::windows::object::information::InformationWindow;
 use crate::ui::windows::object::laser::LaserWindow;
 use crate::ui::windows::object::material::MaterialWindow;
 use crate::ui::windows::object::plot::PlotWindow;
-use crate::ui::windows::object::script::ScriptMenuWindow;
+use crate::ui::windows::object::script::ScriptWindow;
 use crate::ui::windows::object::selection::SelectionWindow;
 use crate::ui::windows::object::spring::SpringWindow;
 use crate::ui::windows::object::tracer::TracerWindow;
@@ -257,7 +257,7 @@ impl MenuWindow {
                         }
                         menu!("Combine shapes", csg, CombineShapesWindow);
                         menu!("Controller", controller, ControllerWindow);
-                        menu!("Script menu", /, ScriptMenuWindow);
+                        menu!("Script", /, ScriptWindow);
                     } else {
                         if item!("Zoom to scene", zoom2scene) {
                             zoom2scene.write(ZoomToScene);

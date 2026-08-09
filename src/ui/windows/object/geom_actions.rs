@@ -1,8 +1,10 @@
 use std::collections::HashSet;
 use std::f32::consts::PI;
 
-use crate::lyon_compat::{GeometryBuilder, RectangleOrigin, Shape, shapes};
-use crate::objects::phy_obj::{CircleVisual, FreeformObject};
+use crate::lyon_compat::Shape;
+use crate::objects::phy_obj::{
+    CircleVisual, FreeformObject, set_box_geometry, set_circle_geometry,
+};
 use crate::objects::plane::PlaneObject;
 use crate::objects::spring::{SpringEnd, SpringObject};
 use crate::tools::ToolIcons;
@@ -455,12 +457,7 @@ fn transform_to_circle(
         return false;
     }
     let radius = (area / PI).sqrt();
-    *collider = Collider::circle(radius);
-    shape.path = GeometryBuilder::build_as(&shapes::Circle {
-        radius,
-        ..Default::default()
-    });
-    circle.0 = radius;
+    set_circle_geometry(collider, shape, circle, radius);
     true
 }
 
@@ -474,12 +471,7 @@ fn transform_to_box(
         return false;
     }
     let side = area.sqrt();
-    *collider = Collider::rectangle(side, side);
-    shape.path = GeometryBuilder::build_as(&shapes::Rectangle {
-        extents: Vec2::splat(side).max(Vec2::splat(f32::EPSILON)),
-        origin: RectangleOrigin::Center,
-        radii: None,
-    });
+    set_box_geometry(collider, shape, Vec2::splat(side));
     circle.0 = 0.0;
     true
 }
@@ -487,6 +479,7 @@ fn transform_to_box(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::lyon_compat::{GeometryBuilder, shapes};
 
     fn geometry_action_app() -> App {
         let mut app = App::new();

@@ -4,8 +4,8 @@ use bevy_egui::egui::ecolor::Hsva;
 
 use crate::lyon_compat::GeometryBuilder;
 use crate::lyon_compat::RectangleOrigin;
-use crate::lyon_compat::ShapeBundle;
 use crate::lyon_compat::shapes;
+use crate::lyon_compat::{Shape, ShapeBundle};
 use avian2d::prelude::*;
 
 use crate::FillStroke;
@@ -161,6 +161,31 @@ impl PhysicalObject {
         object.rotation = Rotation::radians(angle);
         Some(object)
     }
+}
+
+pub(crate) fn set_box_geometry(collider: &mut Collider, shape: &mut Shape, size: Vec2) {
+    let size = size.abs().max(Vec2::splat(f32::EPSILON));
+    *collider = Collider::rectangle(size.x, size.y);
+    shape.path = GeometryBuilder::build_as(&shapes::Rectangle {
+        extents: size,
+        origin: RectangleOrigin::Center,
+        radii: None,
+    });
+}
+
+pub(crate) fn set_circle_geometry(
+    collider: &mut Collider,
+    shape: &mut Shape,
+    circle: &mut CircleVisual,
+    radius: f32,
+) {
+    let radius = radius.abs().max(f32::EPSILON);
+    *collider = Collider::circle(radius);
+    shape.path = GeometryBuilder::build_as(&shapes::Circle {
+        radius,
+        ..Default::default()
+    });
+    circle.0 = radius;
 }
 
 #[derive(Component, Copy, Clone)]
