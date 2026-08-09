@@ -1,8 +1,8 @@
 use dumpster::{Trace, TraceWith, Visitor, unsync::Gc};
-use std::borrow::Borrow;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt::{self, Debug, Display};
+use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 
 use crate::parse::{Number, UserFunctionDef};
@@ -11,17 +11,47 @@ mod builtins;
 pub mod eval;
 pub mod parse;
 
-/// An internable, cheaply cloned Thyme identifier.
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Trace)]
-pub struct Symbol(Rc<str>);
+/// An internable, cheaply cloned Thyme identifier with case-insensitive ASCII identity.
+#[derive(Clone, Trace)]
+pub struct Symbol {
+    spelling: Rc<str>,
+    folded: Rc<str>,
+}
 
 impl Symbol {
     pub fn new(value: impl AsRef<str>) -> Self {
-        Self(Rc::from(value.as_ref()))
+        let value = value.as_ref();
+        let spelling: Rc<str> = Rc::from(value);
+        let folded = if value.bytes().any(|byte| byte.is_ascii_uppercase()) {
+            Rc::from(value.to_ascii_lowercase())
+        } else {
+            spelling.clone()
+        };
+        Self { spelling, folded }
     }
 
     pub fn as_str(&self) -> &str {
-        &self.0
+        &self.spelling
+    }
+}
+
+impl PartialEq for Symbol {
+    fn eq(&self, other: &Self) -> bool {
+        self.folded == other.folded
+    }
+}
+
+impl Eq for Symbol {}
+
+impl Hash for Symbol {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.folded.hash(state);
+    }
+}
+
+impl Debug for Symbol {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("Symbol").field(&self.as_str()).finish()
     }
 }
 
@@ -33,18 +63,20 @@ impl From<&str> for Symbol {
 
 impl From<String> for Symbol {
     fn from(value: String) -> Self {
-        Self(Rc::from(value))
+        let folded: Option<Rc<str>> = value
+            .bytes()
+            .any(|byte| byte.is_ascii_uppercase())
+            .then(|| Rc::from(value.to_ascii_lowercase()));
+        let spelling: Rc<str> = Rc::from(value);
+        Self {
+            folded: folded.unwrap_or_else(|| spelling.clone()),
+            spelling,
+        }
     }
 }
 
 impl AsRef<str> for Symbol {
     fn as_ref(&self) -> &str {
-        self.as_str()
-    }
-}
-
-impl Borrow<str> for Symbol {
-    fn borrow(&self) -> &str {
         self.as_str()
     }
 }
@@ -133,6 +165,10 @@ impl Object {
     }
 
     pub fn field(&self, name: &str) -> Option<Value> {
+        self.field_symbol(&Symbol::new(name))
+    }
+
+    pub(crate) fn field_symbol(&self, name: &Symbol) -> Option<Value> {
         self.0
             .fields
             .borrow()
@@ -154,7 +190,7 @@ impl Object {
         self.0
             .fields
             .borrow_mut()
-            .remove(name)
+            .remove(&Symbol::new(name))
             .map(|slot| slot.value)
     }
 
@@ -165,7 +201,7 @@ impl Object {
             .insert(name.into(), ValueSlot::read_only(value));
     }
 
-    pub(crate) fn field_is_read_only(&self, name: &str) -> bool {
+    pub(crate) fn field_is_read_only(&self, name: &Symbol) -> bool {
         self.0
             .fields
             .borrow()
@@ -455,18 +491,18 @@ impl Environment {
         }
     }
 
-    pub(crate) fn local(&self, name: &str) -> Option<Value> {
+    pub(crate) fn local(&self, name: &Symbol) -> Option<Value> {
         self.bindings
             .borrow()
             .get(name)
             .map(|slot| slot.value.clone())
     }
 
-    pub(crate) fn contains_local(&self, name: &str) -> bool {
+    pub(crate) fn contains_local(&self, name: &Symbol) -> bool {
         self.bindings.borrow().contains_key(name)
     }
 
-    pub(crate) fn local_is_read_only(&self, name: &str) -> bool {
+    pub(crate) fn local_is_read_only(&self, name: &Symbol) -> bool {
         self.bindings
             .borrow()
             .get(name)
@@ -631,7 +667,7 @@ impl Runtime {
     }
 
     pub fn global(&self, name: &str) -> Option<Value> {
-        self.globals.local(name)
+        self.globals.local(&Symbol::new(name))
     }
 
     pub fn set_global(&self, name: impl Into<Symbol>, value: Value) -> Option<Value> {
@@ -759,6 +795,25 @@ mod tests {
             std::any::type_name_of_val(&object),
             std::any::type_name_of_val(&property)
         );
+    }
+
+    #[test]
+    fn symbols_compare_case_insensitively_and_retain_their_first_spelling() {
+        let first = Symbol::from("MixedName");
+        let second = Symbol::from("MIXEDNAME");
+        assert_eq!(first, second);
+        assert_eq!(first.as_str(), "MixedName");
+
+        let mut symbols = HashMap::new();
+        symbols.insert(first, 1);
+        symbols.insert(second, 2);
+        assert_eq!(symbols.len(), 1);
+        assert_eq!(symbols.keys().next().unwrap().as_str(), "MixedName");
+
+        let runtime = Runtime::new();
+        runtime.set_global("GameValue", Value::Bool(true));
+        assert_eq!(runtime.global("gamevalue"), Some(Value::Bool(true)));
+        assert_eq!(runtime.global("GAMEVALUE"), Some(Value::Bool(true)));
     }
 
     struct FakeHost {

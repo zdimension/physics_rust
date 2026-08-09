@@ -91,7 +91,7 @@ impl<'runtime, 'host> Evaluator<'runtime, 'host> {
                         Self::span_suffix(span)
                     )
                 }),
-            ResolvedMember::Dynamic { object, name } => Ok(object.field(name.as_str())),
+            ResolvedMember::Dynamic { object, name } => Ok(object.field_symbol(name)),
         }
     }
 
@@ -116,7 +116,7 @@ impl<'runtime, 'host> Evaluator<'runtime, 'host> {
                     )
                 }),
             ResolvedMember::Dynamic { object, name } => {
-                if object.field_is_read_only(name.as_str()) {
+                if object.field_is_read_only(&name) {
                     return Err(format!(
                         "Cannot set read-only member {name}{}",
                         Self::span_suffix(span)
@@ -135,7 +135,7 @@ impl<'runtime, 'host> Evaluator<'runtime, 'host> {
     ) -> Result<Option<Value>, String> {
         let mut scope = Some(env.clone());
         while let Some(current) = scope {
-            if let Some(value) = current.local(name.as_str()) {
+            if let Some(value) = current.local(name) {
                 return Ok(Some(value));
             }
             if let Some(receiver) = current.receiver() {
@@ -158,7 +158,7 @@ impl<'runtime, 'host> Evaluator<'runtime, 'host> {
         span: Span,
     ) -> Result<(), String> {
         if kind == AssignmentKind::Declare {
-            if env.local_is_read_only(name.as_str()) {
+            if env.local_is_read_only(name) {
                 return Err(format!("Cannot set read-only binding {name} at {span:?}"));
             }
             env.declare(name.clone(), value);
@@ -167,8 +167,8 @@ impl<'runtime, 'host> Evaluator<'runtime, 'host> {
 
         let mut scope = Some(env.clone());
         while let Some(current) = scope {
-            if current.contains_local(name.as_str()) {
-                if current.local_is_read_only(name.as_str()) {
+            if current.contains_local(name) {
+                if current.local_is_read_only(name) {
                     return Err(format!("Cannot set read-only binding {name} at {span:?}"));
                 }
                 current.declare(name.clone(), value);
@@ -932,6 +932,50 @@ mod tests {
     }
 
     #[test]
+    fn symbol_and_dynamic_member_lookup_is_case_insensitive() {
+        let runtime = Runtime::new();
+        let mut host = TestHost { calls: 0 };
+        let environment = empty_environment();
+        let object = Object::new();
+        environment.declare("Target", Value::Object(object.clone()));
+        environment.declare(
+            "Echo",
+            Value::Function(Function::intrinsic(IntrinsicId::from_raw(6), "Echo", 1)),
+        );
+        let mut evaluator = Evaluator {
+            runtime: &runtime,
+            host: &mut host,
+        };
+
+        assert_eq!(
+            eval_source(&mut evaluator, &environment, "a = 5; A = 6; a"),
+            Value::Number(Number::Int(6))
+        );
+        assert_eq!(
+            eval_source(
+                &mut evaluator,
+                &environment,
+                "TARGET.SomeField = 9; target.somefield"
+            ),
+            Value::Number(Number::Int(9))
+        );
+        assert_eq!(
+            object.field("SOMEFIELD"),
+            Some(Value::Number(Number::Int(9)))
+        );
+        assert_eq!(
+            eval_source(&mut evaluator, &environment, "STRING.LIST2STR([1])"),
+            Value::Str("1".into())
+        );
+        assert_eq!(
+            eval_source(&mut evaluator, &environment, "eCHO(true)"),
+            Value::Bool(true)
+        );
+        drop(evaluator);
+        assert_eq!(host.calls, 1);
+    }
+
+    #[test]
     fn set_builtins_use_thyme_number_equality_and_preserve_order() {
         let runtime = Runtime::new();
         let mut host = TestHost { calls: 0 };
@@ -1253,9 +1297,12 @@ mod tests {
             object.field("captured"),
             Some(Value::Number(Number::Int(8)))
         );
-        assert_eq!(environment.local("x"), Some(Value::Number(Number::Int(99))));
         assert_eq!(
-            environment.local("y"),
+            environment.local(&Symbol::from("x")),
+            Some(Value::Number(Number::Int(99)))
+        );
+        assert_eq!(
+            environment.local(&Symbol::from("y")),
             Some(Value::Number(Number::Int(100)))
         );
     }
