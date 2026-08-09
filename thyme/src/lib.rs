@@ -1,11 +1,11 @@
 use dumpster::{Trace, TraceWith, Visitor, unsync::Gc};
-use std::borrow::{Borrow, Cow};
+use std::borrow::Borrow;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt::{self, Debug, Display};
 use std::rc::Rc;
 
-use crate::parse::{Expr, Number, UserFunctionDef};
+use crate::parse::{Number, UserFunctionDef};
 
 pub mod eval;
 pub mod parse;
@@ -357,11 +357,7 @@ struct ClassObject {
 pub struct Environment {
     parent: Option<Gc<Environment>>,
     bindings: RefCell<HashMap<Symbol, Value>>,
-}
-
-pub enum InsertionState<T> {
-    UpdatedOrCreated,
-    NotFound(T),
+    receiver: Option<Object>,
 }
 
 impl Environment {
@@ -369,65 +365,41 @@ impl Environment {
         Self {
             parent: None,
             bindings: RefCell::new(HashMap::new()),
+            receiver: None,
         }
     }
 
-    pub fn get(&self, name: impl AsRef<str>) -> Option<Value> {
-        if let Some(value) = self.bindings.borrow().get(name.as_ref()) {
-            Some(value.clone())
-        } else {
-            self.parent
-                .as_ref()
-                .and_then(|parent| parent.get(name.as_ref()))
+    pub(crate) fn child(
+        parent: Gc<Environment>,
+        bindings: HashMap<Symbol, Value>,
+        receiver: Option<Object>,
+    ) -> Self {
+        Self {
+            parent: Some(parent),
+            bindings: RefCell::new(bindings),
+            receiver,
         }
+    }
+
+    pub(crate) fn local(&self, name: &str) -> Option<Value> {
+        self.bindings.borrow().get(name).cloned()
+    }
+
+    pub(crate) fn contains_local(&self, name: &str) -> bool {
+        self.bindings.borrow().contains_key(name)
+    }
+
+    pub(crate) fn parent(&self) -> Option<Gc<Environment>> {
+        self.parent.clone()
+    }
+
+    pub(crate) fn receiver(&self) -> Option<Object> {
+        self.receiver.clone()
     }
 
     /// Creates or replaces the binding for a name in this environment.
     pub fn declare(&self, name: impl Into<Symbol>, value: Value) -> Option<Value> {
-        self.bindings
-            .borrow_mut()
-            .insert(name.into(), value)
-    }
-
-    fn set_rec(
-        &self,
-        name: impl AsRef<str>,
-        value: Value,
-        root: bool
-    ) -> InsertionState<Value> {
-        match self.bindings.borrow_mut().entry(name.as_ref().into()) {
-            std::collections::hash_map::Entry::Occupied(mut entry) => {
-                entry.insert(value);
-                InsertionState::UpdatedOrCreated
-            }
-            std::collections::hash_map::Entry::Vacant(entry) => {
-                if let Some(parent) = &self.parent {
-                    match parent.set_rec(name.as_ref(), value, false) {
-                        InsertionState::UpdatedOrCreated => InsertionState::UpdatedOrCreated,
-                        InsertionState::NotFound(value) => {
-                            if root {
-                                entry.insert(value);
-                                InsertionState::UpdatedOrCreated
-                            } else {
-                                InsertionState::NotFound(value)
-                            }
-                        }
-                    }
-                } else {
-                    if root {
-                        entry.insert(value);
-                        InsertionState::UpdatedOrCreated
-                    } else {
-                        InsertionState::NotFound(value)
-                    }
-                }
-            }
-        }
-    }
-
-    /// Sets the value of an existing binding in this environment or a parent, or creates a new binding in this environment if none exists
-    pub fn set(&self, name: impl AsRef<str>, value: Value) {
-        self.set_rec(name, value, true);
+        self.bindings.borrow_mut().insert(name.into(), value)
     }
 }
 
@@ -556,10 +528,7 @@ pub struct Runtime {
 impl Runtime {
     pub fn new() -> Self {
         Self {
-            globals: Gc::new(Environment {
-                parent: None,
-                bindings: RefCell::new(HashMap::new()),
-            }),
+            globals: Gc::new(Environment::new_root()),
             native_bindings: RefCell::new(HashMap::new()),
         }
     }
@@ -815,10 +784,7 @@ mod tests {
     #[test]
     fn dumpster_collects_a_captured_environment_cycle() {
         let drops_before = ENVIRONMENT_DROPS.get();
-        let environment = Gc::new(Environment {
-            parent: None,
-            bindings: RefCell::new(HashMap::new()),
-        });
+        let environment = Gc::new(Environment::new_root());
         let function = Function(Gc::new(FunctionValue::User(UserFunction {
             definition: UserFunctionDef {
                 params: Rc::from([]),

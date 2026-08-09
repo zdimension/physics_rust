@@ -1,14 +1,12 @@
 use chumsky::input::*;
 use chumsky::pratt::*;
 use chumsky::prelude::*;
-use dumpster::{Trace, TraceWith, Visitor, unsync::Gc};
+use dumpster::Trace;
 use logos::Logos;
 use std::borrow::Cow;
 use std::fmt;
 use std::fmt::Display;
 use std::fmt::Write;
-use std::ops::Add;
-use std::ops::Sub;
 use std::rc::Rc;
 
 use crate::Symbol;
@@ -202,6 +200,7 @@ impl<'a> Display for Token<'a> {
     }
 }
 
+#[cfg(test)]
 fn read_auto_encoding(source: &[u8]) -> Cow<'_, str> {
     // try decoding utf8 then 1252
     match std::str::from_utf8(source) {
@@ -219,11 +218,6 @@ pub type Spanned<T> = (T, Span);
 // in increasing order of Algodoo precedence
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum BinaryOp {
-    // < ->
-    Assign,
-    Declare,
-    // < 0,
-    ClassAssign,
     // 2 - <ternary goes here>
     // 3 - or
     Or,
@@ -342,6 +336,18 @@ pub struct UserFunctionDef {
     pub body: Rc<Spanned<Expr>>,
 }
 
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum AssignmentKind {
+    Assign,
+    Declare,
+}
+
+#[derive(Debug)]
+pub enum AssignmentTarget {
+    Name(Spanned<Symbol>),
+    Member(Box<Spanned<Expr>>, Spanned<Symbol>),
+}
+
 #[derive(Debug)]
 pub enum Expr {
     Error,
@@ -354,6 +360,8 @@ pub enum Expr {
     Member(Box<Spanned<Self>>, Spanned<Symbol>),
     /// f(a,b,c) or simply f a
     Call(Box<Spanned<Self>>, Spanned<Vec<Spanned<Self>>>),
+    Assignment(AssignmentTarget, AssignmentKind, Box<Spanned<Self>>),
+    With(Box<Spanned<Self>>, Rc<Spanned<Self>>),
     Binary(Box<Spanned<Self>>, BinaryOp, Box<Spanned<Self>>),
     Unary(UnaryOp, Box<Spanned<Self>>),
     // cond ? true_expr : false_expr
@@ -454,14 +462,31 @@ impl Expr {
                 }
                 printer.write_char(')')
             }
+            Expr::Assignment(target, kind, value) => {
+                match target {
+                    AssignmentTarget::Name((name, _)) => printer.write(name.as_str())?,
+                    AssignmentTarget::Member(object, (member, _)) => {
+                        object.0.pretty(printer)?;
+                        printer.write_char('.')?;
+                        printer.write(member.as_str())?;
+                    }
+                }
+                printer.write(match kind {
+                    AssignmentKind::Assign => " = ",
+                    AssignmentKind::Declare => " := ",
+                })?;
+                value.0.pretty(printer)
+            }
+            Expr::With(object, body) => {
+                object.0.pretty(printer)?;
+                printer.write(" -> ")?;
+                body.0.pretty(printer)
+            }
             Expr::Binary(lhs, op, rhs) => {
                 lhs.0.pretty(printer)?;
                 printer.write_char(' ')?;
                 use BinaryOp::*;
                 printer.write(match op {
-                    Assign => "=",
-                    Declare => ":=",
-                    ClassAssign => "->",
                     Or => "||",
                     And => "&&",
                     Range => "..",
@@ -790,23 +815,48 @@ where
         let class_assign = ternary
             .clone()
             .then(just(Token::Op("->")).ignore_then(expr.clone()).or_not())
-            .map_with(|(obj, class_expr), e| match class_expr {
-                Some(class_expr) => (
-                    Expr::Binary(Box::new(obj), BinaryOp::ClassAssign, Box::new(class_expr)),
-                    e.span(),
-                ),
-                None => obj,
+            .validate(|(object, with_body), e, emitter| match with_body {
+                Some((Expr::Func(definition), _)) if definition.params.is_empty() => {
+                    (Expr::With(Box::new(object), definition.body), e.span())
+                }
+                Some((Expr::Func(_), span)) => {
+                    emitter.emit(Rich::custom(
+                        span,
+                        "the right side of '->' must be a zero-parameter function",
+                    ));
+                    (Expr::Error, e.span())
+                }
+                Some((_, span)) => {
+                    emitter.emit(Rich::custom(
+                        span,
+                        "the right side of '->' must be a function body",
+                    ));
+                    (Expr::Error, e.span())
+                }
+                None => object,
             })
             .boxed();
 
         // assignment: a = b or a := b (right associative)
         let op = just(Token::Op("="))
-            .to(BinaryOp::Assign)
-            .or(just(Token::Op(":=")).to(BinaryOp::Declare));
+            .to(AssignmentKind::Assign)
+            .or(just(Token::Op(":=")).to(AssignmentKind::Declare));
         let assignment = class_assign
             .then(op.then(expr.clone()).or_not())
-            .map_with(|(lhs, assignment), e| match assignment {
-                Some((op, rhs)) => (Expr::Binary(Box::new(lhs), op, Box::new(rhs)), e.span()),
+            .validate(|(lhs, assignment), e, emitter| match assignment {
+                Some((kind, rhs)) => {
+                    let target = match lhs {
+                        (Expr::Symbol(name), span) => AssignmentTarget::Name((name, span)),
+                        (Expr::Member(object, member), _) => {
+                            AssignmentTarget::Member(object, member)
+                        }
+                        (_, span) => {
+                            emitter.emit(Rich::custom(span, "invalid assignment target"));
+                            return (Expr::Error, e.span());
+                        }
+                    };
+                    (Expr::Assignment(target, kind, Box::new(rhs)), e.span())
+                }
                 None => lhs,
             })
             .boxed();
@@ -822,14 +872,18 @@ mod tests {
     #[test]
     fn right_associative_operators_keep_their_ast_shape() {
         let assignment = parse_source("a = b := c");
-        let Expr::Binary(a, BinaryOp::Assign, declaration) = single_expr(&assignment) else {
+        let Expr::Assignment(AssignmentTarget::Name((a, _)), AssignmentKind::Assign, declaration) =
+            single_expr(&assignment)
+        else {
             panic!("expected assignment, got {:#?}", single_expr(&assignment));
         };
-        assert_symbol(a, "a");
-        let Expr::Binary(b, BinaryOp::Declare, c) = &declaration.0 else {
+        assert_eq!(a.as_str(), "a");
+        let Expr::Assignment(AssignmentTarget::Name((b, _)), AssignmentKind::Declare, c) =
+            &declaration.0
+        else {
             panic!("expected declaration, got {:#?}", declaration.0);
         };
-        assert_symbol(b, "b");
+        assert_eq!(b.as_str(), "b");
         assert_symbol(c, "c");
 
         let exponent = parse_source("a ^ b ^ c");
@@ -855,6 +909,33 @@ mod tests {
         assert_symbol(c, "c");
         assert_symbol(d, "d");
         assert_symbol(e, "e");
+    }
+
+    #[test]
+    fn assignments_and_with_blocks_have_semantic_ast_nodes() {
+        let ast = parse_source("object -> { x = 5; y := 7 }");
+        let Expr::With(object, body) = single_expr(&ast) else {
+            panic!("expected with expression, got {:#?}", single_expr(&ast));
+        };
+        assert_symbol(object, "object");
+        let Expr::Seq(statements) = &body.0 else {
+            panic!("expected with body, got {:#?}", body.0);
+        };
+        assert!(matches!(
+            statements[0].0,
+            Expr::Assignment(AssignmentTarget::Name(_), AssignmentKind::Assign, _)
+        ));
+        assert!(matches!(
+            statements[1].0,
+            Expr::Assignment(AssignmentTarget::Name(_), AssignmentKind::Declare, _)
+        ));
+
+        assert!(parse_thyme("1 = 2").into_result().is_err());
+        assert!(
+            parse_thyme("object -> ((x) => { x })")
+                .into_result()
+                .is_err()
+        );
     }
 
     #[test]

@@ -1,15 +1,28 @@
-use std::{cell::RefCell, collections::HashMap};
+use std::collections::HashMap;
 
 use dumpster::unsync::Gc;
 
 use crate::{
-    Environment, Function, FunctionValue, Host, List, Runtime, Symbol, UserFunction, Value,
-    parse::{BinaryOp, Expr, Literal, Number, Span, UnaryOp},
+    Environment, Function, FunctionValue, Host, List, NativeObjectId, Object, PropertyId, Runtime,
+    Symbol, UserFunction, Value,
+    parse::{AssignmentKind, AssignmentTarget, BinaryOp, Expr, Literal, Number, Span, UnaryOp},
 };
 
 pub struct Evaluator<'runtime, 'host> {
     pub runtime: &'runtime Runtime,
     pub host: &'host mut dyn Host,
+}
+
+enum ResolvedMember {
+    Native {
+        object: NativeObjectId,
+        property: PropertyId,
+        name: Symbol,
+    },
+    Dynamic {
+        object: Object,
+        name: Symbol,
+    },
 }
 
 impl<'runtime, 'host> Evaluator<'runtime, 'host> {
@@ -25,6 +38,143 @@ impl<'runtime, 'host> Evaluator<'runtime, 'host> {
         Ok(value)
     }
 
+    fn span_suffix(span: Option<Span>) -> String {
+        span.map(|span| format!(" at {span:?}")).unwrap_or_default()
+    }
+
+    fn resolve_member(
+        &mut self,
+        object: Object,
+        name: &Symbol,
+        span: Option<Span>,
+    ) -> Result<ResolvedMember, String> {
+        if let Some(object_id) = object.native_id() {
+            let property = self
+                .host
+                .resolve_property(object_id, name.as_str())
+                .map_err(|error| {
+                    format!(
+                        "Failed to resolve native property {name}{}: {error}",
+                        Self::span_suffix(span)
+                    )
+                })?;
+            if let Some(property) = property {
+                return Ok(ResolvedMember::Native {
+                    object: object_id,
+                    property,
+                    name: name.clone(),
+                });
+            }
+        }
+
+        Ok(ResolvedMember::Dynamic {
+            object,
+            name: name.clone(),
+        })
+    }
+
+    fn read_member(
+        &mut self,
+        member: &ResolvedMember,
+        span: Option<Span>,
+    ) -> Result<Option<Value>, String> {
+        match member {
+            ResolvedMember::Native {
+                object,
+                property,
+                name,
+            } => self
+                .host
+                .get_property(*object, *property)
+                .map(Some)
+                .map_err(|error| {
+                    format!(
+                        "Failed to get native property {name}{}: {error}",
+                        Self::span_suffix(span)
+                    )
+                }),
+            ResolvedMember::Dynamic { object, name } => Ok(object.field(name.as_str())),
+        }
+    }
+
+    fn write_member(
+        &mut self,
+        member: ResolvedMember,
+        value: Value,
+        span: Option<Span>,
+    ) -> Result<(), String> {
+        match member {
+            ResolvedMember::Native {
+                object,
+                property,
+                name,
+            } => self
+                .runtime
+                .assign_native_property(self.host, object, property, value)
+                .map_err(|error| {
+                    format!(
+                        "Failed to set native property {name}{}: {error}",
+                        Self::span_suffix(span)
+                    )
+                }),
+            ResolvedMember::Dynamic { object, name } => {
+                object.set_field(name, value);
+                Ok(())
+            }
+        }
+    }
+
+    fn read_symbol(
+        &mut self,
+        env: &Gc<Environment>,
+        name: &Symbol,
+    ) -> Result<Option<Value>, String> {
+        let mut scope = Some(env.clone());
+        while let Some(current) = scope {
+            if let Some(value) = current.local(name.as_str()) {
+                return Ok(Some(value));
+            }
+            if let Some(receiver) = current.receiver() {
+                let member = self.resolve_member(receiver, name, None)?;
+                if let Some(value) = self.read_member(&member, None)? {
+                    return Ok(Some(value));
+                }
+            }
+            scope = current.parent();
+        }
+        Ok(None)
+    }
+
+    fn assign_symbol(
+        &mut self,
+        env: &Gc<Environment>,
+        name: &Symbol,
+        kind: AssignmentKind,
+        value: Value,
+        span: Span,
+    ) -> Result<(), String> {
+        if kind == AssignmentKind::Declare {
+            env.declare(name.clone(), value);
+            return Ok(());
+        }
+
+        let mut scope = Some(env.clone());
+        while let Some(current) = scope {
+            if current.contains_local(name.as_str()) {
+                current.declare(name.clone(), value);
+                return Ok(());
+            }
+            if let Some(receiver) = current.receiver() {
+                let member = self.resolve_member(receiver, name, Some(span))?;
+                return self.write_member(member, value, Some(span));
+            }
+            scope = current.parent();
+        }
+
+        env.declare(name.clone(), value);
+        Ok(())
+    }
+
     pub fn eval_expr(&mut self, expr: &Expr, env: &Gc<Environment>) -> Result<Value, String> {
         Ok(match expr {
             Expr::Error => return Err("Cannot evaluate an error expression".to_string()),
@@ -38,7 +188,7 @@ impl<'runtime, 'host> Evaluator<'runtime, 'host> {
                     .map(|(expr, _)| self.eval_expr(expr, env))
                     .collect::<Result<Gc<[_]>, _>>()?,
             )),
-            Expr::Symbol(sym) => match env.get(sym) {
+            Expr::Symbol(sym) => match self.read_symbol(env, sym)? {
                 Some(value) => self.collapse(value)?,
                 None => Value::Undefined,
             },
@@ -51,30 +201,10 @@ impl<'runtime, 'host> Evaluator<'runtime, 'host> {
                     ));
                 };
 
-                let value = if let Some(object_id) = object.native_id() {
-                    match self
-                        .host
-                        .resolve_property(object_id, member.as_str())
-                        .map_err(|error| {
-                            format!(
-                                "Failed to resolve native property {member} at {member_span:?}: \
-                                 {error}"
-                            )
-                        })? {
-                        Some(property_id) => self
-                            .host
-                            .get_property(object_id, property_id)
-                            .map_err(|error| {
-                                format!(
-                                    "Failed to get native property {member} at {member_span:?}: \
-                                     {error}"
-                                )
-                            })?,
-                        None => object.field(member.as_str()).unwrap_or(Value::Undefined),
-                    }
-                } else {
-                    object.field(member.as_str()).unwrap_or(Value::Undefined)
-                };
+                let resolved = self.resolve_member(object, member, Some(*member_span))?;
+                let value = self
+                    .read_member(&resolved, Some(*member_span))?
+                    .unwrap_or(Value::Undefined);
 
                 self.collapse(value)?
             }
@@ -142,83 +272,46 @@ impl<'runtime, 'host> Evaluator<'runtime, 'host> {
                     value,
                 )?
             }
-            Expr::Binary(left, op, right) => {
+            Expr::Assignment(target, kind, right) => {
                 let right_value = self.eval_expr(&right.0, env)?;
-
-                match *op {
-                    BinaryOp::Declare | BinaryOp::Assign => {
-                        /*let Expr::Symbol(left) = &left.0 else {
+                match target {
+                    AssignmentTarget::Name((name, span)) => {
+                        self.assign_symbol(env, name, *kind, right_value.clone(), *span)?
+                    }
+                    AssignmentTarget::Member(object_expr, (member, member_span)) => {
+                        let object_value = self.eval_expr(&object_expr.0, env)?;
+                        let Value::Object(object) = object_value else {
                             return Err(format!(
-                                "Cannot declare non-symbol value {left:?} at {:?}", left.1
+                                "Cannot assign to member {member} of non-object value \
+                                 {object_value} at {member_span:?}"
                             ));
                         };
-                        env.declare(left.as_str(), right_value.clone());
-                        return Ok(right_value);*/
-                        match &left.0 {
-                            Expr::Symbol(left) => {
-                                if *op == BinaryOp::Declare {
-                                    env.declare(left.as_str(), right_value.clone());
-                                } else {
-                                    env.set(left.as_str(), right_value.clone());
-                                }
-                            }
-                            Expr::Member(object, (member, member_span)) => {
-                                /*let object_value = self.eval_expr(&object.0, env)?;
-                                let Value::Object(object) = object_value else {
-                                    return Err(format!(
-                                        "Cannot assign to member {member} of non-object value \
-                                         {object_value} at {member_span:?}"
-                                    ));
-                                };
-
-                                if let Some(object_id) = object.native_id() {
-                                    match self
-                                        .host
-                                        .resolve_property(object_id, member.as_str())
-                                        .map_err(|error| {
-                                            format!(
-                                                "Failed to resolve native property {member} at \
-                                                 {member_span:?}: {error}"
-                                            )
-                                        })? {
-                                        Some(property_id) => self
-                                            .host
-                                            .set_property(object_id, property_id, &right_value)
-                                            .map_err(|error| {
-                                                format!(
-                                                    "Failed to set native property {member} at \
-                                                     {member_span:?}: {error}"
-                                                )
-                                            })?,
-                                        None => object.set_field(member.as_str(), right_value.clone()),
-                                    }
-                                } else {
-                                    object.set_field(member.as_str(), right_value.clone());
-                                }*/
-                                todo!()
-                            }
-                            _ => {
-                                return Err(format!(
-                                    "Cannot assign to non-symbol value {left:?} at {:?}",
-                                    left.1
-                                ));
-                            }
-                        }
-                        return Ok(right_value);
+                        let resolved = self.resolve_member(object, member, Some(*member_span))?;
+                        self.write_member(resolved, right_value.clone(), Some(*member_span))?;
                     }
-                    _ => {}
                 }
-
+                right_value
+            }
+            Expr::With(object_expr, body) => {
+                let object_value = self.eval_expr(&object_expr.0, env)?;
+                let Value::Object(object) = object_value else {
+                    return Err(format!(
+                        "Cannot use '->' with non-object value {object_value} at {:?}",
+                        object_expr.1
+                    ));
+                };
+                let with_environment = Gc::new(Environment::child(
+                    env.clone(),
+                    HashMap::new(),
+                    Some(object.clone()),
+                ));
+                self.eval_expr(&body.0, &with_environment)?;
+                Value::Object(object)
+            }
+            Expr::Binary(left, op, right) => {
+                let right_value = self.eval_expr(&right.0, env)?;
                 let left_value = self.eval_expr(&left.0, env)?;
                 let left_value = self.collapse(left_value)?;
-
-                match *op {
-                    BinaryOp::ClassAssign => {
-                        todo!()
-                    }
-                    _ => {}
-                }
-
                 let right_value = self.collapse(right_value)?;
 
                 let (int, float, other): (
@@ -377,8 +470,6 @@ impl<'runtime, 'host> Evaluator<'runtime, 'host> {
                             right_value,
                         );
                     }
-
-                    BinaryOp::ClassAssign | BinaryOp::Assign | BinaryOp::Declare => unreachable!("should have been handled earlier"),
                 };
 
                 self.apply_binary(
@@ -502,10 +593,8 @@ impl<'runtime, 'host> Evaluator<'runtime, 'host> {
                     .cloned()
                     .zip(arguments.iter().cloned())
                     .collect();
-                let call_environment = Gc::new(Environment {
-                    parent: Some(captured_environment),
-                    bindings: RefCell::new(bindings),
-                });
+                let call_environment =
+                    Gc::new(Environment::child(captured_environment, bindings, None));
 
                 self.eval_expr(&definition.body.0, &call_environment)
             }
@@ -531,6 +620,7 @@ mod tests {
     struct MemberHost {
         resolutions: usize,
         gets: usize,
+        sets: Vec<Value>,
     }
 
     impl Host for TestHost {
@@ -593,11 +683,14 @@ mod tests {
 
         fn set_property(
             &mut self,
-            _object: NativeObjectId,
-            _property: PropertyId,
-            _value: &Value,
+            object: NativeObjectId,
+            property: PropertyId,
+            value: &Value,
         ) -> Result<(), HostError> {
-            unreachable!()
+            assert_eq!(object, NativeObjectId::from_raw(10));
+            assert_eq!(property, PropertyId::from_raw(20));
+            self.sets.push(value.clone());
+            Ok(())
         }
 
         fn call_intrinsic(
@@ -610,10 +703,20 @@ mod tests {
     }
 
     fn empty_environment() -> Gc<Environment> {
-        Gc::new(Environment {
-            parent: None,
-            bindings: RefCell::new(HashMap::new()),
-        })
+        Gc::new(Environment::new_root())
+    }
+
+    fn eval_source(
+        evaluator: &mut Evaluator<'_, '_>,
+        environment: &Gc<Environment>,
+        source: &str,
+    ) -> Value {
+        let (expression, _) = crate::parse::parse_thyme(source)
+            .into_result()
+            .unwrap_or_else(|errors| panic!("parse errors for {source:?}: {errors:#?}"));
+        evaluator
+            .eval_expr(&expression, environment)
+            .unwrap_or_else(|error| panic!("evaluation error for {source:?}: {error}"))
     }
 
     #[test]
@@ -668,17 +771,16 @@ mod tests {
         let mut host = MemberHost {
             resolutions: 0,
             gets: 0,
+            sets: Vec::new(),
         };
         let span: Span = (0..6).into();
         let object = crate::Object::native(NativeObjectId::from_raw(10));
         object.set_field("dynamic", Value::Bool(false));
-        let environment = Gc::new(Environment {
-            parent: None,
-            bindings: RefCell::new(HashMap::from([(
-                Symbol::from("object"),
-                Value::Object(object),
-            )])),
-        });
+        let environment = Gc::new(Environment::child(
+            Gc::new(Environment::new_root()),
+            HashMap::from([(Symbol::from("object"), Value::Object(object))]),
+            None,
+        ));
         let mut evaluator = Evaluator {
             runtime: &runtime,
             host: &mut host,
@@ -705,5 +807,89 @@ mod tests {
         drop(evaluator);
         assert_eq!(host.resolutions, 2);
         assert_eq!(host.gets, 1);
+        assert!(host.sets.is_empty());
+    }
+
+    #[test]
+    fn with_scope_routes_assignment_to_the_receiver_but_keeps_declarations_local() {
+        let runtime = Runtime::new();
+        let mut host = TestHost { calls: 0 };
+        let environment = empty_environment();
+        let object = Object::new();
+        environment.declare("object", Value::Object(object.clone()));
+        environment.declare("x", Value::Number(Number::Int(99)));
+        environment.declare("y", Value::Number(Number::Int(100)));
+        environment.declare("global_value", Value::Number(Number::Int(11)));
+        let mut evaluator = Evaluator {
+            runtime: &runtime,
+            host: &mut host,
+        };
+
+        eval_source(
+            &mut evaluator,
+            &environment,
+            "object -> { \
+                x = 5; \
+                y := 7; \
+                y = 8; \
+                copy = global_value; \
+                closure = { captured = y } \
+            }",
+        );
+        eval_source(&mut evaluator, &environment, "object.closure");
+
+        assert_eq!(object.field("x"), Some(Value::Number(Number::Int(5))));
+        assert_eq!(object.field("copy"), Some(Value::Number(Number::Int(11))));
+        assert_eq!(object.field("y"), None);
+        assert_eq!(
+            object.field("captured"),
+            Some(Value::Number(Number::Int(8)))
+        );
+        assert_eq!(environment.local("x"), Some(Value::Number(Number::Int(99))));
+        assert_eq!(
+            environment.local("y"),
+            Some(Value::Number(Number::Int(100)))
+        );
+    }
+
+    #[test]
+    fn explicit_member_assignments_share_native_and_dynamic_write_paths() {
+        let runtime = Runtime::new();
+        let mut host = MemberHost {
+            resolutions: 0,
+            gets: 0,
+            sets: Vec::new(),
+        };
+        let environment = empty_environment();
+        let object = Object::native(NativeObjectId::from_raw(10));
+        environment.declare("object", Value::Object(object.clone()));
+        let mut evaluator = Evaluator {
+            runtime: &runtime,
+            host: &mut host,
+        };
+
+        eval_source(
+            &mut evaluator,
+            &environment,
+            "object.dynamic := 3; object.dynamic = 4; object.native = { true }",
+        );
+        assert_eq!(object.field("dynamic"), Some(Value::Number(Number::Int(4))));
+        assert_eq!(runtime.binding_count(), 1);
+
+        eval_source(
+            &mut evaluator,
+            &environment,
+            "object.native := 12; object -> { native = 13; local := 7 }",
+        );
+        assert_eq!(runtime.binding_count(), 0);
+        drop(evaluator);
+        assert_eq!(
+            host.sets,
+            vec![
+                Value::Number(Number::Int(12)),
+                Value::Number(Number::Int(13))
+            ]
+        );
+        assert_eq!(object.field("local"), None);
     }
 }
