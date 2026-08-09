@@ -12,14 +12,50 @@ pub(crate) struct Console {
     pub(crate) input: String,
     pub(crate) output: String,
     pending: VecDeque<String>,
+    history: Vec<String>,
+    history_index: Option<usize>,
+    history_draft: String,
 }
 
 impl Console {
     pub(crate) fn submit(&mut self) {
         let source = std::mem::take(&mut self.input);
         if !source.trim().is_empty() {
+            self.history.push(source.clone());
+            self.history_index = None;
+            self.history_draft.clear();
             self.pending.push_back(source);
         }
+    }
+
+    pub(crate) fn history_up(&mut self) -> bool {
+        let Some(index) = self
+            .history_index
+            .map(|index| index.saturating_sub(1))
+            .or_else(|| self.history.len().checked_sub(1))
+        else {
+            return false;
+        };
+        if self.history_index.is_none() {
+            self.history_draft.clone_from(&self.input);
+        }
+        self.history_index = Some(index);
+        self.input.clone_from(&self.history[index]);
+        true
+    }
+
+    pub(crate) fn history_down(&mut self) -> bool {
+        let Some(index) = self.history_index else {
+            return false;
+        };
+        if index + 1 < self.history.len() {
+            self.history_index = Some(index + 1);
+            self.input.clone_from(&self.history[index + 1]);
+        } else {
+            self.history_index = None;
+            self.input.clone_from(&self.history_draft);
+        }
+        true
     }
 
     fn push_line(&mut self, line: impl std::fmt::Display) {
@@ -27,6 +63,30 @@ impl Console {
             self.output.push('\n');
         }
         write!(self.output, "{line}").unwrap();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Console;
+
+    #[test]
+    fn console_history_preserves_and_restores_the_current_draft() {
+        let mut console = Console::default();
+        for input in ["first", "second"] {
+            console.input = input.into();
+            console.submit();
+        }
+        console.input = "draft".into();
+
+        assert!(console.history_up());
+        assert_eq!(console.input, "second");
+        assert!(console.history_up());
+        assert_eq!(console.input, "first");
+        assert!(console.history_down());
+        assert_eq!(console.input, "second");
+        assert!(console.history_down());
+        assert_eq!(console.input, "draft");
     }
 }
 
