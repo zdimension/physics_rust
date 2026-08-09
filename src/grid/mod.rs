@@ -18,6 +18,7 @@ pub struct GridSettings {
     pub enabled: bool,
     pub axes: u32,
     pub base: u32,
+    pub opacity: f32,
     pub snap: bool,
 }
 
@@ -27,6 +28,7 @@ impl Default for GridSettings {
             enabled: false,
             axes: 2,
             base: 4,
+            opacity: 1.0,
             snap: true,
         }
     }
@@ -38,7 +40,7 @@ pub struct GridLayout {
     pub major_step: f32,
     minor_visible: bool,
     axes: u32,
-    base: i32,
+    base: u32,
 }
 
 impl GridSettings {
@@ -49,7 +51,7 @@ impl GridSettings {
 
         let axes = self.axes.max(2);
         let line_spacing_factor = (PI / axes as f32).sin();
-        let base = self.base.clamp(2, 100);
+        let base = self.base.max(2);
         let base_f32 = base as f32;
         let largest_minor_step = camera_scale * MAX_MINOR_SPACING_PX / line_spacing_factor;
         let exponent = (largest_minor_step.ln() / base_f32.ln()).floor();
@@ -61,7 +63,7 @@ impl GridSettings {
             major_step,
             minor_visible,
             axes,
-            base: base as i32,
+            base,
         })
     }
 
@@ -296,7 +298,7 @@ pub fn draw_grid(
             };
             let alpha = if index == 0 {
                 150
-            } else if !layout.minor_visible || index.rem_euclid(layout.base) == 0 {
+            } else if !layout.minor_visible || (index as i64).rem_euclid(layout.base as i64) == 0 {
                 90
             } else {
                 45
@@ -308,7 +310,7 @@ pub fn draw_grid(
                 ],
                 egui::Stroke::new(
                     GRID_LINE_THICKNESS_PX / ui_scale,
-                    line_color.gamma_multiply(alpha as f32 / 255.0),
+                    line_color.gamma_multiply(settings.opacity * alpha as f32 / 255.0),
                 ),
             );
         }
@@ -349,6 +351,7 @@ mod tests {
             enabled: true,
             axes: 2,
             base: 100,
+            opacity: 1.0,
             snap: true,
         };
         let layout = settings.layout(0.001).unwrap();
@@ -366,6 +369,7 @@ mod tests {
                     enabled: true,
                     axes,
                     base,
+                    opacity: 1.0,
                     snap: true,
                 };
                 for exponent in -8..=8 {
@@ -421,6 +425,7 @@ mod tests {
                 enabled: true,
                 axes,
                 base: 4,
+                opacity: 1.0,
                 snap: true,
             }
             .layout(0.01)

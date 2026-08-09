@@ -1,3 +1,4 @@
+use crate::config::AppConfig;
 use crate::mouse_tracking::MainCamera;
 use crate::objects::laser::LaserSettings;
 use crate::objects::kind::ObjectKinds;
@@ -102,6 +103,7 @@ impl MenuWindow {
         mut zoom2scene: MessageWriter<ZoomToScene>,
         planes: Query<(), With<PlaneObject>>,
         object_kinds: ObjectKinds,
+        app_config: Res<AppConfig>,
     ) {
         let ctx = egui_ctx.ctx_mut().expect("primary egui context");
         for (wnd_id, entity, target, mut info_wnd, mut initial_pos) in wnds.iter_mut() {
@@ -257,7 +259,9 @@ impl MenuWindow {
                         }
                         menu!("Combine shapes", csg, CombineShapesWindow);
                         menu!("Controller", controller, ControllerWindow);
-                        menu!("Script", /, ScriptWindow);
+                        if app_config.enable_script_menu {
+                            menu!("Script", /, ScriptWindow);
+                        }
                     } else {
                         if item!("Zoom to scene", zoom2scene) {
                             zoom2scene.write(ZoomToScene);

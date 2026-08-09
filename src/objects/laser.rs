@@ -9,6 +9,7 @@ use bevy::prelude::*;
 use bevy_egui::egui::ecolor::Hsva;
 use num_traits::float::FloatConst;
 
+use crate::config::AppConfig;
 use crate::objects::ColorComponent;
 use crate::objects::phy_obj::RefractiveIndex;
 use crate::tools::add_object::query_only_real;
@@ -341,8 +342,6 @@ fn compute_new_angle(incidence: f32, index_ray: f32, index_new: f32) -> Option<f
     }
 }
 
-const LASER_WIDTH: f32 = 0.2;
-
 pub fn draw_lasers(
     lasers: Query<(&GlobalTransform, &LaserSettings, &ColorComponent, &Rotation)>,
     changed_lasers: Query<
@@ -373,8 +372,9 @@ pub fn draw_lasers(
     mut rays: Query<(Entity, &mut LaserRays)>,
     mut commands: Commands,
     spatial_query: SpatialQuery,
+    app_config: Res<AppConfig>,
 ) {
-    if changed_lasers.is_empty() && changed_colliders.is_empty() {
+    if changed_lasers.is_empty() && changed_colliders.is_empty() && !app_config.is_changed() {
         return;
     }
 
@@ -382,7 +382,7 @@ pub fn draw_lasers(
     commands.entity(rays).despawn_children();
 
     for (glob, laser, color, rot) in lasers.iter() {
-        let ray_width = laser.size * LASER_WIDTH;
+        let ray_width = laser.size * app_config.laser_width;
 
         let start = glob
             .transform_point(Vec3::new(laser.size * 0.5, 0.0, 1.0))

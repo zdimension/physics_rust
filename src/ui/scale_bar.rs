@@ -2,6 +2,7 @@ use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
 
 use crate::egui_systems;
+use crate::config::AppConfig;
 use crate::mouse_tracking::MainCamera;
 
 egui_systems!(draw_scale_bar);
@@ -57,7 +58,11 @@ fn scale_label(scale: ScaleBar) -> String {
 fn draw_scale_bar(
     mut egui_contexts: EguiContexts,
     cameras: Query<&Transform, With<MainCamera>>,
+    config: Res<AppConfig>,
 ) {
+    if !config.draw_scale_indicator {
+        return;
+    }
     let Ok(camera) = cameras.single() else {
         return;
     };

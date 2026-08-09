@@ -12,16 +12,20 @@ use bevy::{
     app::AppExit,
     ecs::world::World,
     math::{EulerRot, Quat, Vec2, Vec3},
-    prelude::{ChildOf, Entity, GlobalTransform, Time, Transform},
+    prelude::{ChildOf, Color, Entity, GlobalTransform, Time, Transform},
 };
 use bevy_egui::egui::ecolor::Hsva;
 
 use super::Console;
 use crate::{
     config::AppConfig,
+    grid::GridSettings,
     lyon_compat::Shape,
+    mouse::select::SelectionConfig,
+    mouse_tracking::{MainCamera, MousePosWorld},
     objects::{
         ColorComponent, MotorComponent,
+        air::AirSettings,
         attraction::{Attraction, AttractionFalloff},
         laser::LaserSettings,
         phy_obj::{
@@ -32,8 +36,8 @@ use crate::{
         tracer::TracerSettings,
     },
     tools::{
-        add_object::AttachmentKind, r#move::attachment_local_position,
-        rotate::attachment_local_rotation,
+        add_object::AttachmentKind, drag::DragConfig, gear::GearSettings,
+        r#move::attachment_local_position, rotate::attachment_local_rotation,
     },
     ui::GravitySetting,
 };
@@ -218,6 +222,31 @@ macro_rules! native_method {
     };
 }
 
+macro_rules! native_read_only {
+    ($name:literal, $get:expr) => {
+        NativeMember::Property {
+            name: $name,
+            applies: None,
+            get: $get,
+            set: None,
+        }
+    };
+}
+
+macro_rules! resource_property {
+    ($name:literal, $resource:ty, $field:ident, $kind:ident) => {
+        native_property!(
+            $name,
+            $kind,
+            |world: &World, _| world.resource::<$resource>().$field,
+            |world: &mut World, _, value| {
+                world.resource_mut::<$resource>().$field = value;
+                Ok(())
+            }
+        )
+    };
+}
+
 #[allow(unused_macros)]
 macro_rules! native_event {
     ($name:literal) => {
@@ -256,6 +285,13 @@ fn number(value: &Value, name: &str) -> Result<f32, HostError> {
     Ok(value.to_f32_lossy())
 }
 
+fn int_at_least_two(value: i32, name: &str) -> Result<u32, HostError> {
+    u32::try_from(value)
+        .ok()
+        .filter(|value| *value >= 2)
+        .ok_or_else(|| type_error(name, "int >= 2"))
+}
+
 fn float_list<const N: usize>(value: &Value, name: &str) -> Result<[f32; N], HostError> {
     let Value::List(values) = value else {
         return Err(type_error(name, "list"));
@@ -272,6 +308,86 @@ fn float_list<const N: usize>(value: &Value, name: &str) -> Result<[f32; N], Hos
 
 fn floats(values: impl IntoIterator<Item = f32>) -> Value {
     Value::List(List::new(values.into_iter().map(Value::from)))
+}
+
+fn color_value(color: Color) -> Value {
+    let color = color.to_srgba();
+    floats([color.red, color.green, color.blue, color.alpha])
+}
+
+fn main_camera(world: &World) -> Result<Entity, HostError> {
+    world
+        .iter_entities()
+        .find(|entity| entity.contains::<MainCamera>())
+        .map(|entity| entity.id())
+        .ok_or_else(|| object_error("Camera"))
+}
+
+fn get_camera_pan(world: &World, _: Option<Entity>) -> Result<Value, HostError> {
+    let pan = world
+        .get::<Transform>(main_camera(world)?)
+        .ok_or_else(|| object_error("Camera.pan"))?
+        .translation
+        .truncate();
+    Ok(floats(pan.to_array()))
+}
+
+fn set_camera_pan(world: &mut World, _: Option<Entity>, value: &Value) -> Result<(), HostError> {
+    let pan = Vec2::from_array(float_list(value, "pan")?);
+    let camera = main_camera(world)?;
+    let mut transform = world
+        .get_mut::<Transform>(camera)
+        .ok_or_else(|| object_error("Camera.pan"))?;
+    transform.translation.x = pan.x;
+    transform.translation.y = pan.y;
+    Ok(())
+}
+
+fn get_camera_zoom(world: &World, _: Option<Entity>) -> Result<Value, HostError> {
+    let scale = world
+        .get::<Transform>(main_camera(world)?)
+        .ok_or_else(|| object_error("Camera.zoom"))?
+        .scale
+        .x
+        .abs();
+    Ok(Value::from(scale.recip()))
+}
+
+fn set_camera_zoom(world: &mut World, _: Option<Entity>, value: &Value) -> Result<(), HostError> {
+    let zoom = number(value, "zoom")?;
+    if !zoom.is_finite() || zoom <= 0.0 {
+        return Err(type_error("zoom", "positive number"));
+    }
+    let camera = main_camera(world)?;
+    let mut transform = world
+        .get_mut::<Transform>(camera)
+        .ok_or_else(|| object_error("Camera.zoom"))?;
+    transform.scale.x = zoom.recip();
+    transform.scale.y = zoom.recip();
+    Ok(())
+}
+
+fn get_camera_rotation(world: &World, _: Option<Entity>) -> Result<Value, HostError> {
+    let rotation = world
+        .get::<Transform>(main_camera(world)?)
+        .ok_or_else(|| object_error("Camera.rotation"))?
+        .rotation
+        .to_euler(EulerRot::XYZ)
+        .2;
+    Ok(Value::from(rotation))
+}
+
+fn set_camera_rotation(
+    world: &mut World,
+    _: Option<Entity>,
+    value: &Value,
+) -> Result<(), HostError> {
+    let rotation = number(value, "rotation")?;
+    world
+        .get_mut::<Transform>(main_camera(world)?)
+        .ok_or_else(|| object_error("Camera.rotation"))?
+        .rotation = Quat::from_rotation_z(rotation);
+    Ok(())
 }
 
 fn event_object(this: Object) -> Object {
@@ -643,6 +759,58 @@ native_class!(
 );
 
 native_class!(
+    APP = "App",
+    [
+        native_read_only!("mousePos", |world: &World, _| {
+            let pos = world.resource::<MousePosWorld>();
+            Ok(floats([pos.x, pos.y]))
+        }),
+        resource_property!("laserWidth", AppConfig, laser_width, float),
+        NativeMember::Property {
+            name: "polytoolPreviewColor",
+            applies: None,
+            get: |world, _| Ok(color_value(
+                world.resource::<AppConfig>().polytool_preview_color
+            )),
+            set: Some(|world, _, value| {
+                let [r, g, b, a] = float_list(value, "polytoolPreviewColor")?;
+                world.resource_mut::<AppConfig>().polytool_preview_color = Color::srgba(r, g, b, a);
+                Ok(())
+            }),
+        },
+        resource_property!("enableScriptMenu", AppConfig, enable_script_menu, bool),
+        resource_property!("drawScaleIndicator", AppConfig, draw_scale_indicator, bool),
+    ]
+);
+
+native_class!(
+    APP_GRID = "Grid",
+    [
+        native_property!(
+            "base",
+            int,
+            |world: &World, _| world.resource::<GridSettings>().base as i32,
+            |world: &mut World, _, value| {
+                world.resource_mut::<GridSettings>().base = int_at_least_two(value, "base")?;
+                Ok(())
+            }
+        ),
+        resource_property!("grid", GridSettings, enabled, bool),
+        native_property!(
+            "numAxes",
+            int,
+            |world: &World, _| world.resource::<GridSettings>().axes as i32,
+            |world: &mut World, _, value| {
+                world.resource_mut::<GridSettings>().axes = int_at_least_two(value, "numAxes")?;
+                Ok(())
+            }
+        ),
+        resource_property!("opacity", GridSettings, opacity, float),
+        resource_property!("snap", GridSettings, snap, bool),
+    ]
+);
+
+native_class!(
     GUI = "GUI",
     [
         native_property!(
@@ -660,14 +828,22 @@ native_class!(
                 Ok(())
             }
         ),
-        native_property!(
-            "cursor",
-            bool,
-            |world: &World, _| world.resource::<AppConfig>().tool_cursor,
-            |world: &mut World, _, cursor: bool| {
-                world.resource_mut::<AppConfig>().tool_cursor = cursor;
+        resource_property!("cursor", AppConfig, tool_cursor, bool),
+        NativeMember::Property {
+            name: "angleColor",
+            applies: None,
+            get: |world, _| Ok(color_value(world.resource::<AppConfig>().angle_color)),
+            set: Some(|world, _, value| {
+                let [r, g, b, a] = float_list(value, "angleColor")?;
+                world.resource_mut::<AppConfig>().angle_color = Color::srgba(r, g, b, a);
                 Ok(())
-            }
+            }),
+        },
+        resource_property!(
+            "allowDrawSelect",
+            SelectionConfig,
+            select_by_encircling,
+            bool
         ),
     ]
 );
@@ -675,6 +851,25 @@ native_class!(
 native_class!(
     SIM = "Sim",
     [
+        native_read_only!("time", |world: &World, _| {
+            Ok(Value::from(
+                world.resource::<Time<Physics>>().elapsed_secs(),
+            ))
+        }),
+        native_property!(
+            "timeFactor",
+            float,
+            |world: &World, _| world.resource::<Time<Physics>>().relative_speed(),
+            |world: &mut World, _, value: f32| {
+                if !value.is_finite() || value < 0.0 {
+                    return Err(type_error("timeFactor", "non-negative number"));
+                }
+                world
+                    .resource_mut::<Time<Physics>>()
+                    .set_relative_speed(value);
+                Ok(())
+            }
+        ),
         native_property!(
             "running",
             bool,
@@ -721,6 +916,12 @@ native_class!(
                 Ok(())
             }
         ),
+        resource_property!("airFrictionLinear", AirSettings, linear_term, float),
+        resource_property!("airFrictionQuadratic", AirSettings, quadratic_term, float),
+        resource_property!("airFrictionMultiplier", AirSettings, multiplier, float),
+        resource_property!("airSwitch", AirSettings, enabled, bool),
+        resource_property!("windAngle", AirSettings, wind_direction, float),
+        resource_property!("windStrength", AirSettings, wind_speed, float),
     ]
 );
 
@@ -735,6 +936,53 @@ native_class!(
             world.resource_mut::<Console>().output.clear();
             Ok(Value::Void)
         }),
+    ]
+);
+
+native_class!(SCENE = "Scene", []);
+
+native_class!(
+    CAMERA = "Camera",
+    [
+        NativeMember::Property {
+            name: "pan",
+            applies: None,
+            get: get_camera_pan,
+            set: Some(set_camera_pan),
+        },
+        NativeMember::Property {
+            name: "zoom",
+            applies: None,
+            get: get_camera_zoom,
+            set: Some(set_camera_zoom),
+        },
+        NativeMember::Property {
+            name: "rotation",
+            applies: None,
+            get: get_camera_rotation,
+            set: Some(set_camera_rotation),
+        },
+    ]
+);
+
+native_class!(TOOLS = "Tools", []);
+
+native_class!(
+    DRAG_TOOL = "DragTool",
+    [
+        resource_property!("centerOfMass", DragConfig, drag_center_of_mass, bool),
+        resource_property!("maxForce", DragConfig, max_force, float),
+        resource_property!("strength", DragConfig, strength, float),
+    ]
+);
+
+native_class!(
+    GEAR_TOOL = "GearTool",
+    [
+        resource_property!("cogSize", GearSettings, teeth_size, float),
+        resource_property!("inside", GearSettings, internal, bool),
+        resource_property!("outside", GearSettings, external, bool),
+        resource_property!("thickness", GearSettings, hollow_thickness, float),
     ]
 );
 
@@ -781,9 +1029,29 @@ native_class!(
     ]
 );
 
-static CLASSES: &[&NativeClass] = &[&SYSTEM, &GUI, &SIM, &CONSOLE, &SCENE_OBJECT];
-const GLOBAL_CLASS_COUNT: usize = 4;
-const SCENE_CLASS: usize = 4;
+static CLASSES: &[&NativeClass] = &[
+    &SYSTEM,
+    &GUI,
+    &SIM,
+    &CONSOLE,
+    &APP,
+    &APP_GRID,
+    &SCENE,
+    &CAMERA,
+    &TOOLS,
+    &DRAG_TOOL,
+    &GEAR_TOOL,
+    &SCENE_OBJECT,
+];
+const APP_CLASS: usize = 4;
+const GUI_CLASS: usize = 1;
+const GRID_CLASS: usize = 5;
+const SCENE_NAMESPACE_CLASS: usize = 6;
+const CAMERA_CLASS: usize = 7;
+const TOOLS_CLASS: usize = 8;
+const DRAG_TOOL_CLASS: usize = 9;
+const GEAR_TOOL_CLASS: usize = 10;
+const SCENE_CLASS: usize = 11;
 
 struct RegisteredClass {
     definition: &'static NativeClass,
@@ -841,17 +1109,37 @@ impl NativeRegistry {
             globals: Vec::new(),
             next_id: 0,
         };
-        for class in 0..GLOBAL_CLASS_COUNT {
-            registry.register_global(runtime, class);
-        }
+        registry.register_global(runtime, 0);
+        let gui = registry.register_global(runtime, GUI_CLASS);
+        registry.register_global(runtime, 2);
+        registry.register_global(runtime, 3);
+        let app = registry.register_global(runtime, APP_CLASS);
+        let scene = registry.register_global(runtime, SCENE_NAMESPACE_CLASS);
+        let tools = registry.register_global(runtime, TOOLS_CLASS);
+        let grid = registry.register_namespace(GRID_CLASS);
+        let camera = registry.register_namespace(CAMERA_CLASS);
+        let drag = registry.register_namespace(DRAG_TOOL_CLASS);
+        let gear = registry.register_namespace(GEAR_TOOL_CLASS);
+        app.define_read_only_field("Grid", Value::Object(grid));
+        app.define_read_only_field("GUI", Value::Object(gui));
+        scene.define_read_only_field("Camera", Value::Object(camera));
+        tools.define_read_only_field("DragTool", Value::Object(drag));
+        tools.define_read_only_field("GearTool", Value::Object(gear));
         registry
     }
 
-    fn register_global(&mut self, runtime: &Runtime, class: usize) {
+    fn register_global(&mut self, runtime: &Runtime, class: usize) -> Object {
         let (id, object) = self.register_instance(class, None);
         let definition = self.classes[class].definition;
-        runtime.define_read_only_global(definition.name, Value::Object(object));
+        runtime.define_read_only_global(definition.name, Value::Object(object.clone()));
         self.globals.push(id);
+        object
+    }
+
+    fn register_namespace(&mut self, class: usize) -> Object {
+        let (id, object) = self.register_instance(class, None);
+        self.globals.push(id);
+        object
     }
 
     fn register_instance(
@@ -1324,10 +1612,17 @@ mod tests {
         world.insert_resource(Console::default());
         world.insert_resource(GravitySetting::default());
         world.insert_resource(Gravity(Vec2::NEG_Y * 9.81));
+        world.insert_resource(GridSettings::default());
+        world.insert_resource(AirSettings::default());
+        world.insert_resource(DragConfig::default());
+        world.insert_resource(GearSettings::default());
+        world.insert_resource(SelectionConfig::default());
+        world.insert_resource(MousePosWorld::default());
         let mut physics = Time::<Physics>::default();
         physics.pause();
         world.insert_resource(physics);
         world.insert_resource(Time::<()>::default());
+        world.spawn((MainCamera, Transform::default()));
         world
     }
 
@@ -1371,6 +1666,126 @@ mod tests {
             engine.eval(&mut world, "system.TIME").unwrap(),
             Value::Number(Number::Float(_))
         ));
+    }
+
+    #[test]
+    fn app_grid_and_gui_properties_share_their_ui_resources() {
+        let mut engine = ScriptEngine::default();
+        let mut world = world();
+
+        engine
+            .eval(
+                &mut world,
+                "App.Grid.base = 256; App.Grid.numAxes = 5; App.Grid.grid = true; \
+                 App.Grid.opacity = 0.4; App.Grid.snap = false",
+            )
+            .unwrap();
+        let grid = world.resource::<GridSettings>();
+        assert_eq!(grid.base, 256);
+        assert_eq!(grid.axes, 5);
+        assert!(grid.enabled);
+        assert_eq!(grid.opacity, 0.4);
+        assert!(!grid.snap);
+        assert!(engine.eval(&mut world, "App.Grid.base = 1").is_err());
+        assert!(engine.eval(&mut world, "App.Grid.numAxes = 1").is_err());
+
+        engine
+            .eval(
+                &mut world,
+                "App.laserWidth = 0.3; App.polytoolPreviewColor = [0.1, 0.2, 0.3, 0.4]; \
+                 App.enableScriptMenu = false; App.drawScaleIndicator = false; \
+                 App.GUI.angleColor = [1, 0, 0.5, 0.75]; App.GUI.allowDrawSelect = false",
+            )
+            .unwrap();
+        let config = world.resource::<AppConfig>();
+        assert_eq!(config.laser_width, 0.3);
+        assert!(!config.enable_script_menu);
+        assert!(!config.draw_scale_indicator);
+        let preview = config.polytool_preview_color.to_srgba();
+        assert_eq!(
+            [preview.red, preview.green, preview.blue, preview.alpha],
+            [0.1, 0.2, 0.3, 0.4]
+        );
+        let angle = config.angle_color.to_srgba();
+        assert_eq!(
+            [angle.red, angle.green, angle.blue, angle.alpha],
+            [1.0, 0.0, 0.5, 0.75]
+        );
+        assert!(!world.resource::<SelectionConfig>().select_by_encircling);
+        assert_eq!(
+            engine.eval(&mut world, "App.mousePos").unwrap().to_string(),
+            "[0, 0]"
+        );
+        assert!(engine.eval(&mut world, "App.mousePos = [1, 2]").is_err());
+        assert!(engine.eval(&mut world, "App.Grid = 1").is_err());
+    }
+
+    #[test]
+    fn sim_time_and_air_properties_share_physics_state() {
+        let mut engine = ScriptEngine::default();
+        let mut world = world();
+        world
+            .resource_mut::<Time<Physics>>()
+            .advance_by(std::time::Duration::from_secs_f32(2.0));
+
+        assert_eq!(
+            engine.eval(&mut world, "Sim.time").unwrap().to_string(),
+            "2"
+        );
+        engine
+            .eval(
+                &mut world,
+                "Sim.timeFactor = 2.5; Sim.airFrictionLinear = 1; \
+                 Sim.airFrictionQuadratic = 2; Sim.airFrictionMultiplier = 3; \
+                 Sim.airSwitch = false; Sim.windAngle = 0.7; Sim.windStrength = 8",
+            )
+            .unwrap();
+        assert_eq!(world.resource::<Time<Physics>>().relative_speed(), 2.5);
+        let air = world.resource::<AirSettings>();
+        assert_eq!(air.linear_term, 1.0);
+        assert_eq!(air.quadratic_term, 2.0);
+        assert_eq!(air.multiplier, 3.0);
+        assert!(!air.enabled);
+        assert_eq!(air.wind_direction, 0.7);
+        assert_eq!(air.wind_speed, 8.0);
+        assert!(engine.eval(&mut world, "Sim.timeFactor = -1").is_err());
+        assert!(engine.eval(&mut world, "Sim.time = 0").is_err());
+    }
+
+    #[test]
+    fn camera_and_tool_properties_share_their_live_state() {
+        let mut engine = ScriptEngine::default();
+        let mut world = world();
+
+        engine
+            .eval(
+                &mut world,
+                "Scene.Camera.pan = [3, 4]; Scene.Camera.zoom = 200; Scene.Camera.rotation = 0.5; \
+                 Tools.DragTool.centerOfMass = true; Tools.DragTool.maxForce = 12; \
+                 Tools.DragTool.strength = 34; Tools.GearTool.cogSize = 0.6; \
+                 Tools.GearTool.inside = true; Tools.GearTool.outside = false; \
+                 Tools.GearTool.thickness = 0.8",
+            )
+            .unwrap();
+        let camera = world
+            .iter_entities()
+            .find(|entity| entity.contains::<MainCamera>())
+            .unwrap();
+        let transform = camera.get::<Transform>().unwrap();
+        assert_eq!(transform.translation.truncate(), Vec2::new(3.0, 4.0));
+        assert_eq!(transform.scale.truncate(), Vec2::splat(0.005));
+        assert!((transform.rotation.to_euler(EulerRot::XYZ).2 - 0.5).abs() < 1.0e-6);
+        let drag = world.resource::<DragConfig>();
+        assert!(drag.drag_center_of_mass);
+        assert_eq!(drag.max_force, 12.0);
+        assert_eq!(drag.strength, 34.0);
+        let gear = world.resource::<GearSettings>();
+        assert_eq!(gear.teeth_size, 0.6);
+        assert!(gear.internal);
+        assert!(!gear.external);
+        assert_eq!(gear.hollow_thickness, 0.8);
+        assert!(engine.eval(&mut world, "Scene.Camera.zoom = 0").is_err());
+        assert!(engine.eval(&mut world, "Tools.DragTool = 1").is_err());
     }
 
     #[test]

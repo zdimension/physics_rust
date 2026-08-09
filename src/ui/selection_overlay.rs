@@ -212,7 +212,7 @@ pub fn process_draw_overlay(
     };
 
     let current = (draw_ent, shape.clone(), pos, app_config.ui_scale.to_bits());
-    if last_overlay.as_ref() == Some(&current) {
+    if last_overlay.as_ref() == Some(&current) && !app_config.is_changed() {
         return;
     }
 
@@ -252,7 +252,7 @@ pub fn process_draw_overlay(
             click,
             mouse.xy(),
         );
-        let pink = Color::srgba_u8(255, 64, 255, 127);
+        let pink = app_config.angle_color;
         {
             let mut root_shapes = overlay_queries.p0();
             upsert_overlay_shape(
@@ -337,7 +337,7 @@ pub fn process_draw_overlay(
             5.0,
             Color::WHITE,
             if show_preview {
-                Color::srgba(1.0, 0.5, 1.0, 0.4)
+                app_config.polytool_preview_color
             } else {
                 Color::srgba(0.0, 0.0, 0.0, 0.0)
             },
