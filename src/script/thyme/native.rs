@@ -44,7 +44,8 @@ use crate::{
 
 type Getter = fn(&World, Option<Entity>) -> Result<Value, HostError>;
 type Setter = fn(&mut World, Option<Entity>, &Value) -> Result<(), HostError>;
-type Method = fn(&mut World, Option<Entity>, &[Value]) -> Result<Value, HostError>;
+type Method =
+    fn(&mut World, &mut NativeRegistry, Option<Entity>, &[Value]) -> Result<Value, HostError>;
 type Applies = fn(&World, Entity) -> bool;
 
 enum NativeMember {
@@ -729,6 +730,10 @@ fn get_z_order(world: &World, entity: Entity) -> Result<Value, HostError> {
     Ok(Value::from(z))
 }
 
+fn get_entity_id(_: &World, entity: Entity) -> Result<Value, HostError> {
+    Ok(Value::from(entity.index_u32() as i32))
+}
+
 fn set_z_order(world: &mut World, entity: Entity, value: &Value) -> Result<(), HostError> {
     let z = number(value, "zOrder")?;
     let current = world.get::<GlobalTransform>(entity).map_or_else(
@@ -746,11 +751,11 @@ fn set_z_order(world: &mut World, entity: Entity, value: &Value) -> Result<(), H
 native_class!(
     SYSTEM = "System",
     [
-        native_method!("exit", 0, |world: &mut World, _, _| {
+        native_method!("exit", 0, |world: &mut World, _, _, _| {
             world.write_message(AppExit::Success);
             Ok(Value::Void)
         }),
-        native_method!("time", 0, |world: &mut World, _, _| {
+        native_method!("time", 0, |world: &mut World, _, _, _| {
             Ok(Value::Number(Number::Float(
                 world.resource::<Time>().elapsed_secs(),
             )))
@@ -928,18 +933,42 @@ native_class!(
 native_class!(
     CONSOLE = "Console",
     [
-        native_method!("print", 1, |world: &mut World, _, arguments| {
-            world.resource_mut::<Console>().push_line(&arguments[0]);
-            Ok(Value::Void)
-        }),
-        native_method!("clear", 0, |world: &mut World, _, _| {
+        native_method!(
+            "print",
+            1,
+            |world: &mut World, _, _, arguments: &[Value]| {
+                world.resource_mut::<Console>().push_line(&arguments[0]);
+                Ok(Value::Void)
+            }
+        ),
+        native_method!("clear", 0, |world: &mut World, _, _, _| {
             world.resource_mut::<Console>().output.clear();
             Ok(Value::Void)
         }),
     ]
 );
 
-native_class!(SCENE = "Scene", []);
+native_class!(
+    SCENE = "Scene",
+    [native_method!(
+        "entityByID",
+        1,
+        |world: &mut World, registry: &mut NativeRegistry, _, arguments: &[Value]| {
+            let Value::Number(Number::Int(id)) = &arguments[0] else {
+                return Err(type_error("entityByID", "int"));
+            };
+            let Some(raw) = Entity::from_raw_u32(*id as u32) else {
+                return Ok(Value::Null);
+            };
+            let entity = world.entities().resolve_from_index(raw.index());
+            if world.get_entity(entity).is_err() {
+                return Ok(Value::Null);
+            }
+            let object = registry.ensure_entity(entity);
+            Ok(Value::Object(registry.instance(object)?.object.clone()))
+        }
+    )]
+);
 
 native_class!(
     CAMERA = "Camera",
@@ -1010,6 +1039,7 @@ native_class!(
         scene_component_value!("constant", SpringObject, spring_constant, float),
         scene_component_value!("dampingFactor", SpringObject, damping, float),
         scene_component_value!("density", ColliderDensity, 0, float),
+        scene_property!("entityID", |_, _| true, get_entity_id),
         scene_component_value!("fadeDist", LaserSettings, fade_distance, float),
         scene_component_value!("force", ThrusterSettings, force, float),
         scene_component_value!("length", SpringObject, target_length, float),
@@ -1241,7 +1271,7 @@ impl ScriptEngine {
     pub(crate) fn eval(&mut self, world: &mut World, source: &str) -> Result<Value, String> {
         let mut host = WorldHost {
             world,
-            registry: &self.registry,
+            registry: &mut self.registry,
         };
         self.runtime.eval(&mut host, source)
     }
@@ -1255,14 +1285,14 @@ impl ScriptEngine {
     }
 
     fn call_event(
-        &self,
+        &mut self,
         world: &mut World,
         function: &Function,
         event: Object,
     ) -> Result<Value, String> {
         let mut host = WorldHost {
             world,
-            registry: &self.registry,
+            registry: &mut self.registry,
         };
         self.runtime
             .call_function(&mut host, function, &[Value::Object(event)])
@@ -1284,7 +1314,7 @@ impl ScriptEngine {
     }
 
     pub(crate) fn dispatch_key(
-        &self,
+        &mut self,
         world: &mut World,
         pressed: bool,
         key_code: &str,
@@ -1438,7 +1468,7 @@ impl ScriptEngine {
         let value = self.eval(world, source)?;
         let mut host = WorldHost {
             world,
-            registry: &self.registry,
+            registry: &mut self.registry,
         };
         for object in targets {
             self.runtime
@@ -1481,22 +1511,22 @@ impl ScriptEngine {
         objects.extend(scene_objects.into_iter().map(|(_, object)| object));
         let mut host = WorldHost {
             world,
-            registry: &self.registry,
+            registry: &mut self.registry,
         };
         let mut errors = Vec::new();
         for object in objects {
             for error in self.runtime.evaluate_property_bindings(&mut host, object) {
-                let instance = self.registry.instance(object).unwrap();
+                let instance = host.registry.instance(object).unwrap();
                 errors.push(format!(
                     "{}.{}: {}",
                     instance.entity.map_or(
-                        self.registry.classes[instance.class]
+                        host.registry.classes[instance.class]
                             .definition
                             .name
                             .to_owned(),
                         |entity| format!("{entity:?}")
                     ),
-                    self.registry.property_name(object, error.property),
+                    host.registry.property_name(object, error.property),
                     error.message
                 ));
             }
@@ -1507,7 +1537,7 @@ impl ScriptEngine {
 
 struct WorldHost<'a> {
     world: &'a mut World,
-    registry: &'a NativeRegistry,
+    registry: &'a mut NativeRegistry,
 }
 
 impl Host for WorldHost<'_> {
@@ -1588,6 +1618,7 @@ impl Host for WorldHost<'_> {
                 "invalid method receiver",
             ));
         }
+        let entity = instance.entity;
         let Some(NativeMember::Method { call, .. }) = self
             .registry
             .classes
@@ -1596,7 +1627,8 @@ impl Host for WorldHost<'_> {
         else {
             return Err(HostError::new(HostErrorKind::Intrinsic, "unknown method"));
         };
-        call(self.world, instance.entity, arguments)
+        let call = *call;
+        call(self.world, self.registry, entity, arguments)
     }
 }
 
@@ -1628,12 +1660,12 @@ mod tests {
 
     #[test]
     fn registry_preserves_names_and_resolves_case_insensitively() {
-        let engine = ScriptEngine::default();
+        let mut engine = ScriptEngine::default();
         let gui = engine.registry.globals[1];
         let mut world = world();
         let mut host = WorldHost {
             world: &mut world,
-            registry: &engine.registry,
+            registry: &mut engine.registry,
         };
         let property = host
             .resolve_property(gui, &Symbol::from("ScAlE"))
@@ -1943,6 +1975,46 @@ mod tests {
                 .unwrap_err()
                 .contains("read-only")
         );
+    }
+
+    #[test]
+    fn entity_ids_round_trip_through_scene_lookup() {
+        let mut engine = ScriptEngine::default();
+        let mut world = world();
+        let entity = world.spawn_empty().id();
+        let id = entity.index_u32() as i32;
+
+        let property = engine
+            .selection_properties(&mut world, &[entity])
+            .into_iter()
+            .find(|property| property.name == "entityID")
+            .unwrap();
+        assert_eq!(property.value, id.to_string());
+        assert!(property.read_only);
+
+        let source = format!("Scene.entityByID({id})");
+        let first = engine.eval(&mut world, &source).unwrap();
+        let second = engine.eval(&mut world, &source).unwrap();
+        assert_eq!(first, second);
+        assert_eq!(
+            engine
+                .eval(&mut world, &format!("({source}).entityID"))
+                .unwrap(),
+            Value::from(id)
+        );
+        assert!(
+            engine
+                .eval(&mut world, &format!("({source}).entityID = 0"))
+                .is_err()
+        );
+        assert_eq!(
+            engine.eval(&mut world, "Scene.entityByID(-1)").unwrap(),
+            Value::Null
+        );
+        assert!(engine.eval(&mut world, "Scene.entityByID(1.0)").is_err());
+
+        world.despawn(entity);
+        assert_eq!(engine.eval(&mut world, &source).unwrap(), Value::Null);
     }
 
     #[test]
