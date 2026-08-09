@@ -5,6 +5,8 @@ use dumpster::{TraceWith, Visitor};
 use crate::{Environment, Function, Object, Value, eval::Evaluator, parse::Span};
 
 mod core;
+mod math;
+mod set;
 mod string;
 
 pub(crate) type BuiltinCallback = for<'runtime, 'host> fn(
@@ -78,7 +80,7 @@ impl BuiltinNamespace {
     }
 }
 
-const NAMESPACES: &[BuiltinNamespace] = &[string::NAMESPACE];
+const NAMESPACES: &[BuiltinNamespace] = &[string::NAMESPACE, set::NAMESPACE, math::NAMESPACE];
 
 pub(crate) fn install(environment: &Environment) {
     for builtin in core::GLOBALS {
@@ -106,21 +108,5 @@ pub(crate) fn install(environment: &Environment) {
             );
         }
         environment.define_read_only(namespace.name, Value::Object(object));
-    }
-}
-
-pub(super) fn string_argument<'a>(
-    builtin: &str,
-    arguments: &'a [Value],
-    index: usize,
-    call_span: Span,
-) -> Result<&'a str, String> {
-    match &arguments[index] {
-        Value::Str(value) => Ok(value),
-        value => Err(format!(
-            "Builtin {builtin} expected argument {} to be a string, got {value} at \
-             {call_span:?}",
-            index + 1
-        )),
     }
 }

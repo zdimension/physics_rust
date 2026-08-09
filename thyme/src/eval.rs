@@ -512,7 +512,7 @@ impl<'runtime, 'host> Evaluator<'runtime, 'host> {
     }
 
     /// applies a handler to a value. If the value is a list, then recursively applies the handler to each element.
-    fn apply_unary(
+    pub(crate) fn apply_unary(
         &mut self,
         handler: impl FnOnce(Value) -> Result<Value, String> + Copy,
         value: Value,
@@ -863,19 +863,16 @@ mod tests {
         };
 
         let error = eval_source_error(&mut evaluator, &environment, "string.length(12)");
-        assert!(error.contains("expected a string or list"), "{error}");
+        assert!(error.contains("expected string or list"), "{error}");
 
         for delimiter in ["", "ab"] {
             let source = format!("string.split(\"abc\", \"{delimiter}\")");
             let error = eval_source_error(&mut evaluator, &environment, &source);
-            assert!(
-                error.contains("delimiter must be exactly one character"),
-                "{error}"
-            );
+            assert!(error.contains("delimiter must be one character"), "{error}");
         }
 
         let error = eval_source_error(&mut evaluator, &environment, "string.str2list([1])");
-        assert!(error.contains("argument 1 to be a string"), "{error}");
+        assert!(error.contains("expected string"), "{error}");
 
         let error = eval_source_error(&mut evaluator, &environment, "string.length()");
         assert!(error.contains("expected 1 arguments, got 0"), "{error}");
@@ -897,6 +894,8 @@ mod tests {
             "string = 123",
             "string.split = 123",
             "string.str2list := 123",
+            "set.insert = 123",
+            "math.toBool := 123",
         ] {
             let error = eval_source_error(&mut evaluator, &environment, source);
             assert!(error.contains("Cannot set read-only"), "{source}: {error}");
@@ -921,6 +920,184 @@ mod tests {
         assert_eq!(
             eval_source(&mut evaluator, &environment, "string.length(\"ok\")"),
             Value::Number(Number::Int(2))
+        );
+        assert_eq!(
+            eval_source(
+                &mut evaluator,
+                &environment,
+                "string.list2str([1, true, \"x\", [2]])"
+            ),
+            Value::Str("1truex[2]".into())
+        );
+    }
+
+    #[test]
+    fn set_builtins_use_thyme_number_equality_and_preserve_order() {
+        let runtime = Runtime::new();
+        let mut host = TestHost { calls: 0 };
+        let environment = empty_environment();
+        let mut evaluator = Evaluator {
+            runtime: &runtime,
+            host: &mut host,
+        };
+
+        assert_eq!(
+            eval_source(
+                &mut evaluator,
+                &environment,
+                "set.insert([2147483647], 2147483647.5)"
+            ),
+            Value::List(List::new([Value::Number(Number::Int(i32::MAX))]))
+        );
+        assert_eq!(
+            eval_source(
+                &mut evaluator,
+                &environment,
+                "set.insert([2147483647.0], 2147483648)"
+            ),
+            Value::List(List::new([Value::Number(Number::Float(2147483648.0))]))
+        );
+        assert_eq!(
+            eval_source(
+                &mut evaluator,
+                &environment,
+                "set.merge([1, 1], [1.0, 2, 2])"
+            ),
+            Value::List(List::new([1.into(), 1.into(), 2.into()]))
+        );
+        assert_eq!(
+            eval_source(
+                &mut evaluator,
+                &environment,
+                "set.merge([], [\"a\", \"a\", \"b\"])"
+            ),
+            Value::List(List::new([Value::Str("a".into()), Value::Str("b".into()),]))
+        );
+        assert!(
+            eval_source_error(&mut evaluator, &environment, "set.insert([\"a\"], 1)")
+                .contains("incompatible types")
+        );
+        assert!(
+            eval_source_error(&mut evaluator, &environment, "set.merge([1], [\"a\"])")
+                .contains("incompatible types")
+        );
+    }
+
+    #[test]
+    fn math_to_bool_maps_nested_lists() {
+        let runtime = Runtime::new();
+        let mut host = TestHost { calls: 0 };
+        let environment = empty_environment();
+        let mut evaluator = Evaluator {
+            runtime: &runtime,
+            host: &mut host,
+        };
+
+        assert_eq!(
+            eval_source(
+                &mut evaluator,
+                &environment,
+                "math.toBool([2, [1, 0], -0.0, \"FALSE\"])"
+            ),
+            Value::List(List::new([
+                Value::Bool(true),
+                Value::List(List::new([Value::Bool(true), Value::Bool(false)])),
+                Value::Bool(false),
+                Value::Bool(false),
+            ]))
+        );
+        assert_eq!(
+            eval_source(&mut evaluator, &environment, "math.toBool(\"TrUe\")"),
+            Value::Bool(true)
+        );
+        assert!(
+            eval_source_error(&mut evaluator, &environment, "math.toBool(\"yes\")")
+                .contains("invalid value")
+        );
+    }
+
+    #[test]
+    fn math_float_functions_map_nested_lists() {
+        let runtime = Runtime::new();
+        let mut host = TestHost { calls: 0 };
+        let environment = empty_environment();
+        let mut evaluator = Evaluator {
+            runtime: &runtime,
+            host: &mut host,
+        };
+
+        for (name, expected) in [
+            ("acos", 1.0_f32.acos()),
+            ("asin", 1.0_f32.asin()),
+            ("atan", 1.0_f32.atan()),
+            ("cos", 1.0_f32.cos()),
+            ("log", 1.0_f32.ln()),
+            ("log10", 1.0_f32.log10()),
+            ("sin", 1.0_f32.sin()),
+            ("sqrt", 1.0_f32.sqrt()),
+            ("tan", 1.0_f32.tan()),
+        ] {
+            assert_eq!(
+                eval_source(&mut evaluator, &environment, &format!("math.{name}(1.0)")),
+                Value::Number(Number::Float(expected))
+            );
+        }
+        assert_eq!(
+            eval_source(&mut evaluator, &environment, "math.sqrt([4.0, [9.0]])"),
+            Value::List(List::new([
+                Value::Number(Number::Float(2.0)),
+                Value::List(List::new([Value::Number(Number::Float(3.0))])),
+            ]))
+        );
+        assert_eq!(
+            eval_source(&mut evaluator, &environment, "math.atan2(1.0, 0.0)"),
+            Value::Number(Number::Float(1.0_f32.atan2(0.0)))
+        );
+        assert!(
+            eval_source_error(&mut evaluator, &environment, "math.sin(1)")
+                .contains("expected float")
+        );
+        assert!(
+            eval_source_error(&mut evaluator, &environment, "math.atan2([1.0], [0.0])")
+                .contains("expected floats")
+        );
+    }
+
+    #[test]
+    fn color_builtins_convert_float_triplets_and_preserve_alpha() {
+        let runtime = Runtime::new();
+        let mut host = TestHost { calls: 0 };
+        let environment = empty_environment();
+        let mut evaluator = Evaluator {
+            runtime: &runtime,
+            host: &mut host,
+        };
+
+        for (source, expected) in [
+            ("math.HSL2RGB([0.0, 1.0, 0.5])", [1.0, 0.0, 0.0]),
+            ("math.HSV2RGB([120.0, 1.0, 1.0])", [0.0, 1.0, 0.0]),
+            ("math.RGB2HSV([1.0, 0.0, 0.0])", [0.0, 1.0, 1.0]),
+        ] {
+            assert_eq!(
+                eval_source(&mut evaluator, &environment, source),
+                Value::List(List::new(
+                    expected.map(|value| Value::Number(Number::Float(value)))
+                ))
+            );
+        }
+        assert_eq!(
+            eval_source(
+                &mut evaluator,
+                &environment,
+                "math.RGB2HSL([0.0, 0.0, 1.0, 0.25])"
+            ),
+            Value::List(List::new(
+                [240.0, 1.0, 0.5, 0.25].map(|value| Value::Number(Number::Float(value)))
+            ))
+        );
+        assert!(
+            eval_source_error(&mut evaluator, &environment, "math.HSL2RGB([0, 1.0, 0.5])")
+                .contains("expected float[3 or 4]")
         );
     }
 
