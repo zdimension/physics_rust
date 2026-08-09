@@ -674,6 +674,21 @@ impl Runtime {
         self.globals.declare(name, value)
     }
 
+    pub fn eval(&self, host: &mut dyn Host, source: &str) -> Result<Value, String> {
+        let (expression, _) = parse::parse_thyme(source).into_result().map_err(|errors| {
+            errors
+                .into_iter()
+                .map(|error| error.to_string())
+                .collect::<Vec<_>>()
+                .join("\n")
+        })?;
+        eval::Evaluator {
+            runtime: self,
+            host,
+        }
+        .eval_expr(&expression, &self.globals)
+    }
+
     /// Creates or replaces the function bound to a native property.
     pub fn bind_property(
         &self,

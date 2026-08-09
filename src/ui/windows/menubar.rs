@@ -1,4 +1,4 @@
-use bevy::prelude::{Commands, Entity, Query, Res, With};
+use bevy::prelude::{Commands, Entity, NonSendMut, Query, Res, With};
 use crate::{egui_systems};
 
 use bevy_egui::egui::Align2;
@@ -11,6 +11,7 @@ use crate::ui::{InitialPos, WindowExt};
 use crate::ui::separator_custom::SeparatorCustom;
 use crate::ui::text_button::TextButton;
 use crate::ui::windows::options::OptionsWindow;
+use crate::script::thyme::Console;
 
 egui_systems!(draw_menubar);
 
@@ -18,7 +19,8 @@ pub fn draw_menubar(
     mut egui_ctx: EguiContexts,
     gui_icons: Res<GuiIcons>,
     mut commands: Commands,
-    opt_window: Query<Entity, With<OptionsWindow>>
+    opt_window: Query<Entity, With<OptionsWindow>>,
+    mut console: NonSendMut<Console>,
 ) {
     egui::Window::new("Menu bar")
         .anchor(Align2::LEFT_TOP, [1.0, 1.0])
@@ -33,6 +35,13 @@ pub fn draw_menubar(
                         Ok(ent) => { commands.entity(ent).despawn(); }
                         Err(_) => { commands.spawn((OptionsWindow, InitialPos::ScreenCenter)); }
                     }
+                }
+                if ui
+                    .add(IconButton::new(gui_icons.console, 16.0).selected(console.open))
+                    .on_hover_text("Console")
+                    .clicked()
+                {
+                    console.open = !console.open;
                 }
                 ui.add(SeparatorCustom::default().vertical());
                 ui.add(TextButton::new( "physics_rust v0.1"));

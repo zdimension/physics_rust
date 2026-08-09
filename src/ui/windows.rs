@@ -9,4 +9,5 @@ egui_systems! {
     mod toolbox,
     mod menubar,
     mod options,
+    mod console,
 }

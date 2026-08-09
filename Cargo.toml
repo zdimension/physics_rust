@@ -9,6 +9,7 @@ bevy = { version = "0.19", features = ["trace", "dynamic_linking"] }
 bevy_diagnostic = "0.19"
 bevy_egui = "0.41"
 egui_plot = "0.36"
+egui_extras = { version = "0.35", default-features = false }
 bevy_prototype_lyon = "0.17.0"
 avian2d = { version = "0.7.0", features = ["debug-plugin"] }
 derivative = "2.2.0"
@@ -25,6 +26,7 @@ chumsky = "0.13.0"
 logos = "0.16.1"
 encoding_rs = "0.8.35"
 ariadne = "0.6.0"
+thyme = { path = "thyme" }
 
 [features]
 print-schedule = []

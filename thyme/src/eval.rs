@@ -1168,6 +1168,18 @@ mod tests {
     }
 
     #[test]
+    fn runtime_eval_uses_its_persistent_global_environment() {
+        let runtime = Runtime::new();
+        let mut host = TestHost { calls: 0 };
+
+        runtime.eval(&mut host, "Answer = 41").unwrap();
+        assert_eq!(
+            runtime.eval(&mut host, "answer + 1").unwrap(),
+            Value::Number(Number::Int(42))
+        );
+    }
+
+    #[test]
     fn collapse_calls_zero_argument_host_intrinsics() {
         let runtime = Runtime::new();
         let mut host = TestHost { calls: 0 };

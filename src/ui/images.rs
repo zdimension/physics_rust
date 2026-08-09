@@ -126,6 +126,7 @@ icon_set!(
         checkbox_unknown => "checkbox-unknown.png",
         collisions,
         color,
+        console,
         controller,
         csg,
         direction_arrow,

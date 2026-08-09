@@ -59,11 +59,11 @@ mod mouse_tracking;
 mod objects;
 mod palette;
 mod rng;
+mod script;
 mod skin;
 mod tools;
 mod ui;
 mod update_from;
-mod script;
 
 /// Standard object-outline width in physical screen pixels.
 const BORDER_WIDTH_PX: f32 = 1.0;
@@ -276,6 +276,7 @@ pub fn app_main() {
             Update,
             (update_from_palette, ui::image_processing::prepare_images),
         );
+    script::add_systems(&mut app);
     ui::add_systems(&mut app);
     app.add_systems(
         PreUpdate,
