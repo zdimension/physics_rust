@@ -38,8 +38,10 @@ pub fn draw_console(
                 job.wrap.max_width = width;
                 ui.fonts_mut(|fonts| fonts.layout_job(job))
             };
-            let input_height = ui.text_style_height(&TextStyle::Monospace) + 8.0;
-            let output_height = (ui.available_height() - input_height).max(80.0);
+            let input_rows = console.input.split('\n').count().min(6);
+            let input_height = ui.text_style_height(&TextStyle::Monospace) * input_rows as f32 + 8.0;
+            let output_height =
+                (ui.available_height() - input_height - ui.spacing().item_spacing.y).max(80.0);
             egui::Frame::new().fill(background).show(ui, |ui| {
                 egui::ScrollArea::vertical()
                     .min_scrolled_height(output_height)
@@ -81,16 +83,20 @@ pub fn draw_console(
                     ))));
                 TextEdit::store_state(ui.ctx(), input_id, edit_state);
             }
-            let response = TextEdit::multiline(&mut console.input)
+            let edit = TextEdit::multiline(&mut console.input)
                 .id(input_id)
                 .code_editor()
-                .desired_rows(1)
+                .desired_rows(input_rows)
                 .desired_width(f32::INFINITY)
                 .return_key(KeyboardShortcut::new(Modifiers::SHIFT, Key::Enter))
                 .background_color(background)
-                .layouter(&mut layouter)
-                .show(ui)
-                .response;
+                .layouter(&mut layouter);
+            let response = egui::ScrollArea::vertical()
+                .min_scrolled_height(input_height)
+                .max_height(input_height)
+                .auto_shrink([false, false])
+                .show(ui, |ui| edit.show(ui).response)
+                .inner;
             if response.has_focus()
                 && ui.input(|input| input.key_pressed(Key::Enter) && !input.modifiers.shift)
             {
