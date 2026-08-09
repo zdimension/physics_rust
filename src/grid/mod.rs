@@ -3,6 +3,7 @@ use avian2d::prelude::{Collider, Rotation};
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 use bevy_egui::{EguiContexts, egui};
+use std::f32::consts::{FRAC_PI_2, PI};
 
 use crate::config::AppConfig;
 use crate::mouse_tracking::MainCamera;
@@ -11,19 +12,11 @@ use crate::palette::PaletteConfig;
 const MIN_MINOR_SPACING_PX: f32 = 35.0;
 const MAX_MINOR_SPACING_PX: f32 = 135.0;
 const GRID_LINE_THICKNESS_PX: f32 = 1.5;
-const SQRT_3: f32 = 1.732_050_8;
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum GridAxes {
-    #[default]
-    Rectangular,
-    Triangular,
-}
 
 #[derive(Resource, Clone, Copy, Debug)]
 pub struct GridSettings {
     pub enabled: bool,
-    pub axes: GridAxes,
+    pub axes: u32,
     pub base: u32,
     pub snap: bool,
 }
@@ -32,7 +25,7 @@ impl Default for GridSettings {
     fn default() -> Self {
         Self {
             enabled: false,
-            axes: GridAxes::Rectangular,
+            axes: 2,
             base: 4,
             snap: true,
         }
@@ -44,7 +37,7 @@ pub struct GridLayout {
     pub minor_step: f32,
     pub major_step: f32,
     minor_visible: bool,
-    axes: GridAxes,
+    axes: u32,
     base: i32,
 }
 
@@ -54,18 +47,20 @@ impl GridSettings {
             return None;
         }
 
+        let axes = self.axes.max(2);
+        let line_spacing_factor = (PI / axes as f32).sin();
         let base = self.base.clamp(2, 100);
         let base_f32 = base as f32;
-        let largest_minor_step = camera_scale * MAX_MINOR_SPACING_PX;
+        let largest_minor_step = camera_scale * MAX_MINOR_SPACING_PX / line_spacing_factor;
         let exponent = (largest_minor_step.ln() / base_f32.ln()).floor();
         let minor_step = base_f32.powf(exponent);
         let major_step = minor_step * base_f32;
-        let minor_visible = minor_step / camera_scale >= MIN_MINOR_SPACING_PX;
+        let minor_visible = minor_step * line_spacing_factor / camera_scale >= MIN_MINOR_SPACING_PX;
         (minor_step.is_finite() && minor_step > 0.0).then_some(GridLayout {
             minor_step,
             major_step,
             minor_visible,
-            axes: self.axes,
+            axes,
             base: base as i32,
         })
     }
@@ -88,53 +83,44 @@ impl GridLayout {
         }
     }
 
-    fn line_families(self) -> ([Vec2; 3], usize, f32) {
+    fn line_families(self) -> (Vec<Vec2>, f32) {
         let visible_step = self.visible_step();
-        match self.axes {
-            GridAxes::Rectangular => ([Vec2::X, Vec2::Y, Vec2::ZERO], 2, visible_step),
-            GridAxes::Triangular => (
-                [
-                    Vec2::Y,
-                    Vec2::new(-SQRT_3 * 0.5, 0.5),
-                    Vec2::new(-SQRT_3 * 0.5, -0.5),
-                ],
-                3,
-                visible_step * SQRT_3 * 0.5,
-            ),
-        }
+        let angle_step = PI / self.axes as f32;
+        let normals = (0..self.axes)
+            .map(|axis| {
+                let angle = FRAC_PI_2 + axis as f32 * angle_step;
+                Vec2::new(clean_trig(angle.cos()), clean_trig(angle.sin()))
+            })
+            .collect();
+        (normals, visible_step * angle_step.sin())
     }
 
     pub fn snap_point(self, point: Vec2) -> Vec2 {
-        match self.axes {
-            GridAxes::Rectangular => (point / self.visible_step()).round() * self.visible_step(),
-            GridAxes::Triangular => {
-                let step = self.visible_step();
-                let q = point.x / step - point.y / (SQRT_3 * step);
-                let r = 2.0 * point.y / (SQRT_3 * step);
-                let q0 = q.floor();
-                let r0 = r.floor();
-                [
-                    (q0, r0),
-                    (q0 + 1.0, r0),
-                    (q0, r0 + 1.0),
-                    (q0 + 1.0, r0 + 1.0),
-                ]
-                .into_iter()
-                .map(|(q, r)| Vec2::new(step * (q + r * 0.5), step * SQRT_3 * 0.5 * r))
-                .min_by(|a, b| {
-                    a.distance_squared(point)
-                        .total_cmp(&b.distance_squared(point))
-                })
-                .unwrap_or(point)
+        let (normals, line_step) = self.line_families();
+        let mut best = None;
+        for (i, &a) in normals.iter().enumerate() {
+            for &b in &normals[i + 1..] {
+                for a_offset in adjacent_line_offsets(a.dot(point), line_step) {
+                    for b_offset in adjacent_line_offsets(b.dot(point), line_step) {
+                        if let Some(correction) = line_intersection(a, b, a_offset, b_offset) {
+                            if best.is_none_or(|current: Vec2| {
+                                correction.length_squared() < current.length_squared()
+                            }) {
+                                best = Some(correction);
+                            }
+                        }
+                    }
+                }
             }
         }
+        point + best.unwrap_or(Vec2::ZERO)
     }
 
     pub fn snap_translation(self, bodies: &[SnapBody<'_>]) -> Vec2 {
-        let (normals, family_count, line_step) = self.line_families();
-        let mut residuals: [Vec<f32>; 3] = std::array::from_fn(|_| Vec::new());
+        let (normals, line_step) = self.line_families();
+        let mut residuals = vec![Vec::new(); normals.len()];
 
-        for (family, normal) in normals[..family_count].iter().copied().enumerate() {
+        for (family, normal) in normals.iter().copied().enumerate() {
             for body in bodies {
                 let local_normal = body.rotation.inverse() * normal;
                 let center_offset = local_normal.dot(body.center_of_mass);
@@ -156,17 +142,16 @@ impl GridLayout {
         }
 
         let mut best = None;
-        for first in 0..family_count {
-            for second in (first + 1)..family_count {
+        for first in 0..normals.len() {
+            for second in (first + 1)..normals.len() {
                 let a = normals[first];
                 let b = normals[second];
-                let determinant = a.x * b.y - a.y * b.x;
                 for &a_residual in &residuals[first] {
                     for &b_residual in &residuals[second] {
-                        let correction = Vec2::new(
-                            (a_residual * b.y - a.y * b_residual) / determinant,
-                            (a.x * b_residual - a_residual * b.x) / determinant,
-                        );
+                        let Some(correction) = line_intersection(a, b, a_residual, b_residual)
+                        else {
+                            continue;
+                        };
                         if best.is_none_or(|current: Vec2| {
                             correction.length_squared() < current.length_squared()
                         }) {
@@ -178,6 +163,25 @@ impl GridLayout {
         }
         best.unwrap_or(Vec2::ZERO)
     }
+}
+
+fn clean_trig(value: f32) -> f32 {
+    if value.abs() < 1.0e-6 { 0.0 } else { value }
+}
+
+fn adjacent_line_offsets(projection: f32, step: f32) -> [f32; 2] {
+    let lower = (projection / step).floor() * step - projection;
+    [lower, lower + step]
+}
+
+fn line_intersection(a: Vec2, b: Vec2, a_offset: f32, b_offset: f32) -> Option<Vec2> {
+    let determinant = a.perp_dot(b);
+    (determinant.abs() > f32::EPSILON).then(|| {
+        Vec2::new(
+            (a_offset * b.y - a.y * b_offset) / determinant,
+            (a.x * b_offset - a_offset * b.x) / determinant,
+        )
+    })
 }
 
 fn support_offsets(shape: &dyn ParryShape, direction: avian2d::parry::math::Vector) -> Vec<f32> {
@@ -262,14 +266,14 @@ pub fn draw_grid(
         egui::Order::Background,
         egui::Id::new("world grid"),
     ));
-    let (normals, family_count, line_step) = layout.line_families();
+    let (normals, line_step) = layout.line_families();
     let reach = world_corners
         .iter()
         .map(|corner| corner.length())
         .fold(0.0_f32, f32::max)
         + line_step * 2.0;
 
-    for normal in normals[..family_count].iter().copied() {
+    for normal in normals {
         let direction = Vec2::new(-normal.y, normal.x);
         let (min_projection, max_projection) =
             world_corners
@@ -343,7 +347,7 @@ mod tests {
     fn overly_dense_subdivisions_are_hidden_and_not_used_for_snapping() {
         let settings = GridSettings {
             enabled: true,
-            axes: GridAxes::Rectangular,
+            axes: 2,
             base: 100,
             snap: true,
         };
@@ -356,21 +360,24 @@ mod tests {
 
     #[test]
     fn every_rendered_minor_level_stays_in_the_target_screen_range() {
-        for base in [2, 3, 4, 10, 100] {
-            let settings = GridSettings {
-                enabled: true,
-                axes: GridAxes::Rectangular,
-                base,
-                snap: true,
-            };
-            for exponent in -8..=8 {
-                for multiplier in [1.0, 1.7, 5.0] {
-                    let camera_scale = multiplier * 10.0_f32.powi(exponent);
-                    let layout = settings.layout(camera_scale).unwrap();
-                    if layout.minor_visible {
-                        let pixels = layout.minor_step / camera_scale;
-                        assert!(pixels >= MIN_MINOR_SPACING_PX - 1.0e-3);
-                        assert!(pixels <= MAX_MINOR_SPACING_PX + 1.0e-3);
+        for axes in [2, 3, 5, 12] {
+            for base in [2, 3, 4, 10, 100] {
+                let settings = GridSettings {
+                    enabled: true,
+                    axes,
+                    base,
+                    snap: true,
+                };
+                for exponent in -8..=8 {
+                    for multiplier in [1.0, 1.7, 5.0] {
+                        let camera_scale = multiplier * 10.0_f32.powi(exponent);
+                        let layout = settings.layout(camera_scale).unwrap();
+                        if layout.minor_visible {
+                            let pixels =
+                                layout.minor_step * (PI / axes as f32).sin() / camera_scale;
+                            assert!(pixels >= MIN_MINOR_SPACING_PX - 1.0e-3);
+                            assert!(pixels <= MAX_MINOR_SPACING_PX + 1.0e-3);
+                        }
                     }
                 }
             }
@@ -383,7 +390,7 @@ mod tests {
             minor_step: 0.25,
             major_step: 1.0,
             minor_visible: true,
-            axes: GridAxes::Rectangular,
+            axes: 2,
             base: 4,
         };
 
@@ -399,14 +406,40 @@ mod tests {
             minor_step: 1.0,
             major_step: 4.0,
             minor_visible: true,
-            axes: GridAxes::Triangular,
+            axes: 3,
             base: 4,
         };
 
-        assert_eq!(
-            layout.snap_point(Vec2::new(0.48, 0.82)),
-            Vec2::new(0.5, SQRT_3 * 0.5)
-        );
+        let snapped = layout.snap_point(Vec2::new(0.48, 0.82));
+        assert!(snapped.distance(Vec2::new(0.5, 3.0_f32.sqrt() * 0.5)) < 1.0e-6);
+    }
+
+    #[test]
+    fn arbitrary_axis_counts_draw_and_snap_generically() {
+        for axes in 2..=12 {
+            let layout = GridSettings {
+                enabled: true,
+                axes,
+                base: 4,
+                snap: true,
+            }
+            .layout(0.01)
+            .unwrap();
+            let (normals, line_step) = layout.line_families();
+            assert_eq!(normals.len(), axes as usize);
+
+            let snapped = layout.snap_point(Vec2::new(0.37, 0.61));
+            assert!(
+                normals
+                    .iter()
+                    .filter(|normal| {
+                        let line = normal.dot(snapped) / line_step;
+                        (line - line.round()).abs() < 1.0e-4
+                    })
+                    .count()
+                    >= 2
+            );
+        }
     }
 
     #[test]
@@ -415,7 +448,7 @@ mod tests {
             minor_step: 1.0,
             major_step: 4.0,
             minor_visible: true,
-            axes: GridAxes::Rectangular,
+            axes: 2,
             base: 4,
         };
         let collider = Collider::circle(0.2);

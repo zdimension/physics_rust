@@ -8,7 +8,7 @@ use bevy_egui::egui::{
 use bevy_egui::{EguiContexts, egui::PointerButton};
 
 use crate::tools::ToolIcons;
-use crate::grid::{GridAxes, GridSettings};
+use crate::grid::GridSettings;
 use crate::objects::air::AirSettings;
 use crate::ui::icon_button::IconButton;
 use crate::ui::images::GuiIcons;
@@ -185,11 +185,11 @@ fn air_settings_ui(ui: &mut egui::Ui, icons: &GuiIcons, settings: &mut AirSettin
 fn grid_settings_ui(ui: &mut egui::Ui, icons: &GuiIcons, settings: &mut GridSettings) {
     ui.horizontal(|ui| {
         ui.label("Number of axes:");
-        if image_radio(ui, icons, settings.axes == GridAxes::Rectangular, "2") {
-            settings.axes = GridAxes::Rectangular;
+        if image_radio(ui, icons, settings.axes == 2, "2") {
+            settings.axes = 2;
         }
-        if image_radio(ui, icons, settings.axes == GridAxes::Triangular, "3") {
-            settings.axes = GridAxes::Triangular;
+        if image_radio(ui, icons, settings.axes == 3, "3") {
+            settings.axes = 3;
         }
     });
     ui.add(
