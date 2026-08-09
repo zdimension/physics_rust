@@ -7,6 +7,7 @@ use std::rc::Rc;
 
 use crate::parse::{Number, UserFunctionDef};
 
+mod builtins;
 pub mod eval;
 pub mod parse;
 
@@ -132,15 +133,44 @@ impl Object {
     }
 
     pub fn field(&self, name: &str) -> Option<Value> {
-        self.0.fields.borrow().get(name).cloned()
+        self.0
+            .fields
+            .borrow()
+            .get(name)
+            .map(|slot| slot.value.clone())
     }
 
     pub fn set_field(&self, name: impl Into<Symbol>, value: Value) -> Option<Value> {
-        self.0.fields.borrow_mut().insert(name.into(), value)
+        let name = name.into();
+        let mut fields = self.0.fields.borrow_mut();
+        if let Some(slot) = fields.get_mut(&name) {
+            return Some(std::mem::replace(&mut slot.value, value));
+        }
+        fields.insert(name, ValueSlot::writable(value));
+        None
     }
 
     pub fn remove_field(&self, name: &str) -> Option<Value> {
-        self.0.fields.borrow_mut().remove(name)
+        self.0
+            .fields
+            .borrow_mut()
+            .remove(name)
+            .map(|slot| slot.value)
+    }
+
+    pub(crate) fn define_read_only_field(&self, name: impl Into<Symbol>, value: Value) {
+        self.0
+            .fields
+            .borrow_mut()
+            .insert(name.into(), ValueSlot::read_only(value));
+    }
+
+    pub(crate) fn field_is_read_only(&self, name: &str) -> bool {
+        self.0
+            .fields
+            .borrow()
+            .get(name)
+            .is_some_and(|slot| slot.read_only)
     }
 }
 
@@ -158,11 +188,21 @@ impl Debug for Object {
     }
 }
 
-/// A cloneable handle to either a user function or a host-provided intrinsic.
+/// A cloneable handle to a user function, Thyme builtin, or host-provided intrinsic.
 #[derive(Clone, Trace)]
 pub struct Function(Gc<FunctionValue>);
 
 impl Function {
+    pub(crate) fn builtin(
+        name: impl AsRef<str>,
+        arity: usize,
+        callback: builtins::BuiltinCallback,
+    ) -> Self {
+        Self(Gc::new(FunctionValue::Builtin(
+            builtins::BuiltinFunction::new(name, arity, callback),
+        )))
+    }
+
     pub fn intrinsic(id: IntrinsicId, name: impl AsRef<str>, arity: usize) -> Self {
         Self(Gc::new(FunctionValue::Intrinsic(IntrinsicFunction {
             name: Rc::from(name.as_ref()),
@@ -174,6 +214,7 @@ impl Function {
     pub fn name(&self) -> Option<&str> {
         match &*self.0 {
             FunctionValue::User(_) => None,
+            FunctionValue::Builtin(builtin) => Some(builtin.name()),
             FunctionValue::Intrinsic(intrinsic) => Some(&intrinsic.name),
         }
     }
@@ -181,13 +222,14 @@ impl Function {
     pub fn arity(&self) -> usize {
         match &*self.0 {
             FunctionValue::User(user) => user.definition.params.len(),
+            FunctionValue::Builtin(builtin) => builtin.arity(),
             FunctionValue::Intrinsic(intrinsic) => intrinsic.arity,
         }
     }
 
     pub fn intrinsic_id(&self) -> Option<IntrinsicId> {
         match &*self.0 {
-            FunctionValue::User(_) => None,
+            FunctionValue::User(_) | FunctionValue::Builtin(_) => None,
             FunctionValue::Intrinsic(intrinsic) => Some(intrinsic.id),
         }
     }
@@ -200,6 +242,12 @@ impl Debug for Function {
                 .debug_struct("Function")
                 .field("kind", &"user")
                 .field("arity", &user.definition.params.len())
+                .finish(),
+            FunctionValue::Builtin(builtin) => f
+                .debug_struct("Function")
+                .field("kind", &"builtin")
+                .field("name", &builtin.name())
+                .field("arity", &builtin.arity())
                 .finish(),
             FunctionValue::Intrinsic(intrinsic) => f
                 .debug_struct("Function")
@@ -282,6 +330,9 @@ impl Display for Value {
                 None => f.write_str("object"),
             },
             Self::Function(function) => match &*function.0 {
+                FunctionValue::Builtin(builtin) => {
+                    write!(f, "builtin function {}", builtin.name())
+                }
                 FunctionValue::Intrinsic(intrinsic) => write!(
                     f,
                     "intrinsic function with {} arguments (id {})",
@@ -303,13 +354,7 @@ impl PartialEq for Value {
             | (Self::Void, Self::Void)
             | (Self::Undefined, Self::Undefined) => true,
             (Self::Bool(a), Self::Bool(b)) => a == b,
-            (Self::Number(a), Self::Number(b)) => match (a, b) {
-                (Number::Int(a), Number::Int(b)) => a == b,
-                (Number::Int(i), Number::Float(f)) | (Number::Float(f), Number::Int(i)) => {
-                    (*i as f32) == *f
-                }
-                (Number::Float(a), Number::Float(b)) => a == b,
-            },
+            (Self::Number(a), Self::Number(b)) => a == b,
             (Self::Str(a), Self::Str(b)) => a == b,
             (Self::List(a), Self::List(b)) => a.as_slice() == b.as_slice(),
             (Self::Object(a), Self::Object(b)) => Gc::ptr_eq(&a.0, &b.0),
@@ -349,24 +394,48 @@ impl Debug for Value {
 
 #[derive(Trace)]
 struct ClassObject {
-    fields: RefCell<HashMap<Symbol, Value>>,
+    fields: RefCell<HashMap<Symbol, ValueSlot>>,
     native: Option<NativeObjectId>,
+}
+
+#[derive(Trace)]
+struct ValueSlot {
+    value: Value,
+    read_only: bool,
+}
+
+impl ValueSlot {
+    fn writable(value: Value) -> Self {
+        Self {
+            value,
+            read_only: false,
+        }
+    }
+
+    fn read_only(value: Value) -> Self {
+        Self {
+            value,
+            read_only: true,
+        }
+    }
 }
 
 #[derive(Trace)]
 pub struct Environment {
     parent: Option<Gc<Environment>>,
-    bindings: RefCell<HashMap<Symbol, Value>>,
+    bindings: RefCell<HashMap<Symbol, ValueSlot>>,
     receiver: Option<Object>,
 }
 
 impl Environment {
     pub fn new_root() -> Self {
-        Self {
+        let environment = Self {
             parent: None,
             bindings: RefCell::new(HashMap::new()),
             receiver: None,
-        }
+        };
+        builtins::install(&environment);
+        environment
     }
 
     pub(crate) fn child(
@@ -376,17 +445,32 @@ impl Environment {
     ) -> Self {
         Self {
             parent: Some(parent),
-            bindings: RefCell::new(bindings),
+            bindings: RefCell::new(
+                bindings
+                    .into_iter()
+                    .map(|(name, value)| (name, ValueSlot::writable(value)))
+                    .collect(),
+            ),
             receiver,
         }
     }
 
     pub(crate) fn local(&self, name: &str) -> Option<Value> {
-        self.bindings.borrow().get(name).cloned()
+        self.bindings
+            .borrow()
+            .get(name)
+            .map(|slot| slot.value.clone())
     }
 
     pub(crate) fn contains_local(&self, name: &str) -> bool {
         self.bindings.borrow().contains_key(name)
+    }
+
+    pub(crate) fn local_is_read_only(&self, name: &str) -> bool {
+        self.bindings
+            .borrow()
+            .get(name)
+            .is_some_and(|slot| slot.read_only)
     }
 
     pub(crate) fn parent(&self) -> Option<Gc<Environment>> {
@@ -399,7 +483,19 @@ impl Environment {
 
     /// Creates or replaces the binding for a name in this environment.
     pub fn declare(&self, name: impl Into<Symbol>, value: Value) -> Option<Value> {
-        self.bindings.borrow_mut().insert(name.into(), value)
+        let name = name.into();
+        let mut bindings = self.bindings.borrow_mut();
+        if let Some(slot) = bindings.get_mut(&name) {
+            return Some(std::mem::replace(&mut slot.value, value));
+        }
+        bindings.insert(name, ValueSlot::writable(value));
+        None
+    }
+
+    pub(crate) fn define_read_only(&self, name: impl Into<Symbol>, value: Value) {
+        self.bindings
+            .borrow_mut()
+            .insert(name.into(), ValueSlot::read_only(value));
     }
 }
 
@@ -418,6 +514,7 @@ impl Drop for Environment {
 #[derive(Trace)]
 enum FunctionValue {
     User(UserFunction),
+    Builtin(builtins::BuiltinFunction),
     Intrinsic(IntrinsicFunction),
 }
 
@@ -534,14 +631,11 @@ impl Runtime {
     }
 
     pub fn global(&self, name: &str) -> Option<Value> {
-        self.globals.bindings.borrow().get(name).cloned()
+        self.globals.local(name)
     }
 
     pub fn set_global(&self, name: impl Into<Symbol>, value: Value) -> Option<Value> {
-        self.globals
-            .bindings
-            .borrow_mut()
-            .insert(name.into(), value)
+        self.globals.declare(name, value)
     }
 
     /// Creates or replaces the function bound to a native property.
@@ -792,10 +886,7 @@ mod tests {
             },
             env: environment.clone(),
         })));
-        environment
-            .bindings
-            .borrow_mut()
-            .insert(Symbol::from("cycle"), Value::Function(function.clone()));
+        environment.declare("cycle", Value::Function(function.clone()));
 
         drop(function);
         drop(environment);

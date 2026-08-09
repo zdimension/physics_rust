@@ -29,10 +29,8 @@ impl<'runtime, 'host> Evaluator<'runtime, 'host> {
     /// if the value is a zero-parameter function, call it and return the result, otherwise return the value as-is
     fn collapse(&mut self, value: Value) -> Result<Value, String> {
         if let Value::Function(function) = &value {
-            if let FunctionValue::User(user) = &*function.0 {
-                if user.definition.params.is_empty() {
-                    return self.call_function(function, &[], user.definition.body.1);
-                }
+            if function.arity() == 0 {
+                return self.call_function(function, &[], (0..0).into());
             }
         }
         Ok(value)
@@ -118,6 +116,12 @@ impl<'runtime, 'host> Evaluator<'runtime, 'host> {
                     )
                 }),
             ResolvedMember::Dynamic { object, name } => {
+                if object.field_is_read_only(name.as_str()) {
+                    return Err(format!(
+                        "Cannot set read-only member {name}{}",
+                        Self::span_suffix(span)
+                    ));
+                }
                 object.set_field(name, value);
                 Ok(())
             }
@@ -154,6 +158,9 @@ impl<'runtime, 'host> Evaluator<'runtime, 'host> {
         span: Span,
     ) -> Result<(), String> {
         if kind == AssignmentKind::Declare {
+            if env.local_is_read_only(name.as_str()) {
+                return Err(format!("Cannot set read-only binding {name} at {span:?}"));
+            }
             env.declare(name.clone(), value);
             return Ok(());
         }
@@ -161,6 +168,9 @@ impl<'runtime, 'host> Evaluator<'runtime, 'host> {
         let mut scope = Some(env.clone());
         while let Some(current) = scope {
             if current.contains_local(name.as_str()) {
+                if current.local_is_read_only(name.as_str()) {
+                    return Err(format!("Cannot set read-only binding {name} at {span:?}"));
+                }
                 current.declare(name.clone(), value);
                 return Ok(());
             }
@@ -556,6 +566,18 @@ impl<'runtime, 'host> Evaluator<'runtime, 'host> {
         call_span: Span,
     ) -> Result<Value, String> {
         match &*function.0 {
+            FunctionValue::Builtin(builtin) => {
+                if arguments.len() != builtin.arity() {
+                    return Err(format!(
+                        "Builtin {} expected {} arguments, got {} at {call_span:?}",
+                        builtin.name(),
+                        builtin.arity(),
+                        arguments.len()
+                    ));
+                }
+
+                (builtin.callback())(self, arguments, call_span)
+            }
             FunctionValue::Intrinsic(intrinsic) => {
                 if arguments.len() != intrinsic.arity {
                     return Err(format!(
@@ -655,7 +677,7 @@ mod tests {
             arguments: &[Value],
         ) -> Result<Value, HostError> {
             self.calls += 1;
-            Ok(arguments[0].clone())
+            Ok(arguments.first().cloned().unwrap_or(Value::Null))
         }
     }
 
@@ -719,6 +741,189 @@ mod tests {
             .unwrap_or_else(|error| panic!("evaluation error for {source:?}: {error}"))
     }
 
+    fn eval_source_error(
+        evaluator: &mut Evaluator<'_, '_>,
+        environment: &Gc<Environment>,
+        source: &str,
+    ) -> String {
+        let (expression, _) = crate::parse::parse_thyme(source)
+            .into_result()
+            .unwrap_or_else(|errors| panic!("parse errors for {source:?}: {errors:#?}"));
+        evaluator.eval_expr(&expression, environment).unwrap_err()
+    }
+
+    fn echo_builtin(
+        evaluator: &mut Evaluator<'_, '_>,
+        arguments: &[Value],
+        _call_span: Span,
+    ) -> Result<Value, String> {
+        assert!(evaluator.runtime.global("alloc").is_some());
+        Ok(arguments[0].clone())
+    }
+
+    #[test]
+    fn generic_builtin_descriptors_dispatch_without_the_host() {
+        let runtime = Runtime::new();
+        let mut host = TestHost { calls: 0 };
+        let mut evaluator = Evaluator {
+            runtime: &runtime,
+            host: &mut host,
+        };
+        let function = Function::builtin("test.echo", 1, echo_builtin);
+        let span: Span = (4..9).into();
+
+        assert_eq!(function.name(), Some("test.echo"));
+        assert_eq!(function.arity(), 1);
+        assert_eq!(
+            evaluator
+                .call_function(&function, &[Value::Bool(true)], span)
+                .unwrap(),
+            Value::Bool(true)
+        );
+        let error = evaluator.call_function(&function, &[], span).unwrap_err();
+        assert!(error.contains("Builtin test.echo expected 1 arguments, got 0"));
+        drop(evaluator);
+        assert_eq!(host.calls, 0);
+
+        drop(function);
+        dumpster::unsync::collect();
+    }
+
+    #[test]
+    fn alloc_returns_a_fresh_empty_object_without_calling_the_host() {
+        let runtime = Runtime::new();
+        let mut host = TestHost { calls: 0 };
+        let environment = empty_environment();
+        let mut evaluator = Evaluator {
+            runtime: &runtime,
+            host: &mut host,
+        };
+
+        let Value::Object(first) = eval_source(&mut evaluator, &environment, "alloc") else {
+            panic!("alloc did not return an object");
+        };
+        let Value::Object(second) = eval_source(&mut evaluator, &environment, "alloc") else {
+            panic!("alloc did not return an object");
+        };
+
+        assert_ne!(Value::Object(first.clone()), Value::Object(second));
+        assert_eq!(first.field("anything"), None);
+        drop(evaluator);
+        assert_eq!(host.calls, 0);
+    }
+
+    #[test]
+    fn string_builtins_handle_unicode_strings_and_lists() {
+        let runtime = Runtime::new();
+        let mut host = TestHost { calls: 0 };
+        let environment = empty_environment();
+        let mut evaluator = Evaluator {
+            runtime: &runtime,
+            host: &mut host,
+        };
+
+        assert_eq!(
+            eval_source(&mut evaluator, &environment, "string.length(\"é🙂\")"),
+            Value::Number(Number::Int(2))
+        );
+        assert_eq!(
+            eval_source(&mut evaluator, &environment, "string.length([1, 2, 3])"),
+            Value::Number(Number::Int(3))
+        );
+        assert_eq!(
+            eval_source(
+                &mut evaluator,
+                &environment,
+                "string.split(\"a🙂b🙂\", \"🙂\")"
+            ),
+            Value::List(List::new([
+                Value::Str("a".into()),
+                Value::Str("b".into()),
+                Value::Str("".into()),
+            ]))
+        );
+        assert_eq!(
+            eval_source(&mut evaluator, &environment, "string.str2list(\"é🙂\")"),
+            Value::List(List::new(
+                [Value::Str("é".into()), Value::Str("🙂".into()),]
+            ))
+        );
+        drop(evaluator);
+        assert_eq!(host.calls, 0);
+    }
+
+    #[test]
+    fn string_builtins_report_type_delimiter_and_arity_errors() {
+        let runtime = Runtime::new();
+        let mut host = TestHost { calls: 0 };
+        let environment = empty_environment();
+        let mut evaluator = Evaluator {
+            runtime: &runtime,
+            host: &mut host,
+        };
+
+        let error = eval_source_error(&mut evaluator, &environment, "string.length(12)");
+        assert!(error.contains("expected a string or list"), "{error}");
+
+        for delimiter in ["", "ab"] {
+            let source = format!("string.split(\"abc\", \"{delimiter}\")");
+            let error = eval_source_error(&mut evaluator, &environment, &source);
+            assert!(
+                error.contains("delimiter must be exactly one character"),
+                "{error}"
+            );
+        }
+
+        let error = eval_source_error(&mut evaluator, &environment, "string.str2list([1])");
+        assert!(error.contains("argument 1 to be a string"), "{error}");
+
+        let error = eval_source_error(&mut evaluator, &environment, "string.length()");
+        assert!(error.contains("expected 1 arguments, got 0"), "{error}");
+    }
+
+    #[test]
+    fn builtin_slots_are_read_only_but_can_be_shadowed_and_extended() {
+        let runtime = Runtime::new();
+        let mut host = TestHost { calls: 0 };
+        let environment = empty_environment();
+        let mut evaluator = Evaluator {
+            runtime: &runtime,
+            host: &mut host,
+        };
+
+        for source in [
+            "alloc = 123",
+            "alloc := 123",
+            "string = 123",
+            "string.split = 123",
+            "string.str2list := 123",
+        ] {
+            let error = eval_source_error(&mut evaluator, &environment, source);
+            assert!(error.contains("Cannot set read-only"), "{source}: {error}");
+        }
+
+        assert_eq!(
+            eval_source(
+                &mut evaluator,
+                &environment,
+                "shadow := { alloc := 7; alloc }; shadow"
+            ),
+            Value::Number(Number::Int(7))
+        );
+        assert_eq!(
+            eval_source(
+                &mut evaluator,
+                &environment,
+                "string.custom = 12; string.custom"
+            ),
+            Value::Number(Number::Int(12))
+        );
+        assert_eq!(
+            eval_source(&mut evaluator, &environment, "string.length(\"ok\")"),
+            Value::Number(Number::Int(2))
+        );
+    }
+
     #[test]
     fn intrinsic_calls_check_arity_and_dispatch_to_the_host() {
         let runtime = Runtime::new();
@@ -737,6 +942,32 @@ mod tests {
 
         let error = evaluator.call_function(&function, &[], span).unwrap_err();
         assert!(error.contains("expected 1 arguments, got 0"));
+        drop(evaluator);
+        assert_eq!(host.calls, 1);
+    }
+
+    #[test]
+    fn collapse_calls_zero_argument_host_intrinsics() {
+        let runtime = Runtime::new();
+        let mut host = TestHost { calls: 0 };
+        let environment = empty_environment();
+        environment.declare(
+            "host_value",
+            Value::Function(Function::intrinsic(
+                IntrinsicId::from_raw(5),
+                "host_value",
+                0,
+            )),
+        );
+        let mut evaluator = Evaluator {
+            runtime: &runtime,
+            host: &mut host,
+        };
+
+        assert_eq!(
+            eval_source(&mut evaluator, &environment, "host_value"),
+            Value::Null
+        );
         drop(evaluator);
         assert_eq!(host.calls, 1);
     }

@@ -255,10 +255,22 @@ pub enum UnaryOp {
 }
 
 /// A Thyme number. Algodoo keeps integers and floats as distinct runtime types.
-#[derive(Copy, Clone, Debug, PartialEq, Trace)]
+#[derive(Copy, Clone, Debug, Trace)]
 pub enum Number {
     Int(i32),
     Float(f32),
+}
+
+impl PartialEq for Number {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Number::Int(a), Number::Int(b)) => a == b,
+            (Number::Int(i), Number::Float(f)) | (Number::Float(f), Number::Int(i)) => {
+                (*i as f32) == *f
+            }
+            (Number::Float(a), Number::Float(b)) => a == b,
+        }
+    }
 }
 
 impl Number {
@@ -282,18 +294,6 @@ impl Number {
             Number::Float(f) => f,
         }
     }
-
-    /*pub fn thyme_display(&self) -> Cow<'_, str> {
-        match self {
-            Number::Int(n) => n.to_string().into(),
-            Number::Float(f) => match f {
-                f if f.is_nan() => "NaN".into(),
-                f if f.is_infinite() && f.is_sign_positive() => "inf".into(),
-                f if f.is_infinite() && f.is_sign_negative() => "-inf".into(),
-                f => f.to_string().into(),
-            }
-        }
-    }*/
 }
 
 impl Display for Number {
