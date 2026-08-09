@@ -26,6 +26,15 @@ enum ResolvedMember {
     },
 }
 
+impl ResolvedMember {
+    fn exists(&self) -> bool {
+        match self {
+            Self::Native { .. } => true,
+            Self::Dynamic { object, name } => object.field_symbol(name).is_some(),
+        }
+    }
+}
+
 impl<'runtime, 'host> Evaluator<'runtime, 'host> {
     /// if the value is a zero-parameter function, call it and return the result, otherwise return the value as-is
     fn collapse(&mut self, value: Value) -> Result<Value, String> {
@@ -187,7 +196,11 @@ impl<'runtime, 'host> Evaluator<'runtime, 'host> {
             }
             if let Some(receiver) = current.receiver() {
                 let member = self.resolve_member(receiver, name, Some(span))?;
-                return self.write_member(member, value, Some(span));
+                if member.exists() {
+                    return self.write_member(member, value, Some(span));
+                }
+                current.declare(name.clone(), value);
+                return Ok(());
             }
             scope = current.parent();
         }
@@ -1352,11 +1365,15 @@ mod tests {
     }
 
     #[test]
-    fn with_scope_routes_assignment_to_the_receiver_but_keeps_declarations_local() {
+    fn with_scope_only_routes_existing_members_to_the_receiver() {
         let runtime = Runtime::new();
         let mut host = TestHost { calls: 0 };
         let environment = empty_environment();
         let object = Object::new();
+        object.set_field("x", Value::Undefined);
+        object.set_field("copy", Value::Undefined);
+        object.set_field("closure", Value::Undefined);
+        object.set_field("captured", Value::Undefined);
         environment.declare("object", Value::Object(object.clone()));
         environment.declare("x", Value::Number(Number::Int(99)));
         environment.declare("y", Value::Number(Number::Int(100)));
@@ -1374,7 +1391,8 @@ mod tests {
                 y := 7; \
                 y = 8; \
                 copy = global_value; \
-                closure = { captured = y } \
+                closure = { captured = y }; \
+                missing = 12; \
             }",
         );
         eval_source(&mut evaluator, &environment, "object.closure");
@@ -1382,6 +1400,7 @@ mod tests {
         assert_eq!(object.field("x"), Some(Value::Number(Number::Int(5))));
         assert_eq!(object.field("copy"), Some(Value::Number(Number::Int(11))));
         assert_eq!(object.field("y"), None);
+        assert_eq!(object.field("missing"), None);
         assert_eq!(
             object.field("captured"),
             Some(Value::Number(Number::Int(8)))
@@ -1394,6 +1413,29 @@ mod tests {
             environment.local(&Symbol::from("y")),
             Some(Value::Number(Number::Int(100)))
         );
+    }
+
+    #[test]
+    fn with_scope_can_update_but_not_implicitly_create_receiver_fields() {
+        let runtime = Runtime::new();
+        let mut host = TestHost { calls: 0 };
+        let environment = empty_environment();
+        let object = Object::new();
+        environment.declare("o", Value::Object(object.clone()));
+        let mut evaluator = Evaluator {
+            runtime: &runtime,
+            host: &mut host,
+        };
+
+        eval_source(&mut evaluator, &environment, "o -> { foobar = 1 }");
+        assert_eq!(object.field("foobar"), None);
+
+        eval_source(
+            &mut evaluator,
+            &environment,
+            "o.foobar = 123; o -> { foobar = 1 }",
+        );
+        assert_eq!(object.field("foobar"), Some(Value::from(1)));
     }
 
     #[test]
@@ -1423,9 +1465,11 @@ mod tests {
         eval_source(
             &mut evaluator,
             &environment,
-            "object.native := 12; object -> { native = 13; local := 7 }",
+            "object.native := 12; object -> { native = 13; dynamic = 5; missing = 1; local := 7 }",
         );
         assert_eq!(runtime.binding_count(), 0);
+        assert_eq!(object.field("dynamic"), Some(Value::from(5)));
+        assert_eq!(object.field("missing"), None);
         assert!(
             eval_source_error(&mut evaluator, &environment, "object.readonly = { true }")
                 .contains("read-only member readonly")
