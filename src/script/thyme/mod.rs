@@ -2,8 +2,10 @@ use std::{collections::VecDeque, fmt::Write};
 
 use bevy::{ecs::world::World, prelude::Resource};
 
+pub(crate) mod events;
 mod native;
 
+pub(crate) use events::PendingEvents;
 pub(crate) use native::{SceneProperty, ScriptEngine};
 
 #[derive(Default, Resource)]

@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, rc::Rc};
 
 use ::thyme::{
     Function, Host, HostError, HostErrorKind, IntrinsicId, List, NativeObjectId, Object,
@@ -16,6 +16,7 @@ use bevy::{
 };
 use bevy_egui::egui::ecolor::Hsva;
 
+use super::Console;
 use crate::{
     config::AppConfig,
     lyon_compat::Shape,
@@ -271,6 +272,13 @@ fn float_list<const N: usize>(value: &Value, name: &str) -> Result<[f32; N], Hos
 
 fn floats(values: impl IntoIterator<Item = f32>) -> Value {
     Value::List(List::new(values.into_iter().map(Value::from)))
+}
+
+fn event_object(this: Object) -> Object {
+    let event = Object::new();
+    event.set_field("handled", Value::Bool(false));
+    event.set_field("this", Value::Object(this));
+    event
 }
 
 fn has_angle(world: &World, entity: Entity) -> bool {
@@ -717,6 +725,20 @@ native_class!(
 );
 
 native_class!(
+    CONSOLE = "Console",
+    [
+        native_method!("print", 1, |world: &mut World, _, arguments| {
+            world.resource_mut::<Console>().push_line(&arguments[0]);
+            Ok(Value::Void)
+        }),
+        native_method!("clear", 0, |world: &mut World, _, _| {
+            world.resource_mut::<Console>().output.clear();
+            Ok(Value::Void)
+        }),
+    ]
+);
+
+native_class!(
     SCENE_OBJECT = "SceneObject",
     [
         scene_property!("angle", has_angle, get_world_rotation, set_angle),
@@ -746,6 +768,8 @@ native_class!(
         scene_component_value!("motor", MotorComponent, enabled, bool),
         scene_component_value!("motorSpeed", MotorComponent, vel, float),
         scene_component_value!("motorTorque", MotorComponent, torque, float),
+        native_event!("onClick"),
+        native_event!("onKey"),
         scene_property!("pos", has_pos, get_pos, set_pos),
         scene_property!("radius", has_radius, get_radius, set_radius),
         scene_component_value!("restitution", Restitution, coefficient, float),
@@ -757,13 +781,14 @@ native_class!(
     ]
 );
 
-static CLASSES: &[&NativeClass] = &[&SYSTEM, &GUI, &SIM, &SCENE_OBJECT];
-const GLOBAL_CLASS_COUNT: usize = 3;
-const SCENE_CLASS: usize = 3;
+static CLASSES: &[&NativeClass] = &[&SYSTEM, &GUI, &SIM, &CONSOLE, &SCENE_OBJECT];
+const GLOBAL_CLASS_COUNT: usize = 4;
+const SCENE_CLASS: usize = 4;
 
 struct RegisteredClass {
     definition: &'static NativeClass,
     properties: HashMap<Symbol, PropertyId>,
+    events: HashMap<Symbol, usize>,
 }
 
 struct NativeInstance {
@@ -795,6 +820,15 @@ impl NativeRegistry {
                         NativeMember::Property { name, .. } => {
                             Some((Symbol::from(*name), PropertyId::from_raw(index as u64)))
                         }
+                        _ => None,
+                    })
+                    .collect(),
+                events: definition
+                    .members
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(index, member)| match member {
+                        NativeMember::Event { name } => Some((Symbol::from(*name), index)),
                         _ => None,
                     })
                     .collect(),
@@ -924,6 +958,76 @@ impl ScriptEngine {
         self.runtime.eval(&mut host, source)
     }
 
+    fn event_handler(&self, object: NativeObjectId, name: &str) -> Option<(Object, Function)> {
+        let object = self.registry.instance(object).ok()?.object.clone();
+        let Value::Function(function) = object.field(name)? else {
+            return None;
+        };
+        (function.arity() == 1).then_some((object, function))
+    }
+
+    fn call_event(
+        &self,
+        world: &mut World,
+        function: &Function,
+        event: Object,
+    ) -> Result<Value, String> {
+        let mut host = WorldHost {
+            world,
+            registry: &self.registry,
+        };
+        self.runtime
+            .call_function(&mut host, function, &[Value::Object(event)])
+    }
+
+    pub(crate) fn dispatch_click(
+        &mut self,
+        world: &mut World,
+        entity: Entity,
+        pos: Vec2,
+    ) -> Option<String> {
+        let id = self.registry.ensure_entity(entity);
+        let (object, function) = self.event_handler(id, "onClick")?;
+        let event = event_object(object);
+        event.set_field("pos", floats(pos.to_array()));
+        self.call_event(world, &function, event)
+            .err()
+            .map(|error| format!("{entity:?}.onClick: {error}"))
+    }
+
+    pub(crate) fn dispatch_key(
+        &self,
+        world: &mut World,
+        pressed: bool,
+        key_code: &str,
+        key_char: Option<&str>,
+    ) -> Vec<String> {
+        let handlers = self
+            .registry
+            .entities
+            .iter()
+            .filter(|(entity, _)| world.get_entity(**entity).is_ok())
+            .filter_map(|(&entity, &id)| {
+                self.event_handler(id, "onKey")
+                    .map(|(object, function)| (entity, object, function))
+            })
+            .collect::<Vec<_>>();
+        handlers
+            .into_iter()
+            .filter_map(|(entity, object, function)| {
+                let event = event_object(object);
+                event.set_field("pressed", Value::Bool(pressed));
+                event.set_field("keyCode", Value::Str(Rc::from(key_code)));
+                if let Some(key_char) = key_char {
+                    event.set_field("keyChar", Value::Str(Rc::from(key_char)));
+                }
+                self.call_event(world, &function, event)
+                    .err()
+                    .map(|error| format!("{entity:?}.onKey: {error}"))
+            })
+            .collect()
+    }
+
     pub(crate) fn selection_properties(
         &mut self,
         world: &mut World,
@@ -937,29 +1041,54 @@ impl ScriptEngine {
             .collect::<Vec<_>>();
         let mut result = Vec::new();
         for (index, member) in SCENE_OBJECT.members.iter().enumerate() {
-            let NativeMember::Property {
-                name,
-                applies: Some(applies),
-                get,
-                set,
-            } = member
-            else {
+            let (name, read_only, values) = match member {
+                NativeMember::Property {
+                    name,
+                    applies: Some(applies),
+                    get,
+                    set,
+                } => (
+                    *name,
+                    set.is_none(),
+                    objects
+                        .iter()
+                        .filter_map(|&(entity, object)| {
+                            applies(world, entity).then(|| {
+                                self.runtime
+                                    .property_binding(object, PropertyId::from_raw(index as u64))
+                                    .map(Value::Function)
+                                    .unwrap_or_else(|| {
+                                        get(world, Some(entity)).unwrap_or(Value::Undefined)
+                                    })
+                            })
+                        })
+                        .collect::<Vec<_>>(),
+                ),
+                NativeMember::Event { name } => (
+                    *name,
+                    false,
+                    objects
+                        .iter()
+                        .map(|&(_, object)| {
+                            self.registry
+                                .instance(object)
+                                .unwrap()
+                                .object
+                                .field(name)
+                                .unwrap_or(Value::Undefined)
+                        })
+                        .collect(),
+                ),
+                _ => continue,
+            };
+            let Some((value, rest)) = values.split_first() else {
                 continue;
             };
-            let mut values = objects.iter().filter_map(|&(entity, object)| {
-                applies(world, entity).then(|| {
-                    self.runtime
-                        .property_binding(object, PropertyId::from_raw(index as u64))
-                        .map(Value::Function)
-                        .unwrap_or_else(|| get(world, Some(entity)).unwrap_or(Value::Undefined))
-                })
-            });
-            let Some(value) = values.next() else { continue };
-            let mixed = values.any(|other| other != value);
+            let mixed = rest.iter().any(|other| other != value);
             result.push(SceneProperty {
                 name,
                 value: if mixed { "?".into() } else { value.to_string() },
-                read_only: set.is_none(),
+                read_only,
             });
         }
         result
@@ -972,9 +1101,33 @@ impl ScriptEngine {
         name: &str,
         source: &str,
     ) -> Result<(), String> {
+        let symbol = Symbol::new(name);
+        if let Some(&event) = self.registry.classes[SCENE_CLASS].events.get(&symbol) {
+            let NativeMember::Event { name } = &SCENE_OBJECT.members[event] else {
+                unreachable!()
+            };
+            let targets = entities
+                .iter()
+                .copied()
+                .filter(|entity| world.get_entity(*entity).is_ok())
+                .collect::<Vec<_>>();
+            if targets.is_empty() {
+                return Err(format!("no selected object has {name}"));
+            }
+            let value = self.eval(world, source)?;
+            for entity in targets {
+                let object = self.registry.ensure_entity(entity);
+                self.registry
+                    .instance(object)
+                    .unwrap()
+                    .object
+                    .set_field(*name, value.clone());
+            }
+            return Ok(());
+        }
         let property = *self.registry.classes[SCENE_CLASS]
             .properties
-            .get(&Symbol::new(name))
+            .get(&symbol)
             .ok_or_else(|| format!("unknown property {name}"))?;
         let NativeMember::Property { applies, set, .. } =
             &SCENE_OBJECT.members[property.into_raw() as usize]
@@ -1168,6 +1321,7 @@ mod tests {
     fn world() -> World {
         let mut world = World::new();
         world.insert_resource(AppConfig::default());
+        world.insert_resource(Console::default());
         world.insert_resource(GravitySetting::default());
         world.insert_resource(Gravity(Vec2::NEG_Y * 9.81));
         let mut physics = Time::<Physics>::default();
@@ -1217,6 +1371,23 @@ mod tests {
             engine.eval(&mut world, "system.TIME").unwrap(),
             Value::Number(Number::Float(_))
         ));
+    }
+
+    #[test]
+    fn console_methods_print_values_and_clear_output() {
+        let mut engine = ScriptEngine::default();
+        let mut world = world();
+
+        assert_eq!(
+            engine
+                .eval(&mut world, "Console.print([1, true, \"hi\"])")
+                .unwrap(),
+            Value::Void
+        );
+        assert_eq!(world.resource::<Console>().output, "[1, true, hi]");
+        engine.eval(&mut world, "console.clear").unwrap();
+        assert!(world.resource::<Console>().output.is_empty());
+        assert!(engine.eval(&mut world, "Console = 1").is_err());
     }
 
     #[test]
@@ -1589,5 +1760,80 @@ mod tests {
             .unwrap();
         assert_eq!(world.get::<Transform>(handle).unwrap().scale.x, 0.8);
         assert_eq!(world.get::<SpringObject>(spring).unwrap().unit_size, 1.0);
+    }
+
+    #[test]
+    fn scene_events_call_only_one_argument_functions() {
+        let mut engine = ScriptEngine::default();
+        let mut world = world();
+        let clicked = world
+            .spawn((
+                Position::default(),
+                Transform::default(),
+                GlobalTransform::default(),
+            ))
+            .id();
+        let other = world.spawn_empty().id();
+
+        let properties = engine.selection_properties(&mut world, &[clicked]);
+        assert!(properties.iter().any(|property| property.name == "onClick"));
+        assert!(properties.iter().any(|property| property.name == "onKey"));
+        engine
+            .set_selection_property(
+                &mut world,
+                &[clicked],
+                "onClick",
+                "(e) => { e.this.pos = e.pos; e.this.wasHandled = e.handled; e.handled = true }",
+            )
+            .unwrap();
+        assert_eq!(
+            engine.dispatch_click(&mut world, clicked, Vec2::new(3.0, 4.0)),
+            None
+        );
+        assert_eq!(
+            world.get::<Position>(clicked).unwrap().0,
+            Vec2::new(3.0, 4.0)
+        );
+        assert_eq!(
+            engine.dispatch_click(&mut world, clicked, Vec2::new(3.0, 4.0)),
+            None
+        );
+        let clicked_object = &engine
+            .registry
+            .instance(engine.registry.entities[&clicked])
+            .unwrap()
+            .object;
+        assert_eq!(clicked_object.field("wasHandled"), Some(Value::Bool(false)));
+
+        engine
+            .set_selection_property(
+                &mut world,
+                &[clicked],
+                "onKey",
+                "(e) => { e.this.lastPressed = e.pressed; e.this.lastCode = e.keyCode; e.this.lastChar = e.keyChar }",
+            )
+            .unwrap();
+        engine
+            .set_selection_property(&mut world, &[other], "onKey", "(e, unused) => { 1 }")
+            .unwrap();
+        assert!(
+            engine
+                .dispatch_key(&mut world, true, "a", Some("A"))
+                .is_empty()
+        );
+        let object = &engine
+            .registry
+            .instance(engine.registry.entities[&clicked])
+            .unwrap()
+            .object;
+        assert_eq!(object.field("lastPressed"), Some(Value::Bool(true)));
+        assert_eq!(object.field("lastCode"), Some(Value::Str(Rc::from("a"))));
+        assert_eq!(object.field("lastChar"), Some(Value::Str(Rc::from("A"))));
+        let other = &engine
+            .registry
+            .instance(engine.registry.entities[&other])
+            .unwrap()
+            .object;
+        assert_eq!(other.field("lastCode"), None);
     }
 }

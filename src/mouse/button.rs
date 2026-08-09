@@ -15,6 +15,7 @@ use crate::mouse::select::{
     collider_under_point,
 };
 use crate::objects::spring::{FinishSpringEvent, UpdateSpringPreviewEvent};
+use crate::script::thyme::PendingEvents;
 use crate::tools::add_object::{
     AddAxleEvent, AddObjectEvent, AttachmentKind, PlaceAttachmentEvent,
 };
@@ -47,6 +48,7 @@ pub struct ToolInteractionState<'w, 's> {
 pub struct AttachmentMoveCommit<'w, 's> {
     attachments: Query<'w, 's, (), With<AttachmentKind>>,
     place_attachment: MessageWriter<'w, PlaceAttachmentEvent>,
+    thyme_events: ResMut<'w, PendingEvents>,
 }
 
 #[derive(SystemParam)]
@@ -148,6 +150,12 @@ pub fn left_release(
             info!("resetting state");
             *state_pos = None;
             let Some(tool) = selected else { break 'thing };
+            if button == UsedMouseButton::Left
+                && screen_pos.distance(click_pos_screen) <= 6.0
+                && let Some(entity) = collider_under_point(pos, &laser_click_targets.colliders)
+            {
+                attachment_move_commit.thyme_events.click(entity, pos);
+            }
             // remove selection overlays
             if pointer_state.mouse_button == Some(button) {
                 pointer_state.mouse_button = None;

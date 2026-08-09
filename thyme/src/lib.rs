@@ -736,6 +736,19 @@ impl Runtime {
         .eval_expr(&expression, &self.globals)
     }
 
+    pub fn call_function(
+        &self,
+        host: &mut dyn Host,
+        function: &Function,
+        arguments: &[Value],
+    ) -> Result<Value, String> {
+        eval::Evaluator {
+            runtime: self,
+            host,
+        }
+        .call_function(function, arguments, (0..0).into())
+    }
+
     /// Creates or replaces the function bound to a native property.
     pub fn bind_property(
         &self,
