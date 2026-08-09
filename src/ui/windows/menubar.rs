@@ -1,4 +1,4 @@
-use bevy::prelude::{Commands, Entity, NonSendMut, Query, Res, With};
+use bevy::prelude::{Commands, Entity, Query, Res, ResMut, With};
 use crate::{egui_systems};
 
 use bevy_egui::egui::Align2;
@@ -20,7 +20,7 @@ pub fn draw_menubar(
     gui_icons: Res<GuiIcons>,
     mut commands: Commands,
     opt_window: Query<Entity, With<OptionsWindow>>,
-    mut console: NonSendMut<Console>,
+    mut console: ResMut<Console>,
 ) {
     egui::Window::new("Menu bar")
         .anchor(Align2::LEFT_TOP, [1.0, 1.0])

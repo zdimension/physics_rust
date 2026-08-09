@@ -35,10 +35,10 @@ fn float_unary(
 ) -> Result<Value, String> {
     evaluator.apply_unary(
         |value| {
-            let Value::Number(Number::Float(value)) = value else {
+            let Value::Number(value) = value else {
                 return Err(format!("math.{name}: expected float"));
             };
-            Ok(Value::Number(Number::Float(op(value))))
+            Ok(Value::Number(Number::Float(op(value.to_f32_lossy()))))
         },
         value.clone(),
     )
@@ -49,12 +49,12 @@ fn atan2(
     arguments: &[Value],
     _call_span: Span,
 ) -> Result<Value, String> {
-    let (Value::Number(Number::Float(y)), Value::Number(Number::Float(x))) =
-        (&arguments[0], &arguments[1])
-    else {
+    let (Value::Number(y), Value::Number(x)) = (&arguments[0], &arguments[1]) else {
         return Err("math.atan2: expected floats".into());
     };
-    Ok(Value::Number(Number::Float(y.atan2(*x))))
+    Ok(Value::Number(Number::Float(
+        y.to_f32_lossy().atan2(x.to_f32_lossy()),
+    )))
 }
 
 fn to_bool(
@@ -78,28 +78,27 @@ fn to_bool(
 }
 
 fn color(value: &Value, name: &str, convert: fn([f32; 3]) -> [f32; 3]) -> Result<Value, String> {
+    let error = || format!("math.{name}: expected float[3 or 4]");
     let Value::List(values) = value else {
-        return Err(format!("math.{name}: expected float[3 or 4]"));
+        return Err(error());
     };
-    let (channels, alpha) = match values.as_slice() {
+    let numbers = match values.as_slice() {
+        [Value::Number(a), Value::Number(b), Value::Number(c)] => [*a, *b, *c, Number::Int(0)],
         [
-            Value::Number(Number::Float(a)),
-            Value::Number(Number::Float(b)),
-            Value::Number(Number::Float(c)),
-        ] => ([*a, *b, *c], None),
-        [
-            Value::Number(Number::Float(a)),
-            Value::Number(Number::Float(b)),
-            Value::Number(Number::Float(c)),
-            Value::Number(Number::Float(alpha)),
-        ] => ([*a, *b, *c], Some(*alpha)),
-        _ => return Err(format!("math.{name}: expected float[3 or 4]")),
+            Value::Number(a),
+            Value::Number(b),
+            Value::Number(c),
+            Value::Number(alpha),
+        ] => [*a, *b, *c, *alpha],
+        _ => return Err(error()),
     };
-    let mut result = convert(channels)
+    let mut result = convert([numbers[0], numbers[1], numbers[2]].map(Number::to_f32_lossy))
         .into_iter()
         .map(|value| Value::Number(Number::Float(value)))
         .collect::<Vec<_>>();
-    result.extend(alpha.map(|value| Value::Number(Number::Float(value))));
+    if values.as_slice().len() == 4 {
+        result.push(Value::Number(Number::Float(numbers[3].to_f32_lossy())));
+    }
     Ok(Value::List(List::from(result)))
 }
 

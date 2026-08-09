@@ -23,7 +23,8 @@ pub struct EguiWantsFocus(bool);
 #[derive(Resource)]
 pub struct ToolCursorCache {
     arrow: Handle<Image>,
-    by_source: HashMap<(AssetId<Image>, i32), Handle<Image>>,
+    scale: u32,
+    by_source: HashMap<AssetId<Image>, Handle<Image>>,
 }
 
 impl FromWorld for ToolCursorCache {
@@ -31,6 +32,7 @@ impl FromWorld for ToolCursorCache {
         let asset_server = world.resource::<AssetServer>();
         Self {
             arrow: asset_server.load("cursors/arrow.png"),
+            scale: f32::NAN.to_bits(),
             by_source: HashMap::new(),
         }
     }
@@ -70,9 +72,7 @@ pub fn show_current_tool_icon(
         if cursor_cache.arrow.id() == source_id {
             cursor_cache.by_source.clear();
         } else if tool_icons.contains_image(source_id) {
-            cursor_cache
-                .by_source
-                .retain(|(cached_source, _), _| *cached_source != source_id);
+            cursor_cache.by_source.remove(&source_id);
         }
     }
 
@@ -111,23 +111,27 @@ pub fn show_current_tool_icon(
 
 fn hardware_cursor_for_tool(
     source_handle: Handle<Image>,
-    ui_scale_percent: i32,
+    ui_scale: f32,
     images: &mut Assets<Image>,
     cache: &mut ToolCursorCache,
 ) -> Option<Handle<Image>> {
     let source_id = source_handle.id();
-    let cache_key = (source_id, ui_scale_percent);
-    if let Some(handle) = cache.by_source.get(&cache_key) {
+    let scale = ui_scale.to_bits();
+    if cache.scale != scale {
+        cache.scale = scale;
+        cache.by_source.clear();
+    }
+    if let Some(handle) = cache.by_source.get(&source_id) {
         return Some(handle.clone());
     }
 
     let cursor = {
         let source = images.get(&source_handle)?;
         let arrow = images.get(&cache.arrow)?;
-        compose_cursor_image(source, arrow, ui_scale_percent as f32 / 100.0)?
+        compose_cursor_image(source, arrow, ui_scale)?
     };
     let handle = images.add(cursor);
-    cache.by_source.insert(cache_key, handle.clone());
+    cache.by_source.insert(source_id, handle.clone());
     Some(handle)
 }
 

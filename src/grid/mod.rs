@@ -250,7 +250,7 @@ pub fn draw_grid(
         return;
     };
 
-    let ui_scale = app_config.ui_scale_factor().max(f32::EPSILON);
+    let ui_scale = app_config.ui_scale.max(f32::EPSILON);
     let sky = palette.current_palette.sky_color.to_srgba();
     let luminance = 0.2126 * sky.red + 0.7152 * sky.green + 0.0722 * sky.blue;
     let line_color = if luminance > 0.55 {

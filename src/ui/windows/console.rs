@@ -1,18 +1,21 @@
-use bevy::app::AppExit;
-use bevy::prelude::{MessageWriter, NonSendMut, Res, Time};
+use bevy::prelude::{App, IntoScheduleConfigs, ResMut};
 use bevy_egui::egui::{self, Key, KeyboardShortcut, Modifiers, TextEdit, TextStyle};
-use bevy_egui::EguiContexts;
+use bevy_egui::{EguiContexts, EguiPrimaryContextPass};
 use egui_extras::syntax_highlighting::{code_view_ui, highlight, CodeTheme};
 
-use crate::script::thyme::Console;
+use crate::script::thyme::{Console, execute_console};
 use crate::ui::WindowExt;
-use crate::egui_systems;
+
+pub fn add_systems(app: &mut App) {
+    app.add_systems(
+        EguiPrimaryContextPass,
+        (draw_console, execute_console.after(draw_console)),
+    );
+}
 
 pub fn draw_console(
     mut egui_ctx: EguiContexts,
-    mut console: NonSendMut<Console>,
-    time: Res<Time>,
-    mut exit: MessageWriter<AppExit>,
+    mut console: ResMut<Console>,
 ) {
     if !console.open {
         return;
@@ -56,11 +59,9 @@ pub fn draw_console(
             if response.has_focus()
                 && ui.input(|input| input.key_pressed(Key::Enter) && !input.modifiers.shift)
             {
-                console.run(time.elapsed_secs(), &mut exit);
+                console.submit();
                 response.request_focus();
             }
         });
     console.open = open;
 }
-
-egui_systems!(draw_console);

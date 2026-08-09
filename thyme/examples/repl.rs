@@ -11,8 +11,8 @@ fn main() {
         fn resolve_property(
             &mut self,
             object: thyme::NativeObjectId,
-            name: &str,
-        ) -> Result<Option<thyme::PropertyId>, thyme::HostError> {
+            name: &thyme::Symbol,
+        ) -> Result<Option<thyme::ResolvedProperty>, thyme::HostError> {
             todo!()
         }
 
@@ -35,6 +35,7 @@ fn main() {
 
         fn call_intrinsic(
             &mut self,
+            receiver: Option<thyme::NativeObjectId>,
             intrinsic: thyme::IntrinsicId,
             arguments: &[thyme::Value],
         ) -> Result<thyme::Value, thyme::HostError> {

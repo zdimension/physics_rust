@@ -45,12 +45,13 @@ pub fn apply_ui_scale(mut egui_ctx: EguiContexts, app_config: Res<AppConfig>) {
     let Ok(ctx) = egui_ctx.ctx_mut() else {
         return;
     };
-    let scale = app_config.ui_scale_factor();
+    let scale = app_config.ui_scale;
     if (ctx.zoom_factor() - scale).abs() > f32::EPSILON {
         ctx.set_zoom_factor(scale);
     }
 }
 
+#[derive(Resource, Copy, Clone)]
 pub struct GravitySetting {
     pub(crate) strength: f32,
     pub(crate) direction: f32,

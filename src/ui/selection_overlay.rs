@@ -200,7 +200,7 @@ pub fn process_draw_overlay(
             (Without<crate::DrawObject>, Without<MainCamera>),
         >,
     )>,
-    mut last_overlay: Local<Option<(Entity, Overlay, Vec2, i32)>>,
+    mut last_overlay: Local<Option<(Entity, Overlay, Vec2, u32)>>,
     mut active_overlay: Local<Option<Entity>>,
 ) {
     let Some((draw_ent, shape, pos)) = overlay.draw_ent.clone() else {
@@ -211,7 +211,7 @@ pub fn process_draw_overlay(
         return;
     };
 
-    let current = (draw_ent, shape.clone(), pos, app_config.ui_scale);
+    let current = (draw_ent, shape.clone(), pos, app_config.ui_scale.to_bits());
     if last_overlay.as_ref() == Some(&current) {
         return;
     }
@@ -356,7 +356,7 @@ pub fn process_draw_overlay(
             path,
             rotation,
             crate::make_fill(fill),
-            crate::make_stroke(color, thickness * app_config.ui_scale_factor()),
+            crate::make_stroke(color, thickness * app_config.ui_scale),
             &mut commands,
             &mut root_shapes,
         );

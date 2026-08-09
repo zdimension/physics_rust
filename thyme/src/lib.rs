@@ -194,7 +194,7 @@ impl Object {
             .map(|slot| slot.value)
     }
 
-    pub(crate) fn define_read_only_field(&self, name: impl Into<Symbol>, value: Value) {
+    pub fn define_read_only_field(&self, name: impl Into<Symbol>, value: Value) {
         self.0
             .fields
             .borrow_mut()
@@ -244,6 +244,21 @@ impl Function {
             name: Rc::from(name.as_ref()),
             arity,
             id,
+            receiver: None,
+        })))
+    }
+
+    pub fn method(
+        receiver: NativeObjectId,
+        id: IntrinsicId,
+        name: impl AsRef<str>,
+        arity: usize,
+    ) -> Self {
+        Self(Gc::new(FunctionValue::Intrinsic(IntrinsicFunction {
+            name: Rc::from(name.as_ref()),
+            arity,
+            id,
+            receiver: Some(receiver),
         })))
     }
 
@@ -559,6 +574,7 @@ struct IntrinsicFunction {
     name: Rc<str>,
     arity: usize,
     id: IntrinsicId,
+    receiver: Option<NativeObjectId>,
 }
 
 pub struct UserFunction {
@@ -616,6 +632,26 @@ impl Display for HostError {
 
 impl std::error::Error for HostError {}
 
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Trace)]
+pub struct ResolvedProperty {
+    id: PropertyId,
+    writable: bool,
+}
+
+impl ResolvedProperty {
+    pub const fn new(id: PropertyId, writable: bool) -> Self {
+        Self { id, writable }
+    }
+
+    pub const fn id(self) -> PropertyId {
+        self.id
+    }
+
+    pub const fn is_writable(self) -> bool {
+        self.writable
+    }
+}
+
 /// The Bevy-independent interface implemented by the embedding application.
 ///
 /// This trait is intentionally neither `Send` nor `Sync`: a Thyme runtime is confined to one
@@ -624,8 +660,8 @@ pub trait Host {
     fn resolve_property(
         &mut self,
         object: NativeObjectId,
-        name: &str,
-    ) -> Result<Option<PropertyId>, HostError>;
+        name: &Symbol,
+    ) -> Result<Option<ResolvedProperty>, HostError>;
 
     fn get_property(
         &mut self,
@@ -642,9 +678,16 @@ pub trait Host {
 
     fn call_intrinsic(
         &mut self,
+        receiver: Option<NativeObjectId>,
         intrinsic: IntrinsicId,
         arguments: &[Value],
     ) -> Result<Value, HostError>;
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BindingError {
+    pub property: PropertyId,
+    pub message: String,
 }
 
 /// The roots and host-property bindings owned by one Thyme interpreter.
@@ -672,6 +715,10 @@ impl Runtime {
 
     pub fn set_global(&self, name: impl Into<Symbol>, value: Value) -> Option<Value> {
         self.globals.declare(name, value)
+    }
+
+    pub fn define_read_only_global(&self, name: impl Into<Symbol>, value: Value) {
+        self.globals.define_read_only(name, value);
     }
 
     pub fn eval(&self, host: &mut dyn Host, source: &str) -> Result<Value, String> {
@@ -781,6 +828,31 @@ impl Runtime {
             .map(HashMap::len)
             .sum()
     }
+
+    /// Evaluates and applies one native object's bindings for the current frame.
+    pub fn evaluate_property_bindings(
+        &self,
+        host: &mut dyn Host,
+        object: NativeObjectId,
+    ) -> Vec<BindingError> {
+        let mut errors = Vec::new();
+        for (property, function) in self.property_bindings_for(object) {
+            let result = eval::Evaluator {
+                runtime: self,
+                host,
+            }
+            .call_function(&function, &[], (0..0).into())
+            .and_then(|value| {
+                host.set_property(object, property, &value)
+                    .map_err(|error| error.to_string())
+            });
+            if let Err(message) = result {
+                self.unbind_property(object, property);
+                errors.push(BindingError { property, message });
+            }
+        }
+        errors
+    }
 }
 
 impl Default for Runtime {
@@ -839,9 +911,10 @@ mod tests {
         fn resolve_property(
             &mut self,
             _object: NativeObjectId,
-            name: &str,
-        ) -> Result<Option<PropertyId>, HostError> {
-            Ok((name == "position").then(|| PropertyId::from_raw(3)))
+            name: &Symbol,
+        ) -> Result<Option<ResolvedProperty>, HostError> {
+            Ok((name.as_str() == "position")
+                .then(|| ResolvedProperty::new(PropertyId::from_raw(3), true)))
         }
 
         fn get_property(
@@ -864,13 +937,14 @@ mod tests {
 
         fn call_intrinsic(
             &mut self,
+            _receiver: Option<NativeObjectId>,
             _intrinsic: IntrinsicId,
             arguments: &[Value],
         ) -> Result<Value, HostError> {
-            arguments
+            Ok(arguments
                 .first()
                 .cloned()
-                .ok_or_else(|| HostError::new(HostErrorKind::Intrinsic, "expected one argument"))
+                .unwrap_or(Value::Number(Number::Float(2.0))))
         }
     }
 
@@ -881,10 +955,15 @@ mod tests {
         let mut host = FakeHost { set: None };
 
         assert_eq!(
-            host.resolve_property(object, "position").unwrap(),
-            Some(property)
+            host.resolve_property(object, &Symbol::from("position"))
+                .unwrap(),
+            Some(ResolvedProperty::new(property, true))
         );
-        assert_eq!(host.resolve_property(object, "dynamicField").unwrap(), None);
+        assert_eq!(
+            host.resolve_property(object, &Symbol::from("dynamicField"))
+                .unwrap(),
+            None
+        );
         assert!(matches!(
             host.get_property(object, property).unwrap(),
             Value::Number(Number::Int(12))
@@ -892,6 +971,7 @@ mod tests {
 
         let result = host
             .call_intrinsic(
+                None,
                 IntrinsicId::from_raw(5),
                 &[Value::Number(Number::Float(2.5))],
             )
@@ -943,6 +1023,50 @@ mod tests {
         assert_eq!(runtime.binding_count(), 0);
         let (_, _, value) = host.set.unwrap();
         assert!(matches!(value, Value::Number(Number::Float(4.0))));
+    }
+
+    #[test]
+    fn runtime_evaluates_bindings_and_removes_failures() {
+        let runtime = Runtime::new();
+        let object = NativeObjectId::from_raw(10);
+        let property = PropertyId::from_raw(20);
+        let mut host = FakeHost { set: None };
+
+        runtime.bind_property(
+            object,
+            property,
+            Function::intrinsic(IntrinsicId::from_raw(1), "value", 0),
+        );
+        assert!(
+            runtime
+                .evaluate_property_bindings(&mut host, object)
+                .is_empty()
+        );
+        assert_eq!(
+            host.set.as_ref().map(|(_, _, value)| value),
+            Some(&Value::Number(Number::Float(2.0)))
+        );
+
+        runtime.bind_property(
+            object,
+            property,
+            Function::intrinsic(IntrinsicId::from_raw(2), "invalid", 1),
+        );
+        assert_eq!(
+            runtime.evaluate_property_bindings(&mut host, object).len(),
+            1
+        );
+        assert!(runtime.property_binding(object, property).is_none());
+    }
+
+    #[test]
+    fn read_only_globals_cannot_be_reassigned() {
+        let runtime = Runtime::new();
+        runtime.define_read_only_global("Locked", Value::Bool(true));
+        let mut host = FakeHost { set: None };
+
+        assert!(runtime.eval(&mut host, "locked = false").is_err());
+        assert_eq!(runtime.global("LOCKED"), Some(Value::Bool(true)));
     }
 
     #[test]

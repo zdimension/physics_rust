@@ -205,7 +205,7 @@ pub fn draw_bottom_toolbar(
     mut egui_ctx: EguiContexts,
     mut toolbox_state: ResMut<ToolboxState>,
     //mut rapier: ResMut<RapierConfiguration>,
-    mut gravity_conf: Local<GravitySetting>,
+    mut gravity_conf: ResMut<GravitySetting>,
     mut gravity_settings_open: Local<bool>,
     mut air_settings_open: Local<bool>,
     mut grid_settings_open: Local<bool>,

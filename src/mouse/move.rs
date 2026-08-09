@@ -221,7 +221,7 @@ pub fn mouse_long_or_moved(
                         let origin_angle =
                             rotation_origin_initial_angle(selected_entities.len(), &targets);
                         let scale = params.cameras.single_mut().unwrap().scale.x
-                            * params.app_config.ui_scale_factor();
+                            * params.app_config.ui_scale;
                         let overlay_ent = spawn_rotate_draw_object(
                             &mut commands,
                             &params.draw_objects,
@@ -314,7 +314,7 @@ pub fn mouse_long_or_moved(
                     }
                     (Plane(None), _) => {
                         let camera = params.cameras.single_mut().unwrap();
-                        let scale = camera.scale.x * params.app_config.ui_scale_factor();
+                        let scale = camera.scale.x * params.app_config.ui_scale;
                         let color = params
                             .palette
                             .current_palette

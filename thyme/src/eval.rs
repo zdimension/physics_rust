@@ -17,6 +17,7 @@ enum ResolvedMember {
     Native {
         object: NativeObjectId,
         property: PropertyId,
+        writable: bool,
         name: Symbol,
     },
     Dynamic {
@@ -49,7 +50,7 @@ impl<'runtime, 'host> Evaluator<'runtime, 'host> {
         if let Some(object_id) = object.native_id() {
             let property = self
                 .host
-                .resolve_property(object_id, name.as_str())
+                .resolve_property(object_id, name)
                 .map_err(|error| {
                     format!(
                         "Failed to resolve native property {name}{}: {error}",
@@ -59,7 +60,8 @@ impl<'runtime, 'host> Evaluator<'runtime, 'host> {
             if let Some(property) = property {
                 return Ok(ResolvedMember::Native {
                     object: object_id,
-                    property,
+                    property: property.id(),
+                    writable: property.is_writable(),
                     name: name.clone(),
                 });
             }
@@ -81,6 +83,7 @@ impl<'runtime, 'host> Evaluator<'runtime, 'host> {
                 object,
                 property,
                 name,
+                writable: _,
             } => self
                 .host
                 .get_property(*object, *property)
@@ -105,16 +108,24 @@ impl<'runtime, 'host> Evaluator<'runtime, 'host> {
             ResolvedMember::Native {
                 object,
                 property,
+                writable,
                 name,
-            } => self
-                .runtime
-                .assign_native_property(self.host, object, property, value)
-                .map_err(|error| {
-                    format!(
-                        "Failed to set native property {name}{}: {error}",
+            } => {
+                if !writable {
+                    return Err(format!(
+                        "Cannot set read-only member {name}{}",
                         Self::span_suffix(span)
-                    )
-                }),
+                    ));
+                }
+                self.runtime
+                    .assign_native_property(self.host, object, property, value)
+                    .map_err(|error| {
+                        format!(
+                            "Failed to set native property {name}{}: {error}",
+                            Self::span_suffix(span)
+                        )
+                    })
+            }
             ResolvedMember::Dynamic { object, name } => {
                 if object.field_is_read_only(&name) {
                     return Err(format!(
@@ -589,7 +600,7 @@ impl<'runtime, 'host> Evaluator<'runtime, 'host> {
                 }
 
                 self.host
-                    .call_intrinsic(intrinsic.id, arguments)
+                    .call_intrinsic(intrinsic.receiver, intrinsic.id, arguments)
                     .map_err(|error| {
                         format!(
                             "Intrinsic {} failed at {call_span:?}: {error}",
@@ -629,7 +640,7 @@ mod tests {
     use std::rc::Rc;
 
     use crate::{
-        HostError, IntrinsicId, NativeObjectId, PropertyId,
+        HostError, IntrinsicId, NativeObjectId, PropertyId, ResolvedProperty,
         parse::{Spanned, UserFunctionDef},
     };
 
@@ -649,8 +660,8 @@ mod tests {
         fn resolve_property(
             &mut self,
             _object: NativeObjectId,
-            _name: &str,
-        ) -> Result<Option<PropertyId>, HostError> {
+            _name: &Symbol,
+        ) -> Result<Option<ResolvedProperty>, HostError> {
             unreachable!()
         }
 
@@ -673,6 +684,7 @@ mod tests {
 
         fn call_intrinsic(
             &mut self,
+            _receiver: Option<NativeObjectId>,
             _intrinsic: IntrinsicId,
             arguments: &[Value],
         ) -> Result<Value, HostError> {
@@ -685,11 +697,15 @@ mod tests {
         fn resolve_property(
             &mut self,
             object: NativeObjectId,
-            name: &str,
-        ) -> Result<Option<PropertyId>, HostError> {
+            name: &Symbol,
+        ) -> Result<Option<ResolvedProperty>, HostError> {
             assert_eq!(object, NativeObjectId::from_raw(10));
             self.resolutions += 1;
-            Ok((name == "native").then(|| PropertyId::from_raw(20)))
+            Ok(match name.as_str() {
+                "native" => Some(ResolvedProperty::new(PropertyId::from_raw(20), true)),
+                "readonly" => Some(ResolvedProperty::new(PropertyId::from_raw(21), false)),
+                _ => None,
+            })
         }
 
         fn get_property(
@@ -717,6 +733,7 @@ mod tests {
 
         fn call_intrinsic(
             &mut self,
+            _receiver: Option<NativeObjectId>,
             _intrinsic: IntrinsicId,
             _arguments: &[Value],
         ) -> Result<Value, HostError> {
@@ -1087,19 +1104,19 @@ mod tests {
             );
         }
         assert_eq!(
-            eval_source(&mut evaluator, &environment, "math.sqrt([4.0, [9.0]])"),
+            eval_source(&mut evaluator, &environment, "math.sqrt([4, [9.0]])"),
             Value::List(List::new([
                 Value::Number(Number::Float(2.0)),
                 Value::List(List::new([Value::Number(Number::Float(3.0))])),
             ]))
         );
         assert_eq!(
-            eval_source(&mut evaluator, &environment, "math.atan2(1.0, 0.0)"),
+            eval_source(&mut evaluator, &environment, "math.atan2(1, 0.0)"),
             Value::Number(Number::Float(1.0_f32.atan2(0.0)))
         );
-        assert!(
-            eval_source_error(&mut evaluator, &environment, "math.sin(1)")
-                .contains("expected float")
+        assert_eq!(
+            eval_source(&mut evaluator, &environment, "math.sin(1)"),
+            Value::Number(Number::Float(1.0_f32.sin()))
         );
         assert!(
             eval_source_error(&mut evaluator, &environment, "math.atan2([1.0], [0.0])")
@@ -1118,7 +1135,7 @@ mod tests {
         };
 
         for (source, expected) in [
-            ("math.HSL2RGB([0.0, 1.0, 0.5])", [1.0, 0.0, 0.0]),
+            ("math.HSL2RGB([0, 1, 0.5])", [1.0, 0.0, 0.0]),
             ("math.HSV2RGB([120.0, 1.0, 1.0])", [0.0, 1.0, 0.0]),
             ("math.RGB2HSV([1.0, 0.0, 0.0])", [0.0, 1.0, 1.0]),
         ] {
@@ -1140,7 +1157,7 @@ mod tests {
             ))
         );
         assert!(
-            eval_source_error(&mut evaluator, &environment, "math.HSL2RGB([0, 1.0, 0.5])")
+            eval_source_error(&mut evaluator, &environment, "math.HSL2RGB([0, true, 1])")
                 .contains("expected float[3 or 4]")
         );
     }
@@ -1165,6 +1182,66 @@ mod tests {
         assert!(error.contains("expected 1 arguments, got 0"));
         drop(evaluator);
         assert_eq!(host.calls, 1);
+    }
+
+    #[test]
+    fn native_methods_pass_their_receiver_to_the_host() {
+        struct ReceiverHost(NativeObjectId);
+
+        impl Host for ReceiverHost {
+            fn resolve_property(
+                &mut self,
+                _object: NativeObjectId,
+                _name: &Symbol,
+            ) -> Result<Option<ResolvedProperty>, HostError> {
+                unreachable!()
+            }
+
+            fn get_property(
+                &mut self,
+                _object: NativeObjectId,
+                _property: PropertyId,
+            ) -> Result<Value, HostError> {
+                unreachable!()
+            }
+
+            fn set_property(
+                &mut self,
+                _object: NativeObjectId,
+                _property: PropertyId,
+                _value: &Value,
+            ) -> Result<(), HostError> {
+                unreachable!()
+            }
+
+            fn call_intrinsic(
+                &mut self,
+                receiver: Option<NativeObjectId>,
+                _intrinsic: IntrinsicId,
+                _arguments: &[Value],
+            ) -> Result<Value, HostError> {
+                assert_eq!(receiver, Some(self.0));
+                Ok(Value::Bool(true))
+            }
+        }
+
+        let runtime = Runtime::new();
+        let object = NativeObjectId::from_raw(42);
+        let mut host = ReceiverHost(object);
+        let mut evaluator = Evaluator {
+            runtime: &runtime,
+            host: &mut host,
+        };
+        assert_eq!(
+            evaluator
+                .call_function(
+                    &Function::method(object, IntrinsicId::from_raw(7), "method", 0),
+                    &[],
+                    (0..0).into(),
+                )
+                .unwrap(),
+            Value::Bool(true)
+        );
     }
 
     #[test]
@@ -1347,6 +1424,11 @@ mod tests {
             &mut evaluator,
             &environment,
             "object.native := 12; object -> { native = 13; local := 7 }",
+        );
+        assert_eq!(runtime.binding_count(), 0);
+        assert!(
+            eval_source_error(&mut evaluator, &environment, "object.readonly = { true }")
+                .contains("read-only member readonly")
         );
         assert_eq!(runtime.binding_count(), 0);
         drop(evaluator);

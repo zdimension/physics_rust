@@ -2,7 +2,7 @@ use bevy::prelude::Resource;
 
 #[derive(Resource, Copy, Clone)]
 pub struct AppConfig {
-    pub ui_scale: i32,
+    pub ui_scale: f32,
     pub zoom_speed: f32,
     pub tool_cursor: bool,
     pub kinetic_panning: bool,
@@ -11,17 +11,11 @@ pub struct AppConfig {
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
-            ui_scale: 100,
+            ui_scale: 1.0,
             zoom_speed: 1.0,
             tool_cursor: true,
             kinetic_panning: true,
         }
-    }
-}
-
-impl AppConfig {
-    pub fn ui_scale_factor(&self) -> f32 {
-        self.ui_scale as f32 / 100.0
     }
 }
 
@@ -30,12 +24,12 @@ mod tests {
     use super::AppConfig;
 
     #[test]
-    fn converts_menu_percentage_to_a_fractional_scale() {
+    fn stores_ui_scale_as_a_factor() {
         let config = AppConfig {
-            ui_scale: 83,
+            ui_scale: 0.83,
             ..Default::default()
         };
 
-        assert!((config.ui_scale_factor() - 0.83).abs() < f32::EPSILON);
+        assert!((config.ui_scale - 0.83).abs() < f32::EPSILON);
     }
 }

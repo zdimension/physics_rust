@@ -210,6 +210,7 @@ pub fn app_main() {
         .init_resource::<ui::image_processing::ImagePreparationState>()
         .init_resource::<SkinConfig>()
         .init_resource::<AppConfig>()
+        .init_resource::<ui::GravitySetting>()
         .init_resource::<DragConfig>()
         .init_resource::<tools::gear::GearSettings>()
         .init_resource::<SelectionConfig>()

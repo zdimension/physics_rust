@@ -1,109 +1,61 @@
-use std::fmt::Write;
+use std::{collections::VecDeque, fmt::Write};
 
-use ::thyme::{
-    Function, Host, HostError, HostErrorKind, IntrinsicId, NativeObjectId, Object, PropertyId,
-    Runtime, Value, parse::Number,
-};
-use bevy::app::AppExit;
-use bevy::ecs::message::MessageWriter;
+use bevy::{ecs::world::World, prelude::Resource};
 
-const EXIT: IntrinsicId = IntrinsicId::from_raw(0);
-const TIME: IntrinsicId = IntrinsicId::from_raw(1);
+mod native;
 
+pub(crate) use native::ScriptEngine;
+
+#[derive(Default, Resource)]
 pub(crate) struct Console {
     pub(crate) open: bool,
     pub(crate) input: String,
     pub(crate) output: String,
-    runtime: Runtime,
-}
-
-impl Default for Console {
-    fn default() -> Self {
-        let runtime = Runtime::new();
-        let system = Object::new();
-        system.set_field(
-            "exit",
-            Value::Function(Function::intrinsic(EXIT, "System.exit", 0)),
-        );
-        system.set_field(
-            "time",
-            Value::Function(Function::intrinsic(TIME, "System.time", 0)),
-        );
-        runtime.set_global("System", Value::Object(system));
-        Self {
-            open: false,
-            input: String::new(),
-            output: String::new(),
-            runtime,
-        }
-    }
+    pending: VecDeque<String>,
 }
 
 impl Console {
-    pub(crate) fn run(&mut self, time: f32, exit: &mut MessageWriter<AppExit>) {
+    pub(crate) fn submit(&mut self) {
         let source = std::mem::take(&mut self.input);
-        let source = source.trim();
-        if source.is_empty() {
-            return;
+        if !source.trim().is_empty() {
+            self.pending.push_back(source);
         }
+    }
+
+    fn push_line(&mut self, line: impl std::fmt::Display) {
         if !self.output.is_empty() {
             self.output.push('\n');
         }
-        writeln!(self.output, "> {source}").unwrap();
-        let mut host = SystemHost { time, exit };
-        match self.runtime.eval(&mut host, source) {
-            Ok(value) => write!(self.output, "{value}").unwrap(),
-            Err(error) => write!(self.output, "ERROR: {error}").unwrap(),
-        }
+        write!(self.output, "{line}").unwrap();
     }
 }
 
-struct SystemHost<'a, 'w> {
-    time: f32,
-    exit: &'a mut MessageWriter<'w, AppExit>,
+pub(crate) fn execute_console(world: &mut World) {
+    let source = world.resource_mut::<Console>().pending.pop_front();
+    let Some(source) = source else { return };
+    let engine = world
+        .remove_non_send::<ScriptEngine>()
+        .expect("Thyme engine");
+    let result = engine.eval(world, source.trim());
+    world.insert_non_send(engine);
+
+    let console = &mut *world.resource_mut::<Console>();
+    console.push_line(format_args!("> {}", source.trim()));
+    match result {
+        Ok(value) => console.push_line(value),
+        Err(error) => console.push_line(format_args!("ERROR: {error}")),
+    }
 }
 
-impl Host for SystemHost<'_, '_> {
-    fn resolve_property(
-        &mut self,
-        _object: NativeObjectId,
-        _name: &str,
-    ) -> Result<Option<PropertyId>, HostError> {
-        Ok(None)
-    }
-
-    fn get_property(
-        &mut self,
-        _object: NativeObjectId,
-        _property: PropertyId,
-    ) -> Result<Value, HostError> {
-        Err(HostError::new(HostErrorKind::Other, "no native objects"))
-    }
-
-    fn set_property(
-        &mut self,
-        _object: NativeObjectId,
-        _property: PropertyId,
-        _value: &Value,
-    ) -> Result<(), HostError> {
-        Err(HostError::new(HostErrorKind::Other, "no native objects"))
-    }
-
-    fn call_intrinsic(
-        &mut self,
-        intrinsic: IntrinsicId,
-        _arguments: &[Value],
-    ) -> Result<Value, HostError> {
-        match intrinsic {
-            EXIT => {
-                self.exit.write(AppExit::Success);
-                Ok(Value::Void)
-            }
-            TIME => Ok(Value::Number(Number::Float(self.time))),
-            _ => Err(HostError::new(
-                HostErrorKind::Intrinsic,
-                "unknown intrinsic",
-            )),
-        }
+pub(crate) fn evaluate_bindings(world: &mut World) {
+    let engine = world
+        .remove_non_send::<ScriptEngine>()
+        .expect("Thyme engine");
+    let errors = engine.evaluate_bindings(world);
+    world.insert_non_send(engine);
+    for error in errors {
+        world
+            .resource_mut::<Console>()
+            .push_line(format_args!("ERROR: {error}"));
     }
 }

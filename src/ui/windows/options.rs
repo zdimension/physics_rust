@@ -40,7 +40,7 @@ impl OptionsWindow {
         mut egui_ctx: EguiContexts,
         mut commands: Commands,
         current_tab: Local<Tabs>,
-        mut pending_ui_scale: Local<Option<i32>>,
+        mut pending_ui_scale: Local<Option<f32>>,
         gui_icons: Res<GuiIcons>,
         mut skin: ResMut<SkinConfig>,
         mut app: ResMut<AppConfig>,
@@ -67,24 +67,27 @@ impl OptionsWindow {
                         }
 
                         let mut displayed_ui_scale =
-                            pending_ui_scale.unwrap_or(app_obj.ui_scale);
+                            pending_ui_scale.unwrap_or(app_obj.ui_scale * 100.0);
                         let ui_scale_response = ui.add(
-                            egui::Slider::new(&mut displayed_ui_scale, 50..=250)
-                                .clamping(egui::SliderClamping::Always)
+                            egui::Slider::new(&mut displayed_ui_scale, 50.0..=250.0)
+                                .clamping(egui::SliderClamping::Never)
                                 .text("Menu scale:")
                                 .suffix("%")
                                 .step_by(1.0)
                                 .custom(),
                         );
                         if ui_scale_response.drag_stopped() {
-                            app_obj.ui_scale = displayed_ui_scale;
+                            app_obj.ui_scale = displayed_ui_scale / 100.0;
                             *pending_ui_scale = None;
                             changed = true;
                         } else if ui_scale_response.dragged() {
                             *pending_ui_scale = Some(displayed_ui_scale);
                         } else if ui_scale_response.changed() {
-                            app_obj.ui_scale = displayed_ui_scale;
-                            changed = true;
+                            let scale = displayed_ui_scale / 100.0;
+                            if scale.is_finite() && scale > 0.0 {
+                                app_obj.ui_scale = scale;
+                                changed = true;
+                            }
                         }
 
                         if ui
