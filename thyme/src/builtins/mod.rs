@@ -6,6 +6,7 @@ use crate::{Environment, Function, Object, Value, eval::Evaluator, parse::Span};
 
 mod core;
 mod math;
+mod rand;
 mod set;
 mod string;
 
@@ -80,7 +81,12 @@ impl BuiltinNamespace {
     }
 }
 
-const NAMESPACES: &[BuiltinNamespace] = &[string::NAMESPACE, set::NAMESPACE, math::NAMESPACE];
+const NAMESPACES: &[BuiltinNamespace] = &[
+    string::NAMESPACE,
+    set::NAMESPACE,
+    math::NAMESPACE,
+    rand::NAMESPACE,
+];
 
 pub(crate) fn install(environment: &Environment) {
     for builtin in core::GLOBALS {

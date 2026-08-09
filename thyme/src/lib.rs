@@ -967,6 +967,41 @@ mod tests {
     }
 
     #[test]
+    fn random_builtins_return_their_declared_shapes() {
+        let runtime = Runtime::new();
+        let mut host = FakeHost { set: None };
+
+        assert!(matches!(
+            runtime.eval(&mut host, "rand.boolean").unwrap(),
+            Value::Bool(_)
+        ));
+        for _ in 0..32 {
+            let Value::Number(Number::Float(value)) =
+                runtime.eval(&mut host, "rand.uniform01").unwrap()
+            else {
+                panic!("expected float")
+            };
+            assert!((0.0..1.0).contains(&value));
+        }
+        assert!(matches!(
+            runtime.eval(&mut host, "rand.normal").unwrap(),
+            Value::Number(Number::Float(value)) if value.is_finite()
+        ));
+        let Value::List(direction) = runtime.eval(&mut host, "rand.direction2D").unwrap() else {
+            panic!("expected direction")
+        };
+        let [Value::Number(x), Value::Number(y)] = direction.as_slice() else {
+            panic!("expected two floats")
+        };
+        assert!((x.to_f32_lossy().hypot(y.to_f32_lossy()) - 1.0).abs() < 1e-6);
+        assert!(matches!(
+            runtime.eval(&mut host, "rand.normal2D").unwrap(),
+            Value::List(values) if values.as_slice().len() == 2
+        ));
+        assert!(runtime.eval(&mut host, "rand.uniform01 = 1").is_err());
+    }
+
+    #[test]
     fn host_dispatch_preserves_number_types_and_unknown_properties_fall_back() {
         let object = NativeObjectId::from_raw(1);
         let property = PropertyId::from_raw(3);

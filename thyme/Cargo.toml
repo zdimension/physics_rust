@@ -9,3 +9,5 @@ chumsky = { version = "0.13.0", features = ["pratt"] }
 dumpster = "2.1.0"
 encoding_rs = "0.8.35"
 logos = "0.16.1"
+rand = "0.9.2"
+rand_distr = "0.5.1"
