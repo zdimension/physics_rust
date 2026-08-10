@@ -48,8 +48,16 @@ fn hinge_visual_radius(motor_enabled: bool) -> f32 {
 }
 
 pub(crate) fn sync_hinge_motors(
-    mut joints: Query<(&mut RevoluteJoint, &UpdateFrom<MotorComponent>), With<AxleObject>>,
+    mut joints: Query<
+        (
+            &mut RevoluteJoint,
+            &AttachmentJoint,
+            &UpdateFrom<MotorComponent>,
+        ),
+        With<AxleObject>,
+    >,
     parents: Query<(Option<&ChildOf>, Option<Ref<MotorComponent>>)>,
+    geometries: Query<&JointGeometry>,
     changed_motors: Query<(), Changed<MotorComponent>>,
     changed_sources: Query<(), Changed<UpdateFrom<MotorComponent>>>,
 ) {
@@ -57,11 +65,14 @@ pub(crate) fn sync_hinge_motors(
         return;
     }
 
-    for (mut joint, update_source) in &mut joints {
+    for (mut joint, attachment, update_source) in &mut joints {
         let Some((_, motor)) = update_source.find_component(Entity::PLACEHOLDER, &parents) else {
             continue;
         };
-        let target = angular_motor_from(motor);
+        let Ok(geometry) = geometries.get(attachment.visual) else {
+            continue;
+        };
+        let target = angular_motor_from(motor, geometry);
         if joint.motor != target {
             joint.motor = target;
         }
@@ -99,8 +110,17 @@ pub(crate) fn break_hinges(
 
 pub(crate) fn update_hinge_motor_visuals(
     mut hinges: Query<
-        (Entity, &MotorComponent, &mut Shape, &mut Collider),
-        (With<AxleVisual>, Changed<MotorComponent>),
+        (
+            Entity,
+            &MotorComponent,
+            &JointGeometry,
+            &mut Shape,
+            &mut Collider,
+        ),
+        (
+            With<AxleVisual>,
+            Or<(Changed<MotorComponent>, Changed<JointGeometry>)>,
+        ),
     >,
     mut motor_parts: Query<
         (
@@ -112,7 +132,7 @@ pub(crate) fn update_hinge_motor_visuals(
         Or<(With<HingeMotorRing>, With<HingeMotorDirection>)>,
     >,
 ) {
-    for (hinge, motor, mut shape, mut collider) in &mut hinges {
+    for (hinge, motor, geometry, mut shape, mut collider) in &mut hinges {
         shape.path = GeometryBuilder::build_as(&shapes::Circle {
             radius: hinge_selection_radius(motor.enabled),
             ..Default::default()
@@ -123,8 +143,9 @@ pub(crate) fn update_hinge_motor_visuals(
             if parent.parent() != hinge {
                 continue;
             }
-            let visible = ring.is_some()
-                || direction.is_some_and(|direction| direction.reversed == motor.reversed);
+            let reversed = motor_reversed(motor, geometry);
+            let visible =
+                ring.is_some() || direction.is_some_and(|direction| direction.reversed == reversed);
             *visibility = if motor.enabled && visible {
                 Visibility::Inherited
             } else {
@@ -134,8 +155,16 @@ pub(crate) fn update_hinge_motor_visuals(
     }
 }
 
-fn angular_motor_from(motor: MotorComponent) -> AngularMotor {
-    let sign = if motor.reversed { -1.0 } else { 1.0 };
+fn motor_reversed(motor: &MotorComponent, geometry: &JointGeometry) -> bool {
+    motor.reversed ^ geometry.geoms[0].is_none()
+}
+
+fn angular_motor_from(motor: MotorComponent, geometry: &JointGeometry) -> AngularMotor {
+    let sign = if motor_reversed(&motor, geometry) {
+        -1.0
+    } else {
+        1.0
+    };
     AngularMotor {
         enabled: motor.enabled,
         target_velocity: sign * motor.vel,
@@ -158,6 +187,18 @@ mod tests {
             vel: 2.5,
             ..default()
         };
-        assert_eq!(angular_motor_from(motor).target_velocity, 2.5);
+        let body = Some(Entity::PLACEHOLDER);
+        let geometry = |geoms| JointGeometry {
+            geoms,
+            positions: [Vec2::ZERO; 2],
+        };
+        assert_eq!(
+            angular_motor_from(motor, &geometry([body, None])).target_velocity,
+            2.5
+        );
+        assert_eq!(
+            angular_motor_from(motor, &geometry([None, body])).target_velocity,
+            -2.5
+        );
     }
 }
