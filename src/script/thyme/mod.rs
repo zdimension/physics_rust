@@ -99,11 +99,13 @@ pub(crate) fn execute_console(world: &mut World) {
     let mut engine = world
         .remove_non_send::<ScriptEngine>()
         .expect("Thyme engine");
+
+    world.resource_mut::<Console>().push_line(format_args!("> {}", source.trim()));
+
     let result = engine.eval(world, source.trim());
     world.insert_non_send(engine);
 
     let console = &mut *world.resource_mut::<Console>();
-    console.push_line(format_args!("> {}", source.trim()));
     match result {
         Ok(value) => console.push_line(value),
         Err(error) => console.push_line(format_args!("ERROR: {error}")),
