@@ -603,6 +603,11 @@ fn expr_parser<'tokens, 'src: 'tokens, I>()
 where
     I: ValueInput<'tokens, Token = Token<'src>, Span = Span>,
 {
+    enum Postfix {
+        Member((Symbol, Span)),
+        Call((Vec<Spanned<Expr>>, Span)),
+    }
+
     recursive(|expr| {
         let val = select! {
             Token::Null => Expr::Value(Literal::Null),
@@ -690,26 +695,34 @@ where
             )))
             .boxed();
 
-        // a.b
-        let member_access = atom.clone().foldl_with(
-            just(Token::Dot)
-                .ignore_then(ident.clone())
-                .map_with(|member, e| (member, e.span()))
-                .repeated(),
-            |object, member, e| (Expr::Member(Box::new(object), member), e.span()),
-        );
+        let member = just(Token::Dot)
+            .ignore_then(ident.clone())
+            .map_with(|member, e| (member, e.span()));
+        let arguments = items
+            .delimited_by(just(Token::ParenOpen), just(Token::ParenClose))
+            .map_with(|args, e| (args, e.span()));
 
-        // f(x, y, z)
-        let call_parenthesized = member_access.clone().foldl_with(
-            items
-                .delimited_by(just(Token::ParenOpen), just(Token::ParenClose))
-                .map_with(|args, e| (args, e.span()))
+        // Kept as the argument grammar for unparenthesized application.
+        let member_access = atom
+            .clone()
+            .foldl_with(member.clone().repeated(), |object, member, e| {
+                (Expr::Member(Box::new(object), member), e.span())
+            });
+
+        // a.b(c).d: member access and parenthesized calls are composable postfix operators.
+        let postfix = atom.clone().foldl_with(
+            member
+                .map(Postfix::Member)
+                .or(arguments.map(Postfix::Call))
                 .repeated(),
-            |f, args, e| (Expr::Call(Box::new(f), args), e.span()),
+            |left, postfix, e| match postfix {
+                Postfix::Member(member) => (Expr::Member(Box::new(left), member), e.span()),
+                Postfix::Call(arguments) => (Expr::Call(Box::new(left), arguments), e.span()),
+            },
         );
 
         // f x; application binds more tightly than all infix operators.
-        let call_unparenthesized = call_parenthesized.foldl_with(
+        let call_unparenthesized = postfix.foldl_with(
             member_access
                 .map_with(|arg, e| (vec![arg], e.span()))
                 .repeated(),
@@ -969,6 +982,27 @@ mod tests {
         assert_symbol(a, "a");
         assert_symbol(b, "b");
         assert_symbol(c, "c");
+    }
+
+    #[test]
+    fn member_access_can_follow_a_call() {
+        let ast = parse_source("a.b(c).d");
+        let Expr::Member(call, (d, _)) = single_expr(&ast) else {
+            panic!("expected member access, got {:#?}", single_expr(&ast));
+        };
+        assert_eq!(d.as_str(), "d");
+
+        let Expr::Call(member, (args, _)) = &call.0 else {
+            panic!("expected call, got {:#?}", call.0);
+        };
+        assert_eq!(args.len(), 1);
+        assert_symbol(&args[0], "c");
+
+        let Expr::Member(a, (b, _)) = &member.0 else {
+            panic!("expected member access, got {:#?}", member.0);
+        };
+        assert_symbol(a, "a");
+        assert_eq!(b.as_str(), "b");
     }
 
     #[test]
