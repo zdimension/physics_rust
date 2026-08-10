@@ -28,7 +28,7 @@ use crate::{
         ColorComponent, MotorComponent,
         air::AirSettings,
         attraction::{Attraction, AttractionFalloff},
-        axle::HingeGeometry,
+        axle::JointGeometry,
         laser::LaserSettings,
         phy_obj::{
             CircleVisual, FreeformObject, RefractiveIndex, set_box_geometry, set_circle_geometry,
@@ -40,8 +40,8 @@ use crate::{
     tools::polygon::{surfaces_path, tessellate_path},
     tools::{
         add_object::{
-            AttachmentKind, configure_hinge, spawn_default_box, spawn_default_circle,
-            spawn_pending_hinge,
+            AttachmentKind, configure_joint, spawn_default_box, spawn_default_circle,
+            spawn_pending_joint,
         },
         drag::DragConfig,
         gear::GearSettings,
@@ -747,7 +747,7 @@ fn get_entity_id(_: &World, entity: Entity) -> Result<Value, HostError> {
 }
 
 #[derive(Component, Copy, Clone, Default)]
-struct PendingHinge {
+struct PendingJoint {
     geoms: [i32; 2],
     positions: [Option<Vec2>; 2],
 }
@@ -824,23 +824,23 @@ fn set_polygon_surfaces(world: &mut World, entity: Entity, value: &Value) -> Res
     Ok(())
 }
 
-fn has_hinge(world: &World, entity: Entity) -> bool {
-    world.get::<PendingHinge>(entity).is_some() || world.get::<HingeGeometry>(entity).is_some()
+fn has_joint(world: &World, entity: Entity) -> bool {
+    world.get::<PendingJoint>(entity).is_some() || world.get::<JointGeometry>(entity).is_some()
 }
 
-fn get_hinge_geom(world: &World, entity: Entity, index: usize) -> Result<Value, HostError> {
-    if let Some(hinge) = world.get::<PendingHinge>(entity) {
+fn get_joint_geom(world: &World, entity: Entity, index: usize) -> Result<Value, HostError> {
+    if let Some(hinge) = world.get::<PendingJoint>(entity) {
         return Ok(Value::from(hinge.geoms[index]));
     }
-    let hinge = world
-        .get::<HingeGeometry>(entity)
-        .ok_or_else(|| object_error("hinge geometry"))?;
+    let joint = world
+        .get::<JointGeometry>(entity)
+        .ok_or_else(|| object_error("joint geometry"))?;
     Ok(Value::from(
-        hinge.geoms[index].map_or(0, |entity| entity.index_u32() as i32),
+        joint.geoms[index].map_or(0, |entity| entity.index_u32() as i32),
     ))
 }
 
-fn set_hinge_geom(
+fn set_joint_geom(
     world: &mut World,
     entity: Entity,
     value: &Value,
@@ -852,7 +852,7 @@ fn set_hinge_geom(
             "int",
         ));
     };
-    if let Some(mut hinge) = world.get_mut::<PendingHinge>(entity) {
+    if let Some(mut hinge) = world.get_mut::<PendingJoint>(entity) {
         hinge.geoms[index] = *value;
         return Ok(());
     }
@@ -865,30 +865,30 @@ fn set_hinge_geom(
                 .ok_or_else(|| object_error(&format!("geometry {value}")))?,
         )
     };
-    let mut hinge = *world
-        .get::<HingeGeometry>(entity)
-        .ok_or_else(|| object_error("hinge geometry"))?;
-    hinge.geoms[index] = geometry;
-    if hinge.geoms == [None, None] {
-        return Err(object_error("hinge geometry"));
+    let mut joint = *world
+        .get::<JointGeometry>(entity)
+        .ok_or_else(|| object_error("joint geometry"))?;
+    joint.geoms[index] = geometry;
+    if joint.geoms == [None, None] {
+        return Err(object_error("joint geometry"));
     }
-    configure_hinge(world, entity, hinge);
+    configure_joint(world, entity, joint);
     Ok(())
 }
 
-fn get_hinge_pos(world: &World, entity: Entity, index: usize) -> Result<Value, HostError> {
-    let pos = if let Some(hinge) = world.get::<PendingHinge>(entity) {
+fn get_joint_pos(world: &World, entity: Entity, index: usize) -> Result<Value, HostError> {
+    let pos = if let Some(hinge) = world.get::<PendingJoint>(entity) {
         hinge.positions[index].unwrap_or(Vec2::ZERO)
     } else {
         world
-            .get::<HingeGeometry>(entity)
-            .ok_or_else(|| object_error("hinge geometry"))?
+            .get::<JointGeometry>(entity)
+            .ok_or_else(|| object_error("joint geometry"))?
             .positions[index]
     };
     Ok(floats(pos.to_array()))
 }
 
-fn set_hinge_pos(
+fn set_joint_pos(
     world: &mut World,
     entity: Entity,
     value: &Value,
@@ -896,15 +896,15 @@ fn set_hinge_pos(
 ) -> Result<(), HostError> {
     let name = if index == 0 { "geom0pos" } else { "geom1pos" };
     let pos = Vec2::from_array(float_list(value, name)?);
-    if let Some(mut hinge) = world.get_mut::<PendingHinge>(entity) {
+    if let Some(mut hinge) = world.get_mut::<PendingJoint>(entity) {
         hinge.positions[index] = Some(pos);
         return Ok(());
     }
-    let mut hinge = *world
-        .get::<HingeGeometry>(entity)
-        .ok_or_else(|| object_error("hinge geometry"))?;
-    hinge.positions[index] = pos;
-    configure_hinge(world, entity, hinge);
+    let mut joint = *world
+        .get::<JointGeometry>(entity)
+        .ok_or_else(|| object_error("joint geometry"))?;
+    joint.positions[index] = pos;
+    configure_joint(world, entity, joint);
     Ok(())
 }
 
@@ -1203,6 +1203,7 @@ native_class!(
         }),
         native_builder_method!("addBox", spawn_default_box),
         native_builder_method!("addCircle", spawn_default_circle),
+        native_host_method!("addFixjoint", 1, add_fixjoint),
         native_host_method!("addHinge", 1, add_hinge),
         native_host_method!("addPolygon", 1, add_polygon),
     ]
@@ -1290,27 +1291,27 @@ native_class!(
         scene_component_value!("force", ThrusterSettings, force, float),
         scene_property!(
             "geom0",
-            has_hinge,
-            |world, entity| get_hinge_geom(world, entity, 0),
-            |world, entity, value| set_hinge_geom(world, entity, value, 0)
+            has_joint,
+            |world, entity| get_joint_geom(world, entity, 0),
+            |world, entity, value| set_joint_geom(world, entity, value, 0)
         ),
         scene_property!(
             "geom0pos",
-            has_hinge,
-            |world, entity| get_hinge_pos(world, entity, 0),
-            |world, entity, value| set_hinge_pos(world, entity, value, 0)
+            has_joint,
+            |world, entity| get_joint_pos(world, entity, 0),
+            |world, entity, value| set_joint_pos(world, entity, value, 0)
         ),
         scene_property!(
             "geom1",
-            has_hinge,
-            |world, entity| get_hinge_geom(world, entity, 1),
-            |world, entity, value| set_hinge_geom(world, entity, value, 1)
+            has_joint,
+            |world, entity| get_joint_geom(world, entity, 1),
+            |world, entity, value| set_joint_geom(world, entity, value, 1)
         ),
         scene_property!(
             "geom1pos",
-            has_hinge,
-            |world, entity| get_hinge_pos(world, entity, 1),
-            |world, entity, value| set_hinge_pos(world, entity, value, 1)
+            has_joint,
+            |world, entity| get_joint_pos(world, entity, 1),
+            |world, entity, value| set_joint_pos(world, entity, value, 1)
         ),
         scene_component_value!("length", SpringObject, target_length, float),
         scene_component_value!("motor", MotorComponent, enabled, bool),
@@ -1961,31 +1962,36 @@ struct WorldHost<'a> {
     registry: &'a mut NativeRegistry,
 }
 
-fn hinge_world_pos(world: &World, geometry: Option<Entity>, local: Vec2) -> Vec2 {
+fn joint_world_pos(world: &World, geometry: Option<Entity>, local: Vec2) -> Vec2 {
     geometry.map_or(local, |entity| {
         world.get::<Position>(entity).unwrap().0 + *world.get::<Rotation>(entity).unwrap() * local
     })
 }
 
-fn hinge_local_pos(world: &World, geometry: Option<Entity>, pos: Vec2) -> Vec2 {
+fn joint_local_pos(world: &World, geometry: Option<Entity>, pos: Vec2) -> Vec2 {
     geometry.map_or(pos, |entity| {
         world.get::<Rotation>(entity).unwrap().inverse()
             * (pos - world.get::<Position>(entity).unwrap().0)
     })
 }
 
-fn add_hinge(host: &mut WorldHost<'_>, arguments: &[Value]) -> Result<Value, HostError> {
+fn add_joint(
+    host: &mut WorldHost<'_>,
+    arguments: &[Value],
+    name: &str,
+    kind: AttachmentKind,
+) -> Result<Value, HostError> {
     let Value::Function(builder) = &arguments[0] else {
-        return Err(type_error("addHinge", "zero-argument function"));
+        return Err(type_error(name, "zero-argument function"));
     };
     if builder.arity() != 0 {
-        return Err(type_error("addHinge", "zero-argument function"));
+        return Err(type_error(name, "zero-argument function"));
     }
 
-    let entity = spawn_pending_hinge(host.world);
+    let entity = spawn_pending_joint(host.world, kind);
     host.world
         .entity_mut(entity)
-        .insert(PendingHinge::default());
+        .insert(PendingJoint::default());
     let id = host.registry.ensure_entity(entity);
     let object = host.registry.instance(id)?.object.clone();
     let runtime = host.runtime;
@@ -1993,9 +1999,9 @@ fn add_hinge(host: &mut WorldHost<'_>, arguments: &[Value]) -> Result<Value, Hos
         runtime
             .call_initializer(host, builder, &[], object.clone())
             .map_err(|error| HostError::new(HostErrorKind::Intrinsic, error))?;
-        let settings = *host.world.get::<PendingHinge>(entity).unwrap();
+        let settings = *host.world.get::<PendingJoint>(entity).unwrap();
         if settings.geoms == [0, 0] {
-            return Err(object_error("addHinge geometry"));
+            return Err(object_error(&format!("{name} geometry")));
         }
         let geoms = [
             host.registry.geometry(host.world, settings.geoms[0])?,
@@ -2015,17 +2021,17 @@ fn add_hinge(host: &mut WorldHost<'_>, arguments: &[Value]) -> Result<Value, Hos
         let positions = match positions {
             [Some(pos0), Some(pos1)] => [pos0, pos1],
             [Some(pos0), None] => {
-                let world_pos = hinge_world_pos(host.world, geoms[0], pos0);
-                [pos0, hinge_local_pos(host.world, geoms[1], world_pos)]
+                let world_pos = joint_world_pos(host.world, geoms[0], pos0);
+                [pos0, joint_local_pos(host.world, geoms[1], world_pos)]
             }
             [None, Some(pos1)] => {
-                let world_pos = hinge_world_pos(host.world, geoms[1], pos1);
-                [hinge_local_pos(host.world, geoms[0], world_pos), pos1]
+                let world_pos = joint_world_pos(host.world, geoms[1], pos1);
+                [joint_local_pos(host.world, geoms[0], world_pos), pos1]
             }
             [None, None] => unreachable!(),
         };
-        configure_hinge(host.world, entity, HingeGeometry { geoms, positions });
-        host.world.entity_mut(entity).remove::<PendingHinge>();
+        configure_joint(host.world, entity, JointGeometry { geoms, positions });
+        host.world.entity_mut(entity).remove::<PendingJoint>();
         Ok(Value::Object(object))
     })();
     if result.is_err() {
@@ -2035,6 +2041,14 @@ fn add_hinge(host: &mut WorldHost<'_>, arguments: &[Value]) -> Result<Value, Hos
         host.world.despawn(entity);
     }
     result
+}
+
+fn add_hinge(host: &mut WorldHost<'_>, arguments: &[Value]) -> Result<Value, HostError> {
+    add_joint(host, arguments, "addHinge", AttachmentKind::Axle)
+}
+
+fn add_fixjoint(host: &mut WorldHost<'_>, arguments: &[Value]) -> Result<Value, HostError> {
+    add_joint(host, arguments, "addFixjoint", AttachmentKind::Fix)
 }
 
 fn add_polygon(host: &mut WorldHost<'_>, arguments: &[Value]) -> Result<Value, HostError> {
@@ -2863,7 +2877,7 @@ mod tests {
     }
 
     #[test]
-    fn add_hinge_validates_then_spawns_and_computes_the_missing_anchor() {
+    fn add_joints_validate_then_spawn_and_compute_the_missing_anchor() {
         let mut engine = ScriptEngine::default();
         let mut world = scene_world();
         let Value::Object(body) = engine
@@ -2880,14 +2894,17 @@ mod tests {
             .unwrap();
         let id = body.index_u32() as i32;
 
-        for source in [
-            "Scene.addHinge {}",
-            "Scene.addHinge { geom0 = 0; geom1 = 0; geom0pos = [0, 0] }",
-        ] {
-            assert!(engine.eval(&mut world, source).is_err());
+        for method in ["addHinge", "addFixjoint"] {
+            for body in ["{}", "{ geom0 = 0; geom1 = 0; geom0pos = [0, 0] }"] {
+                assert!(
+                    engine
+                        .eval(&mut world, &format!("Scene.{method} {body}"))
+                        .is_err()
+                );
+            }
         }
-        assert_eq!(world.query::<&HingeGeometry>().iter(&world).count(), 0);
-        assert_eq!(world.query::<&PendingHinge>().iter(&world).count(), 0);
+        assert_eq!(world.query::<&JointGeometry>().iter(&world).count(), 0);
+        assert_eq!(world.query::<&PendingJoint>().iter(&world).count(), 0);
         assert_eq!(world.query::<&AttachmentKind>().iter(&world).count(), 0);
 
         let Value::Object(defaulted) = engine
@@ -2902,7 +2919,7 @@ mod tests {
             .unwrap()
             .entity
             .unwrap();
-        let geometry = world.get::<HingeGeometry>(defaulted).unwrap();
+        let geometry = world.get::<JointGeometry>(defaulted).unwrap();
         assert_eq!(geometry.positions, [Vec2::ZERO, Vec2::new(10.0, 15.0)]);
 
         let Value::Object(hinge) = engine
@@ -2920,7 +2937,7 @@ mod tests {
             .unwrap()
             .entity
             .unwrap();
-        let geometry = *world.get::<HingeGeometry>(hinge).unwrap();
+        let geometry = *world.get::<JointGeometry>(hinge).unwrap();
         assert_eq!(geometry.geoms, [None, Some(body)]);
         assert_eq!(geometry.positions, [Vec2::new(10.0, 15.0), Vec2::ZERO]);
         assert!(world.get::<MotorComponent>(hinge).unwrap().enabled);
@@ -2954,7 +2971,7 @@ mod tests {
             )
             .unwrap();
         assert_eq!(
-            world.get::<HingeGeometry>(hinge).unwrap().positions[0],
+            world.get::<JointGeometry>(hinge).unwrap().positions[0],
             Vec2::new(2.0, 3.0)
         );
         assert_ne!(
@@ -2973,7 +2990,7 @@ mod tests {
                 .is_err()
         );
         assert_eq!(
-            world.get::<HingeGeometry>(hinge).unwrap().geoms[1],
+            world.get::<JointGeometry>(hinge).unwrap().geoms[1],
             Some(body)
         );
 
@@ -2996,7 +3013,7 @@ mod tests {
                 ),
             )
             .unwrap();
-        let geometry = world.get::<HingeGeometry>(hinge).unwrap();
+        let geometry = world.get::<JointGeometry>(hinge).unwrap();
         assert_eq!(geometry.geoms, [Some(other), Some(body)]);
         let joint = world
             .get::<crate::tools::add_object::AttachmentLinks>(hinge)
@@ -3017,6 +3034,33 @@ mod tests {
                 .unwrap()
                 .read_only
         );
+
+        let Value::Object(fix) = engine
+            .eval(
+                &mut world,
+                &format!("Scene.addFixjoint {{ geom0 := {id} }}"),
+            )
+            .unwrap()
+        else {
+            unreachable!()
+        };
+        let fix = engine
+            .registry
+            .instance(fix.native_id().unwrap())
+            .unwrap()
+            .entity
+            .unwrap();
+        assert_eq!(
+            world.get::<JointGeometry>(fix).unwrap().positions,
+            [Vec2::ZERO, Vec2::new(10.0, 15.0)]
+        );
+        assert_eq!(world.get::<AttachmentKind>(fix), Some(&AttachmentKind::Fix));
+        let joint = world
+            .get::<crate::tools::add_object::AttachmentLinks>(fix)
+            .unwrap()
+            .joint
+            .unwrap();
+        assert!(world.get::<avian2d::prelude::FixedJoint>(joint).is_some());
     }
 
     #[test]
@@ -3040,7 +3084,7 @@ mod tests {
             .unwrap()
             .entity
             .unwrap();
-        let geometry = world.get::<HingeGeometry>(hinge).unwrap();
+        let geometry = world.get::<JointGeometry>(hinge).unwrap();
         assert_eq!(
             geometry.positions,
             [Vec2::new(1.0, 2.0), Vec2::new(-5.0, 0.0)]

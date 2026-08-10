@@ -13,7 +13,7 @@ pub struct AxleObject;
 pub struct FixObject;
 
 #[derive(Component, Copy, Clone, Debug, PartialEq)]
-pub(crate) struct HingeGeometry {
+pub(crate) struct JointGeometry {
     pub(crate) geoms: [Option<Entity>; 2],
     pub(crate) positions: [Vec2; 2],
 }
