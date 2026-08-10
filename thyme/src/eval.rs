@@ -624,6 +624,16 @@ impl<'runtime, 'host> Evaluator<'runtime, 'host> {
         arguments: &[Value],
         call_span: Span,
     ) -> Result<Value, String> {
+        self.call_function_with_receiver(function, arguments, None, call_span)
+    }
+
+    pub fn call_function_with_receiver(
+        &mut self,
+        function: &Function,
+        arguments: &[Value],
+        receiver: Option<Object>,
+        call_span: Span,
+    ) -> Result<Value, String> {
         match &*function.0 {
             FunctionValue::Builtin(builtin) => {
                 if arguments.len() != builtin.arity() {
@@ -675,7 +685,7 @@ impl<'runtime, 'host> Evaluator<'runtime, 'host> {
                     .zip(arguments.iter().cloned())
                     .collect();
                 let call_environment =
-                    Gc::new(Environment::child(captured_environment, bindings, None));
+                    Gc::new(Environment::child(captured_environment, bindings, receiver));
 
                 self.eval_expr(&definition.body.0, &call_environment)
             }
@@ -1352,6 +1362,23 @@ mod tests {
             .call_function(&function, &[Value::Bool(true)], span)
             .unwrap();
         assert!(matches!(result, Value::Bool(true)));
+    }
+
+    #[test]
+    fn host_calls_can_supply_a_function_receiver() {
+        let runtime = Runtime::new();
+        let mut host = TestHost { calls: 0 };
+        let Value::Function(builder) = runtime.eval(&mut host, "{ value = 2 }").unwrap() else {
+            panic!("expected function");
+        };
+        let object = Object::new();
+        object.set_field("value", Value::from(1));
+
+        runtime
+            .call_function_with_receiver(&mut host, &builder, &[], object.clone())
+            .unwrap();
+
+        assert_eq!(object.field("value"), Some(Value::from(2)));
     }
 
     #[test]

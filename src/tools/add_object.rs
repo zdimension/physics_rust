@@ -136,6 +136,26 @@ enum LaserPlacement {
     Sky { pos: Vec2 },
 }
 
+fn box_bundle(pos: Vec3, size: Vec2, scene: Entity) -> impl Bundle {
+    (PhysicalObject::rect(size, pos), ChildOf(scene))
+}
+
+pub(crate) fn spawn_default_box(world: &mut World) -> Entity {
+    let palette = world.resource::<PaletteConfig>().current_palette;
+    let color = palette.get_color_hsva(
+        &mut *world
+            .query::<&mut RngComponent>()
+            .single_mut(world)
+            .unwrap(),
+    );
+    let scene = world.resource::<SceneState>().scene;
+    let pos = world.resource_mut::<DepthSorter>().pos(-Vec2::splat(0.5));
+    world
+        .spawn(box_bundle(pos, Vec2::ONE, scene))
+        .insert(ColorComponent(color).update_from_this())
+        .id()
+}
+
 pub fn process_add_object(
     mut events: MessageReader<AddObjectEvent>,
     query: BodyQuery,
@@ -162,8 +182,7 @@ pub fn process_add_object(
         match *ev {
             Box { pos, size } => {
                 commands
-                    .spawn(PhysicalObject::rect(size, z.pos(pos)))
-                    .insert(ChildOf(scene_state.scene))
+                    .spawn(box_bundle(z.pos(pos), size, scene_state.scene))
                     .insert(
                         ColorComponent(palette.get_color_hsva(&mut *rng.single_mut().unwrap()))
                             .update_from_this(),

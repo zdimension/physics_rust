@@ -749,6 +749,21 @@ impl Runtime {
         .call_function(function, arguments, (0..0).into())
     }
 
+    /// Calls a function with an object used for unqualified member lookup and assignment.
+    pub fn call_function_with_receiver(
+        &self,
+        host: &mut dyn Host,
+        function: &Function,
+        arguments: &[Value],
+        receiver: Object,
+    ) -> Result<Value, String> {
+        eval::Evaluator {
+            runtime: self,
+            host,
+        }
+        .call_function_with_receiver(function, arguments, Some(receiver), (0..0).into())
+    }
+
     /// Creates or replaces the function bound to a native property.
     pub fn bind_property(
         &self,

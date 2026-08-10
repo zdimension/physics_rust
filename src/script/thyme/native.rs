@@ -36,16 +36,18 @@ use crate::{
         tracer::TracerSettings,
     },
     tools::{
-        add_object::AttachmentKind, drag::DragConfig, gear::GearSettings,
-        r#move::attachment_local_position, rotate::attachment_local_rotation,
+        add_object::{AttachmentKind, spawn_default_box},
+        drag::DragConfig,
+        gear::GearSettings,
+        r#move::attachment_local_position,
+        rotate::attachment_local_rotation,
     },
     ui::GravitySetting,
 };
 
 type Getter = fn(&World, Option<Entity>) -> Result<Value, HostError>;
 type Setter = fn(&mut World, Option<Entity>, &Value) -> Result<(), HostError>;
-type Method =
-    fn(&mut World, &mut NativeRegistry, Option<Entity>, &[Value]) -> Result<Value, HostError>;
+type Method = fn(&mut WorldHost<'_>, Option<Entity>, &[Value]) -> Result<Value, HostError>;
 type Applies = fn(&World, Entity) -> bool;
 
 enum NativeMember {
@@ -218,7 +220,34 @@ macro_rules! native_method {
         NativeMember::Method {
             name: $name,
             arity: $arity,
-            call: $call,
+            call: |host, entity, arguments| {
+                ($call)(&mut *host.world, &mut *host.registry, entity, arguments)
+            },
+        }
+    };
+}
+
+macro_rules! native_builder_method {
+    ($name:literal, $spawn:path) => {
+        NativeMember::Method {
+            name: $name,
+            arity: 1,
+            call: |host, _, arguments| {
+                let Value::Function(builder) = &arguments[0] else {
+                    return Err(type_error($name, "zero-argument function"));
+                };
+                if builder.arity() != 0 {
+                    return Err(type_error($name, "zero-argument function"));
+                }
+                let entity = $spawn(host.world);
+                let id = host.registry.ensure_entity(entity);
+                let object = host.registry.instance(id)?.object.clone();
+                let runtime = host.runtime;
+                runtime
+                    .call_function_with_receiver(host, builder, &[], object.clone())
+                    .map_err(|error| HostError::new(HostErrorKind::Intrinsic, error))?;
+                Ok(Value::Object(object))
+            },
         }
     };
 }
@@ -734,6 +763,20 @@ fn get_entity_id(_: &World, entity: Entity) -> Result<Value, HostError> {
     Ok(Value::from(entity.index_u32() as i32))
 }
 
+#[derive(Copy, Clone)]
+enum LoadId {
+    Entity,
+    Geometry,
+}
+
+fn load_id(member: &NativeMember) -> Option<LoadId> {
+    match member.name() {
+        "entityID" => Some(LoadId::Entity),
+        "geomID" => Some(LoadId::Geometry),
+        _ => None,
+    }
+}
+
 fn set_z_order(world: &mut World, entity: Entity, value: &Value) -> Result<(), HostError> {
     let z = number(value, "zOrder")?;
     let current = world.get::<GlobalTransform>(entity).map_or_else(
@@ -948,26 +991,37 @@ native_class!(
     ]
 );
 
+fn entity_by_id(
+    world: &mut World,
+    registry: &mut NativeRegistry,
+    arguments: &[Value],
+    name: &str,
+) -> Result<Value, HostError> {
+    let Value::Number(Number::Int(id)) = &arguments[0] else {
+        return Err(type_error(name, "int"));
+    };
+    let Some(raw) = Entity::from_raw_u32(*id as u32) else {
+        return Ok(Value::Null);
+    };
+    let entity = world.entities().resolve_from_index(raw.index());
+    if world.get_entity(entity).is_err() {
+        return Ok(Value::Null);
+    }
+    let object = registry.ensure_entity(entity);
+    Ok(Value::Object(registry.instance(object)?.object.clone()))
+}
+
 native_class!(
     SCENE = "Scene",
-    [native_method!(
-        "entityByID",
-        1,
-        |world: &mut World, registry: &mut NativeRegistry, _, arguments: &[Value]| {
-            let Value::Number(Number::Int(id)) = &arguments[0] else {
-                return Err(type_error("entityByID", "int"));
-            };
-            let Some(raw) = Entity::from_raw_u32(*id as u32) else {
-                return Ok(Value::Null);
-            };
-            let entity = world.entities().resolve_from_index(raw.index());
-            if world.get_entity(entity).is_err() {
-                return Ok(Value::Null);
-            }
-            let object = registry.ensure_entity(entity);
-            Ok(Value::Object(registry.instance(object)?.object.clone()))
-        }
-    )]
+    [
+        native_method!("entityByID", 1, |world, registry, _, arguments| {
+            entity_by_id(world, registry, arguments, "entityByID")
+        }),
+        native_method!("entityByGeomID", 1, |world, registry, _, arguments| {
+            entity_by_id(world, registry, arguments, "entityByGeomID")
+        }),
+        native_builder_method!("addBox", spawn_default_box),
+    ]
 );
 
 native_class!(
@@ -1040,6 +1094,7 @@ native_class!(
         scene_component_value!("dampingFactor", SpringObject, damping, float),
         scene_component_value!("density", ColliderDensity, 0, float),
         scene_property!("entityID", |_, _| true, get_entity_id),
+        scene_property!("geomID", has_area, get_entity_id),
         scene_component_value!("fadeDist", LaserSettings, fade_distance, float),
         scene_component_value!("force", ThrusterSettings, force, float),
         scene_component_value!("length", SpringObject, target_length, float),
@@ -1092,6 +1147,8 @@ struct RegisteredClass {
 struct NativeInstance {
     class: usize,
     entity: Option<Entity>,
+    load_entity_id: Option<i32>,
+    load_geom_id: Option<i32>,
     #[allow(dead_code)]
     object: Object,
 }
@@ -1101,6 +1158,9 @@ struct NativeRegistry {
     instances: HashMap<NativeObjectId, NativeInstance>,
     entities: HashMap<Entity, NativeObjectId>,
     globals: Vec<NativeObjectId>,
+    loading_scene: bool,
+    load_entities: HashMap<i32, Entity>,
+    load_geometries: HashMap<i32, Entity>,
     next_id: u64,
 }
 
@@ -1137,6 +1197,9 @@ impl NativeRegistry {
             instances: HashMap::new(),
             entities: HashMap::new(),
             globals: Vec::new(),
+            loading_scene: false,
+            load_entities: HashMap::new(),
+            load_geometries: HashMap::new(),
             next_id: 0,
         };
         registry.register_global(runtime, 0);
@@ -1206,6 +1269,8 @@ impl NativeRegistry {
             NativeInstance {
                 class,
                 entity,
+                load_entity_id: None,
+                load_geom_id: None,
                 object: object.clone(),
             },
         );
@@ -1225,6 +1290,63 @@ impl NativeRegistry {
         self.instances
             .get(&id)
             .ok_or_else(|| HostError::new(HostErrorKind::UnknownObject, "unknown object"))
+    }
+
+    fn instance_mut(&mut self, id: NativeObjectId) -> Result<&mut NativeInstance, HostError> {
+        self.instances
+            .get_mut(&id)
+            .ok_or_else(|| HostError::new(HostErrorKind::UnknownObject, "unknown object"))
+    }
+
+    fn begin_scene_load(&mut self) {
+        self.loading_scene = true;
+        self.load_entities.clear();
+        self.load_geometries.clear();
+    }
+
+    fn end_scene_load(&mut self) {
+        self.loading_scene = false;
+        self.load_entities.clear();
+        self.load_geometries.clear();
+        for instance in self.instances.values_mut() {
+            instance.load_entity_id = None;
+            instance.load_geom_id = None;
+        }
+    }
+
+    fn set_load_id(
+        &mut self,
+        object: NativeObjectId,
+        kind: LoadId,
+        id: i32,
+    ) -> Result<(), HostError> {
+        let instance = self.instance_mut(object)?;
+        let entity = instance.entity.ok_or_else(|| object_error("ID"))?;
+        let old = match kind {
+            LoadId::Entity => instance.load_entity_id.replace(id),
+            LoadId::Geometry => instance.load_geom_id.replace(id),
+        };
+        let ids = match kind {
+            LoadId::Entity => &mut self.load_entities,
+            LoadId::Geometry => &mut self.load_geometries,
+        };
+        if let Some(old) = old
+            && ids.get(&old) == Some(&entity)
+        {
+            ids.remove(&old);
+        }
+        ids.insert(id, entity);
+        Ok(())
+    }
+
+    #[allow(dead_code)]
+    fn load_entity(&self, kind: LoadId, id: i32) -> Option<Entity> {
+        match kind {
+            LoadId::Entity => &self.load_entities,
+            LoadId::Geometry => &self.load_geometries,
+        }
+        .get(&id)
+        .copied()
     }
 
     fn member(
@@ -1270,10 +1392,19 @@ impl Default for ScriptEngine {
 impl ScriptEngine {
     pub(crate) fn eval(&mut self, world: &mut World, source: &str) -> Result<Value, String> {
         let mut host = WorldHost {
+            runtime: &self.runtime,
             world,
             registry: &mut self.registry,
         };
         self.runtime.eval(&mut host, source)
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn eval_scene(&mut self, world: &mut World, source: &str) -> Result<Value, String> {
+        self.registry.begin_scene_load();
+        let result = self.eval(world, source);
+        self.registry.end_scene_load();
+        result
     }
 
     fn event_handler(&self, object: NativeObjectId, name: &str) -> Option<(Object, Function)> {
@@ -1291,6 +1422,7 @@ impl ScriptEngine {
         event: Object,
     ) -> Result<Value, String> {
         let mut host = WorldHost {
+            runtime: &self.runtime,
             world,
             registry: &mut self.registry,
         };
@@ -1467,6 +1599,7 @@ impl ScriptEngine {
         }
         let value = self.eval(world, source)?;
         let mut host = WorldHost {
+            runtime: &self.runtime,
             world,
             registry: &mut self.registry,
         };
@@ -1510,6 +1643,7 @@ impl ScriptEngine {
         scene_objects.sort_by(|a, b| a.0.total_cmp(&b.0));
         objects.extend(scene_objects.into_iter().map(|(_, object)| object));
         let mut host = WorldHost {
+            runtime: &self.runtime,
             world,
             registry: &mut self.registry,
         };
@@ -1536,6 +1670,7 @@ impl ScriptEngine {
 }
 
 struct WorldHost<'a> {
+    runtime: &'a Runtime,
     world: &'a mut World,
     registry: &'a mut NativeRegistry,
 }
@@ -1551,9 +1686,8 @@ impl Host for WorldHost<'_> {
         let Some(&property) = class.properties.get(name) else {
             return Ok(None);
         };
-        let NativeMember::Property { applies, set, .. } =
-            &class.definition.members[property.into_raw() as usize]
-        else {
+        let member = &class.definition.members[property.into_raw() as usize];
+        let NativeMember::Property { applies, set, .. } = member else {
             unreachable!()
         };
         if let (Some(applies), Some(entity)) = (applies, instance.entity)
@@ -1561,7 +1695,10 @@ impl Host for WorldHost<'_> {
         {
             return Ok(None);
         }
-        Ok(Some(ResolvedProperty::new(property, set.is_some())))
+        Ok(Some(ResolvedProperty::new(
+            property,
+            set.is_some() || self.registry.loading_scene && load_id(member).is_some(),
+        )))
     }
 
     fn get_property(
@@ -1576,6 +1713,15 @@ impl Host for WorldHost<'_> {
                 "not a property",
             ));
         };
+        if self.registry.loading_scene
+            && let Some(kind) = load_id(member)
+        {
+            let id = match kind {
+                LoadId::Entity => instance.load_entity_id,
+                LoadId::Geometry => instance.load_geom_id,
+            };
+            return Ok(id.map(Value::from).unwrap_or(Value::Undefined));
+        }
         get(self.world, instance.entity)
     }
 
@@ -1585,20 +1731,31 @@ impl Host for WorldHost<'_> {
         property: PropertyId,
         value: &Value,
     ) -> Result<(), HostError> {
-        let (instance, member) = self.registry.member(object, property)?;
-        let NativeMember::Property { name, set, .. } = member else {
-            return Err(HostError::new(
-                HostErrorKind::UnknownProperty,
-                "not a property",
-            ));
+        let (entity, kind, name, set) = {
+            let (instance, member) = self.registry.member(object, property)?;
+            let NativeMember::Property { name, set, .. } = member else {
+                return Err(HostError::new(
+                    HostErrorKind::UnknownProperty,
+                    "not a property",
+                ));
+            };
+            (instance.entity, load_id(member), *name, *set)
         };
+        if self.registry.loading_scene
+            && let Some(kind) = kind
+        {
+            let Value::Number(Number::Int(id)) = value else {
+                return Err(type_error(name, "int"));
+            };
+            return self.registry.set_load_id(object, kind, *id);
+        }
         let Some(set) = set else {
             return Err(HostError::new(
                 HostErrorKind::Other,
                 format!("{name} is read-only"),
             ));
         };
-        set(self.world, instance.entity, value)
+        set(self.world, entity, value)
     }
 
     fn call_intrinsic(
@@ -1628,7 +1785,7 @@ impl Host for WorldHost<'_> {
             return Err(HostError::new(HostErrorKind::Intrinsic, "unknown method"));
         };
         let call = *call;
-        call(self.world, self.registry, entity, arguments)
+        call(self, entity, arguments)
     }
 }
 
@@ -1658,12 +1815,26 @@ mod tests {
         world
     }
 
+    fn scene_world() -> World {
+        let mut world = world();
+        let scene = world.spawn_empty().id();
+        world.insert_resource(crate::ui::SceneState { scene });
+        world.insert_resource(crate::tools::add_object::DepthSorter::default());
+        world.insert_resource(crate::palette::PaletteConfig {
+            palettes: Default::default(),
+            current_palette: Default::default(),
+        });
+        world.spawn(crate::rng::RngComponent::default());
+        world
+    }
+
     #[test]
     fn registry_preserves_names_and_resolves_case_insensitively() {
         let mut engine = ScriptEngine::default();
         let gui = engine.registry.globals[1];
         let mut world = world();
         let mut host = WorldHost {
+            runtime: &engine.runtime,
             world: &mut world,
             registry: &mut engine.registry,
         };
@@ -1835,6 +2006,137 @@ mod tests {
         engine.eval(&mut world, "console.clear").unwrap();
         assert!(world.resource::<Console>().output.is_empty());
         assert!(engine.eval(&mut world, "Console = 1").is_err());
+    }
+
+    #[test]
+    fn scene_add_box_uses_defaults_and_runs_its_builder_on_the_box() {
+        let mut engine = ScriptEngine::default();
+        let mut world = scene_world();
+        let scene = world.resource::<crate::ui::SceneState>().scene;
+
+        let Value::Object(default_box) = engine.eval(&mut world, "Scene.addBox {}").unwrap() else {
+            panic!("expected box");
+        };
+        let entity = engine
+            .registry
+            .instance(default_box.native_id().unwrap())
+            .unwrap()
+            .entity
+            .unwrap();
+        assert_eq!(world.get::<Position>(entity).unwrap().0, Vec2::ZERO);
+        assert_eq!(get_box_size(&world, entity).unwrap().to_string(), "[1, 1]");
+        assert_eq!(world.get::<ColliderDensity>(entity).unwrap().0, 2.0);
+        assert_eq!(world.get::<ChildOf>(entity).unwrap().parent(), scene);
+
+        let Value::Object(configured_box) = engine
+            .eval(
+                &mut world,
+                "Scene.addBox { pos = [10.0, 15.0]; size = [2, 4]; density = 3 }",
+            )
+            .unwrap()
+        else {
+            panic!("expected box");
+        };
+        let entity = engine
+            .registry
+            .instance(configured_box.native_id().unwrap())
+            .unwrap()
+            .entity
+            .unwrap();
+        assert_eq!(
+            world.get::<Position>(entity).unwrap().0,
+            Vec2::new(10.0, 15.0)
+        );
+        assert_eq!(get_box_size(&world, entity).unwrap().to_string(), "[2, 4]");
+        assert_eq!(world.get::<ColliderDensity>(entity).unwrap().0, 3.0);
+
+        assert!(engine.eval(&mut world, "Scene.addBox 1").is_err());
+        assert!(engine.eval(&mut world, "Scene.addBox ((x) => {})").is_err());
+        assert!(
+            engine
+                .eval(&mut world, "Scene.addBox { entityID = 123 }")
+                .is_err()
+        );
+        assert!(
+            engine
+                .eval(&mut world, "Scene.addBox { geomID = 123 }")
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn scene_loading_temporarily_accepts_script_entity_and_geometry_ids() {
+        let mut engine = ScriptEngine::default();
+        let mut world = scene_world();
+
+        let Value::Object(object) = engine
+            .eval_scene(
+                &mut world,
+                "Scene.addBox { entityID = 12; geomID = 34; \
+                 Console.print([entityID, geomID, pos]) }",
+            )
+            .unwrap()
+        else {
+            panic!("expected box");
+        };
+        assert_eq!(world.resource::<Console>().output, "[12, 34, [0, 0]]");
+
+        let entity = engine
+            .registry
+            .instance(object.native_id().unwrap())
+            .unwrap()
+            .entity
+            .unwrap();
+        let real_id = Value::from(entity.index_u32() as i32);
+        assert_eq!(
+            engine.eval(&mut world, "entityID").unwrap(),
+            Value::Undefined
+        );
+        let id = entity.index_u32() as i32;
+        assert_eq!(
+            engine
+                .eval(&mut world, &format!("Scene.entityByID({id}).entityID"))
+                .unwrap(),
+            real_id
+        );
+        assert_eq!(
+            engine
+                .eval(&mut world, &format!("Scene.entityByGeomID({id}).geomID"))
+                .unwrap(),
+            real_id
+        );
+
+        engine.registry.begin_scene_load();
+        let first = engine
+            .eval(&mut world, "Scene.addBox { geomID = 123 }")
+            .unwrap();
+        let Value::Object(first) = first else {
+            unreachable!()
+        };
+        let first = engine
+            .registry
+            .instance(first.native_id().unwrap())
+            .unwrap()
+            .entity
+            .unwrap();
+        let second = engine
+            .eval(&mut world, "Scene.addBox { geomID = 123 }")
+            .unwrap();
+        let Value::Object(second) = second else {
+            unreachable!()
+        };
+        let second = engine
+            .registry
+            .instance(second.native_id().unwrap())
+            .unwrap()
+            .entity
+            .unwrap();
+        assert_ne!(first, second);
+        assert_eq!(
+            engine.registry.load_entity(LoadId::Geometry, 123),
+            Some(second)
+        );
+        engine.registry.end_scene_load();
     }
 
     #[test]
