@@ -542,14 +542,14 @@ fn get_color(world: &World, entity: Entity) -> Result<Value, HostError> {
         .get::<ColorComponent>(entity)
         .ok_or_else(|| object_error("color"))?
         .0;
-    Ok(floats(color.to_rgba_unmultiplied()))
+    Ok(floats(color.to_srgba_unmultiplied().map(|c| c as f32 / 255.0)))
 }
 
 fn set_color(world: &mut World, entity: Entity, value: &Value) -> Result<(), HostError> {
-    let [r, g, b, a] = float_list(value, "color")?;
+    let vals = float_list(value, "color")?;
     world
         .entity_mut(entity)
-        .insert(ColorComponent(Hsva::from_rgba_unmultiplied(r, g, b, a)));
+        .insert(ColorComponent(Hsva::from_srgba_unmultiplied(vals.map(|c| (c * 255.0).round().clamp(0.0, 255.0) as u8))));
     Ok(())
 }
 
