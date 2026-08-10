@@ -703,13 +703,6 @@ where
             .delimited_by(just(Token::ParenOpen), just(Token::ParenClose))
             .map_with(|args, e| (args, e.span()));
 
-        // Kept as the argument grammar for unparenthesized application.
-        let member_access = atom
-            .clone()
-            .foldl_with(member.clone().repeated(), |object, member, e| {
-                (Expr::Member(Box::new(object), member), e.span())
-            });
-
         // a.b(c).d: member access and parenthesized calls are composable postfix operators.
         let postfix = atom.clone().foldl_with(
             member
@@ -723,10 +716,8 @@ where
         );
 
         // f x; application binds more tightly than all infix operators.
-        let call_unparenthesized = postfix.foldl_with(
-            member_access
-                .map_with(|arg, e| (vec![arg], e.span()))
-                .repeated(),
+        let call_unparenthesized = postfix.clone().foldl_with(
+            postfix.map_with(|arg, e| (vec![arg], e.span())).repeated(),
             |f, args, e| (Expr::Call(Box::new(f), args), e.span()),
         );
 
@@ -1004,6 +995,23 @@ mod tests {
         };
         assert_symbol(a, "a");
         assert_eq!(b.as_str(), "b");
+    }
+
+    #[test]
+    fn unparenthesized_call_accepts_a_parenthesized_call_as_its_argument() {
+        let ast = parse_source("print foo(1)");
+        let Expr::Call(print, (arguments, _)) = single_expr(&ast) else {
+            panic!("expected call, got {:#?}", single_expr(&ast));
+        };
+        assert_symbol(print, "print");
+        let [argument] = arguments.as_slice() else {
+            panic!("expected one argument, got {arguments:#?}");
+        };
+        let Expr::Call(foo, (arguments, _)) = &argument.0 else {
+            panic!("expected nested call, got {:#?}", argument.0);
+        };
+        assert_symbol(foo, "foo");
+        assert_eq!(arguments.len(), 1);
     }
 
     #[test]
