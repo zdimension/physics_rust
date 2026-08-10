@@ -99,6 +99,21 @@ pub fn polygon_path(points: &[Vec2], closed: bool) -> Path {
     }
 }
 
+pub fn surfaces_path(surfaces: &[Vec<Vec2>]) -> Path {
+    surfaces
+        .iter()
+        .filter_map(|surface| surface.split_first())
+        .fold(GeometryBuilder::new(), |builder, (&first, rest)| {
+            rest.iter()
+                .copied()
+                .fold(builder.begin(first), |builder, point| {
+                    builder.line_to(point)
+                })
+                .close()
+        })
+        .build()
+}
+
 pub fn tessellate_polygon(points: &[Vec2]) -> Option<PolygonGeometry> {
     if points.len() < 3 {
         return None;
@@ -200,6 +215,26 @@ mod tests {
 
         assert!((geometry.area - 4.0).abs() < 1.0e-4);
         assert!(!geometry.triangles.is_empty());
+    }
+
+    #[test]
+    fn later_surfaces_cut_holes_from_the_first() {
+        let path = surfaces_path(&[
+            vec![
+                Vec2::new(-2.0, -2.0),
+                Vec2::new(2.0, -2.0),
+                Vec2::new(2.0, 2.0),
+                Vec2::new(-2.0, 2.0),
+            ],
+            vec![
+                Vec2::new(-1.0, -1.0),
+                Vec2::new(1.0, -1.0),
+                Vec2::new(1.0, 1.0),
+                Vec2::new(-1.0, 1.0),
+            ],
+        ]);
+
+        assert!((tessellate_path(&path).unwrap().area - 12.0).abs() < 1.0e-4);
     }
 
     #[test]

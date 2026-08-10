@@ -37,6 +37,7 @@ use crate::{
         thruster::ThrusterSettings,
         tracer::TracerSettings,
     },
+    tools::polygon::{surfaces_path, tessellate_path},
     tools::{
         add_object::{
             AttachmentKind, configure_hinge, spawn_default_box, spawn_default_circle,
@@ -751,6 +752,78 @@ struct PendingHinge {
     positions: [Option<Vec2>; 2],
 }
 
+#[derive(Component, Clone, Default)]
+struct PendingPolygon {
+    vecs: Option<Vec<Vec2>>,
+    surfaces: Option<Vec<Vec<Vec2>>>,
+}
+
+fn vertices(value: &Value, name: &str) -> Result<Vec<Vec2>, HostError> {
+    let Value::List(values) = value else {
+        return Err(type_error(name, "vertex list"));
+    };
+    values
+        .as_slice()
+        .iter()
+        .map(|value| {
+            let point = Vec2::from_array(float_list(value, name)?);
+            point
+                .is_finite()
+                .then_some(point)
+                .ok_or_else(|| type_error(name, "finite vertices"))
+        })
+        .collect()
+}
+
+fn vertex_value(points: &[Vec2]) -> Value {
+    Value::List(List::new(
+        points.iter().map(|point| floats(point.to_array())),
+    ))
+}
+
+fn get_polygon_vecs(world: &World, entity: Entity) -> Result<Value, HostError> {
+    Ok(world
+        .get::<PendingPolygon>(entity)
+        .and_then(|polygon| polygon.vecs.as_deref())
+        .map_or(Value::Undefined, vertex_value))
+}
+
+fn set_polygon_vecs(world: &mut World, entity: Entity, value: &Value) -> Result<(), HostError> {
+    let value = vertices(value, "vecs")?;
+    world
+        .get_mut::<PendingPolygon>(entity)
+        .ok_or_else(|| object_error("vecs"))?
+        .vecs = Some(value);
+    Ok(())
+}
+
+fn get_polygon_surfaces(world: &World, entity: Entity) -> Result<Value, HostError> {
+    Ok(world
+        .get::<PendingPolygon>(entity)
+        .and_then(|polygon| polygon.surfaces.as_deref())
+        .map_or(Value::Undefined, |surfaces| {
+            Value::List(List::new(
+                surfaces.iter().map(|points| vertex_value(points)),
+            ))
+        }))
+}
+
+fn set_polygon_surfaces(world: &mut World, entity: Entity, value: &Value) -> Result<(), HostError> {
+    let Value::List(values) = value else {
+        return Err(type_error("surfaces", "surface list"));
+    };
+    let surfaces = values
+        .as_slice()
+        .iter()
+        .map(|value| vertices(value, "surfaces"))
+        .collect::<Result<_, _>>()?;
+    world
+        .get_mut::<PendingPolygon>(entity)
+        .ok_or_else(|| object_error("surfaces"))?
+        .surfaces = Some(surfaces);
+    Ok(())
+}
+
 fn has_hinge(world: &World, entity: Entity) -> bool {
     world.get::<PendingHinge>(entity).is_some() || world.get::<HingeGeometry>(entity).is_some()
 }
@@ -1131,6 +1204,7 @@ native_class!(
         native_builder_method!("addBox", spawn_default_box),
         native_builder_method!("addCircle", spawn_default_circle),
         native_host_method!("addHinge", 1, add_hinge),
+        native_host_method!("addPolygon", 1, add_polygon),
     ]
 );
 
@@ -1268,7 +1342,14 @@ native_class!(
             |world, entity, value| set_world_rotation(world, entity, value, "rotation")
         ),
         scene_property!("size", has_size, get_size, set_size),
+        scene_component_property!(
+            "surfaces",
+            PendingPolygon,
+            get_polygon_surfaces,
+            set_polygon_surfaces
+        ),
         scene_component_property!("vel", LinearVelocity, get_vel, set_vel),
+        scene_component_property!("vecs", PendingPolygon, get_polygon_vecs, set_polygon_vecs),
         scene_component_property!("zOrder", Transform, get_z_order, set_z_order),
     ]
 );
@@ -1956,6 +2037,67 @@ fn add_hinge(host: &mut WorldHost<'_>, arguments: &[Value]) -> Result<Value, Hos
     result
 }
 
+fn add_polygon(host: &mut WorldHost<'_>, arguments: &[Value]) -> Result<Value, HostError> {
+    let Value::Function(builder) = &arguments[0] else {
+        return Err(type_error("addPolygon", "zero-argument function"));
+    };
+    if builder.arity() != 0 {
+        return Err(type_error("addPolygon", "zero-argument function"));
+    }
+
+    let entity = spawn_default_box(host.world);
+    host.world
+        .entity_mut(entity)
+        .insert((FreeformObject, PendingPolygon::default()));
+    let id = host.registry.ensure_entity(entity);
+    let object = host.registry.instance(id)?.object.clone();
+    let runtime = host.runtime;
+    let result = (|| {
+        runtime
+            .call_initializer(host, builder, &[], object.clone())
+            .map_err(|error| HostError::new(HostErrorKind::Intrinsic, error))?;
+        let settings = host.world.get::<PendingPolygon>(entity).unwrap().clone();
+        let mut surfaces = settings
+            .surfaces
+            .or_else(|| settings.vecs.map(|vecs| vec![vecs]))
+            .ok_or_else(|| HostError::new(HostErrorKind::Intrinsic, "missing vertex data"))?;
+        if surfaces.is_empty() || surfaces.iter().any(|surface| surface.len() < 3) {
+            return Err(HostError::new(
+                HostErrorKind::Intrinsic,
+                "invalid vertex data",
+            ));
+        }
+
+        let (min, max) = surfaces[0].iter().fold(
+            (Vec2::splat(f32::INFINITY), Vec2::splat(f32::NEG_INFINITY)),
+            |(min, max), &point| (min.min(point), max.max(point)),
+        );
+        let origin = min * 0.5 + max * 0.5;
+        for point in surfaces.iter_mut().flatten() {
+            *point -= origin;
+        }
+        let path = surfaces_path(&surfaces);
+        let geometry = tessellate_path(&path)
+            .ok_or_else(|| HostError::new(HostErrorKind::Intrinsic, "invalid vertex data"))?;
+        let mut query = host.world.query::<(&mut Collider, &mut Shape)>();
+        let (mut collider, mut shape) = query
+            .get_mut(host.world, entity)
+            .map_err(|_| object_error("polygon geometry"))?;
+        *collider = geometry.collider();
+        shape.path = path;
+        drop((collider, shape));
+        host.world.entity_mut(entity).remove::<PendingPolygon>();
+        Ok(Value::Object(object))
+    })();
+    if result.is_err() {
+        host.registry.entities.remove(&entity);
+        host.registry.instances.remove(&id);
+        runtime.unbind_object(id);
+        host.world.despawn(entity);
+    }
+    result
+}
+
 impl Host for WorldHost<'_> {
     fn resolve_property(
         &mut self,
@@ -2092,6 +2234,7 @@ mod tests {
     use super::*;
     use crate::objects::phy_obj::PhysicalObject;
     use crate::objects::spring::{SpringEnd, SpringEndIndex};
+    use avian2d::prelude::SimpleCollider;
     use bevy::prelude::With;
 
     fn world() -> World {
@@ -2386,6 +2529,87 @@ mod tests {
                 .eval(&mut world, "Scene.addBox { geomID = 123 }")
                 .is_err()
         );
+    }
+
+    #[test]
+    fn scene_add_polygon_accepts_vecs_and_surfaces() {
+        let mut engine = ScriptEngine::default();
+        let mut world = scene_world();
+
+        let Value::Object(first) = engine
+            .eval(
+                &mut world,
+                "Scene.addPolygon { vecs := [[-1,-1],[1,-1],[1,1],[-1,1]]; density = 3 }",
+            )
+            .unwrap()
+        else {
+            panic!("expected polygon");
+        };
+        let first = engine
+            .registry
+            .instance(first.native_id().unwrap())
+            .unwrap()
+            .entity
+            .unwrap();
+        assert!(world.get::<FreeformObject>(first).is_some());
+        assert_eq!(world.get::<ColliderDensity>(first).unwrap().0, 3.0);
+        let first_aabb = world
+            .get::<Collider>(first)
+            .unwrap()
+            .aabb(Vec2::ZERO, Rotation::default());
+
+        let Value::Object(shifted) = engine
+            .eval(
+                &mut world,
+                "Scene.addPolygon { vecs = [[9,19],[11,19],[11,21],[9,21]] }",
+            )
+            .unwrap()
+        else {
+            panic!("expected polygon");
+        };
+        let shifted = engine
+            .registry
+            .instance(shifted.native_id().unwrap())
+            .unwrap()
+            .entity
+            .unwrap();
+        let shifted_aabb = world
+            .get::<Collider>(shifted)
+            .unwrap()
+            .aabb(Vec2::ZERO, Rotation::default());
+        assert_eq!(
+            (first_aabb.min, first_aabb.max),
+            (shifted_aabb.min, shifted_aabb.max)
+        );
+
+        let Value::Object(holed) = engine
+            .eval(
+                &mut world,
+                "Scene.addPolygon { vecs = [[0,0],[1,0],[0,1]]; \
+                 surfaces = [[[-2,-2],[2,-2],[2,2],[-2,2]],[[-1,-1],[1,-1],[1,1],[-1,1]]] }",
+            )
+            .unwrap()
+        else {
+            panic!("expected polygon");
+        };
+        let holed = engine
+            .registry
+            .instance(holed.native_id().unwrap())
+            .unwrap()
+            .entity
+            .unwrap();
+        let area = world
+            .get::<Collider>(holed)
+            .unwrap()
+            .shape()
+            .mass_properties(1.0)
+            .mass();
+        assert!((area - 12.0).abs() < 1.0e-4);
+
+        let count = world.query::<&FreeformObject>().iter(&world).count();
+        let error = engine.eval(&mut world, "Scene.addPolygon {}").unwrap_err();
+        assert!(error.contains("missing vertex data"), "{error}");
+        assert_eq!(world.query::<&FreeformObject>().iter(&world).count(), count);
     }
 
     #[test]
