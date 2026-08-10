@@ -476,6 +476,7 @@ pub struct Environment {
     parent: Option<Gc<Environment>>,
     bindings: RefCell<HashMap<Symbol, ValueSlot>>,
     receiver: Option<Object>,
+    initialize_receiver: bool,
 }
 
 impl Environment {
@@ -484,6 +485,7 @@ impl Environment {
             parent: None,
             bindings: RefCell::new(HashMap::new()),
             receiver: None,
+            initialize_receiver: false,
         };
         builtins::install(&environment);
         environment
@@ -493,6 +495,7 @@ impl Environment {
         parent: Gc<Environment>,
         bindings: HashMap<Symbol, Value>,
         receiver: Option<Object>,
+        initialize_receiver: bool,
     ) -> Self {
         Self {
             parent: Some(parent),
@@ -503,6 +506,7 @@ impl Environment {
                     .collect(),
             ),
             receiver,
+            initialize_receiver,
         }
     }
 
@@ -530,6 +534,10 @@ impl Environment {
 
     pub(crate) fn receiver(&self) -> Option<Object> {
         self.receiver.clone()
+    }
+
+    pub(crate) fn initializes_receiver(&self) -> bool {
+        self.initialize_receiver
     }
 
     /// Creates or replaces the binding for a name in this environment.
@@ -754,8 +762,8 @@ impl Runtime {
         .call_function(function, arguments, (0..0).into())
     }
 
-    /// Calls a function with an object used for unqualified member lookup and assignment.
-    pub fn call_function_with_receiver(
+    /// Calls a function as an object initializer.
+    pub fn call_initializer(
         &self,
         host: &mut dyn Host,
         function: &Function,
@@ -766,7 +774,13 @@ impl Runtime {
             runtime: self,
             host,
         }
-        .call_function_with_receiver(function, arguments, Some(receiver), (0..0).into())
+        .call_function_with_receiver(
+            function,
+            arguments,
+            Some(receiver),
+            true,
+            (0..0).into(),
+        )
     }
 
     /// Creates or replaces the function bound to a native property.

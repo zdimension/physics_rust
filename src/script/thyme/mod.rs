@@ -100,7 +100,9 @@ pub(crate) fn execute_console(world: &mut World) {
         .remove_non_send::<ScriptEngine>()
         .expect("Thyme engine");
 
-    world.resource_mut::<Console>().push_line(format_args!("> {}", source.trim()));
+    world
+        .resource_mut::<Console>()
+        .push_line(format_args!("> {}", source.trim()));
 
     let result = engine.eval(world, source.trim());
     world.insert_non_send(engine);
@@ -111,7 +113,7 @@ pub(crate) fn execute_console(world: &mut World) {
             if value != thyme::Value::Void {
                 console.push_line(value);
             }
-        },
+        }
         Err(error) => console.push_line(format_args!("ERROR: {error}")),
     }
 }

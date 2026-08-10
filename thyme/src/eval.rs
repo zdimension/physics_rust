@@ -178,8 +178,20 @@ impl<'runtime, 'host> Evaluator<'runtime, 'host> {
         span: Span,
     ) -> Result<(), String> {
         if kind == AssignmentKind::Declare {
-            if env.local_is_read_only(name) {
-                return Err(format!("Cannot set read-only binding {name} at {span:?}"));
+            if env.contains_local(name) {
+                if env.local_is_read_only(name) {
+                    return Err(format!("Cannot set read-only binding {name} at {span:?}"));
+                }
+                env.declare(name.clone(), value);
+                return Ok(());
+            }
+            if env.initializes_receiver()
+                && let Some(receiver) = env.receiver()
+            {
+                let member = self.resolve_member(receiver, name, Some(span))?;
+                if member.exists() {
+                    return self.write_member(member, value, Some(span));
+                }
             }
             env.declare(name.clone(), value);
             return Ok(());
@@ -375,6 +387,7 @@ impl<'runtime, 'host> Evaluator<'runtime, 'host> {
                     env.clone(),
                     HashMap::new(),
                     Some(object.clone()),
+                    false,
                 ));
                 self.eval_expr(&body.0, &with_environment)?;
                 Value::Object(object)
@@ -626,7 +639,7 @@ impl<'runtime, 'host> Evaluator<'runtime, 'host> {
         arguments: &[Value],
         call_span: Span,
     ) -> Result<Value, String> {
-        self.call_function_with_receiver(function, arguments, None, call_span)
+        self.call_function_with_receiver(function, arguments, None, false, call_span)
     }
 
     pub fn call_function_with_receiver(
@@ -634,6 +647,7 @@ impl<'runtime, 'host> Evaluator<'runtime, 'host> {
         function: &Function,
         arguments: &[Value],
         receiver: Option<Object>,
+        initialize_receiver: bool,
         call_span: Span,
     ) -> Result<Value, String> {
         match &*function.0 {
@@ -686,8 +700,12 @@ impl<'runtime, 'host> Evaluator<'runtime, 'host> {
                     .cloned()
                     .zip(arguments.iter().cloned())
                     .collect();
-                let call_environment =
-                    Gc::new(Environment::child(captured_environment, bindings, receiver));
+                let call_environment = Gc::new(Environment::child(
+                    captured_environment,
+                    bindings,
+                    receiver,
+                    initialize_receiver,
+                ));
 
                 self.eval_expr(&definition.body.0, &call_environment)
             }
@@ -1367,20 +1385,24 @@ mod tests {
     }
 
     #[test]
-    fn host_calls_can_supply_a_function_receiver() {
+    fn initializers_declare_existing_members_but_keep_missing_names_local() {
         let runtime = Runtime::new();
         let mut host = TestHost { calls: 0 };
-        let Value::Function(builder) = runtime.eval(&mut host, "{ value = 2 }").unwrap() else {
+        let Value::Function(builder) = runtime
+            .eval(&mut host, "{ value := 2; missing := 3 }")
+            .unwrap()
+        else {
             panic!("expected function");
         };
         let object = Object::new();
         object.set_field("value", Value::from(1));
 
         runtime
-            .call_function_with_receiver(&mut host, &builder, &[], object.clone())
+            .call_initializer(&mut host, &builder, &[], object.clone())
             .unwrap();
 
         assert_eq!(object.field("value"), Some(Value::from(2)));
+        assert_eq!(object.field("missing"), None);
     }
 
     #[test]
@@ -1398,6 +1420,7 @@ mod tests {
             Gc::new(Environment::new_root()),
             HashMap::from([(Symbol::from("object"), Value::Object(object))]),
             None,
+            false,
         ));
         let mut evaluator = Evaluator {
             runtime: &runtime,
@@ -1452,6 +1475,7 @@ mod tests {
             &environment,
             "object -> { \
                 x = 5; \
+                x := 6; \
                 y := 7; \
                 y = 8; \
                 copy = global_value; \

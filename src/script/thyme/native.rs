@@ -38,7 +38,10 @@ use crate::{
         tracer::TracerSettings,
     },
     tools::{
-        add_object::{AttachmentKind, configure_hinge, spawn_default_box, spawn_default_circle, spawn_pending_hinge},
+        add_object::{
+            AttachmentKind, configure_hinge, spawn_default_box, spawn_default_circle,
+            spawn_pending_hinge,
+        },
         drag::DragConfig,
         gear::GearSettings,
         r#move::attachment_local_position,
@@ -246,7 +249,7 @@ macro_rules! native_builder_method {
                 let object = host.registry.instance(id)?.object.clone();
                 let runtime = host.runtime;
                 runtime
-                    .call_function_with_receiver(host, builder, &[], object.clone())
+                    .call_initializer(host, builder, &[], object.clone())
                     .map_err(|error| HostError::new(HostErrorKind::Intrinsic, error))?;
                 Ok(Value::Object(object))
             },
@@ -542,14 +545,18 @@ fn get_color(world: &World, entity: Entity) -> Result<Value, HostError> {
         .get::<ColorComponent>(entity)
         .ok_or_else(|| object_error("color"))?
         .0;
-    Ok(floats(color.to_srgba_unmultiplied().map(|c| c as f32 / 255.0)))
+    Ok(floats(
+        color.to_srgba_unmultiplied().map(|c| c as f32 / 255.0),
+    ))
 }
 
 fn set_color(world: &mut World, entity: Entity, value: &Value) -> Result<(), HostError> {
     let vals = float_list(value, "color")?;
     world
         .entity_mut(entity)
-        .insert(ColorComponent(Hsva::from_srgba_unmultiplied(vals.map(|c| (c * 255.0).round().clamp(0.0, 255.0) as u8))));
+        .insert(ColorComponent(Hsva::from_srgba_unmultiplied(
+            vals.map(|c| (c * 255.0).round().clamp(0.0, 255.0) as u8),
+        )));
     Ok(())
 }
 
@@ -1903,7 +1910,7 @@ fn add_hinge(host: &mut WorldHost<'_>, arguments: &[Value]) -> Result<Value, Hos
     let runtime = host.runtime;
     let result = (|| {
         runtime
-            .call_function_with_receiver(host, builder, &[], object.clone())
+            .call_initializer(host, builder, &[], object.clone())
             .map_err(|error| HostError::new(HostErrorKind::Intrinsic, error))?;
         let settings = *host.world.get::<PendingHinge>(entity).unwrap();
         if settings.geoms == [0, 0] {
@@ -2352,6 +2359,21 @@ mod tests {
         assert_eq!(get_size(&world, entity).unwrap().to_string(), "[2, 4]");
         assert_eq!(world.get::<ColliderDensity>(entity).unwrap().0, 3.0);
 
+        let Value::Object(circle) = engine
+            .eval(&mut world, "Scene.addCircle { radius := 10; local := 4 }")
+            .unwrap()
+        else {
+            panic!("expected circle");
+        };
+        let entity = engine
+            .registry
+            .instance(circle.native_id().unwrap())
+            .unwrap()
+            .entity
+            .unwrap();
+        assert_eq!(get_radius(&world, entity).unwrap(), Value::from(10.0));
+        assert_eq!(circle.field("local"), None);
+
         assert!(engine.eval(&mut world, "Scene.addBox 1").is_err());
         assert!(engine.eval(&mut world, "Scene.addBox ((x) => {})").is_err());
         assert!(
@@ -2565,8 +2587,7 @@ mod tests {
         super::super::scene::queue_import_bytes(
             &mut world,
             "part.phn",
-            b"importedPos = [0, 0]; Scene.addBox { pos = [1, 2]; importedPos = pos }; imported = 9"
-                .to_vec(),
+            b"Scene.addBox { pos = [1, 2]; Console.print(pos) }; imported = 9".to_vec(),
             Vec2::new(10.0, 20.0),
         );
         world.insert_non_send(engine);
@@ -2582,10 +2603,7 @@ mod tests {
         let mut engine = world.remove_non_send::<ScriptEngine>().unwrap();
         assert_eq!(engine.runtime.global("marker"), Some(Value::from(5)));
         assert_eq!(engine.runtime.global("imported"), Some(Value::from(9)));
-        assert_eq!(
-            engine.eval(&mut world, "importedPos == [1, 2]"),
-            Ok(Value::Bool(true))
-        );
+        assert_eq!(world.resource::<Console>().output, "[1, 2]");
 
         engine.eval(&mut world, "Scene.Clear").unwrap();
         assert_eq!(world.query::<&Collider>().iter(&world).count(), 0);
