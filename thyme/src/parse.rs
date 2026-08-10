@@ -200,8 +200,9 @@ impl<'a> Display for Token<'a> {
     }
 }
 
-#[cfg(test)]
-fn read_auto_encoding(source: &[u8]) -> Cow<'_, str> {
+/// Decodes Thyme source as UTF-8, falling back to Windows-1252.
+pub fn read_auto_encoding(source: &[u8]) -> Cow<'_, str> {
+    let source = source.strip_prefix(b"\xef\xbb\xbf").unwrap_or(source);
     // try decoding utf8 then 1252
     match std::str::from_utf8(source) {
         Ok(s) => Cow::Borrowed(s),

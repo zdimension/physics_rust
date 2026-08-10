@@ -1,5 +1,6 @@
 use std::{collections::HashMap, rc::Rc};
 
+use ::thyme::parse::Expr;
 use ::thyme::{
     Function, Host, HostError, HostErrorKind, IntrinsicId, List, NativeObjectId, Object,
     PropertyId, ResolvedProperty, Runtime, Symbol, Value, parse::Number,
@@ -1071,6 +1072,15 @@ fn entity_by_id(
     Ok(Value::Object(registry.instance(object)?.object.clone()))
 }
 
+fn queue_scene(world: &mut World, arguments: &[Value], import: bool) -> Result<Value, HostError> {
+    let Value::Str(path) = &arguments[0] else {
+        return Err(type_error("scene path", "string"));
+    };
+    super::scene::queue_path(world, path, import)
+        .map_err(|error| HostError::new(HostErrorKind::Other, error))?;
+    Ok(Value::Void)
+}
+
 fn real_entity(world: &World, id: i32) -> Option<Entity> {
     let raw = Entity::from_raw_u32(id as u32)?;
     let entity = world.entities().resolve_from_index(raw.index());
@@ -1093,6 +1103,23 @@ native_class!(
         }),
         native_method!("entityByGeomID", 1, |world, registry, _, arguments| {
             entity_by_id(world, registry, arguments, "entityByGeomID")
+        }),
+        native_method!("Open", 1, |world, _, _, arguments| {
+            queue_scene(world, arguments, false)
+        }),
+        native_method!("loadScene", 1, |world, _, _, arguments| {
+            queue_scene(world, arguments, false)
+        }),
+        native_method!("importPhunlet", 1, |world, _, _, arguments| {
+            queue_scene(world, arguments, true)
+        }),
+        native_method!("Clear", 0, |world: &mut World, _, _, _| {
+            super::scene::clear(world);
+            Ok(Value::Void)
+        }),
+        native_method!("New", 0, |world: &mut World, _, _, _| {
+            super::scene::queue_new(world);
+            Ok(Value::Void)
         }),
         native_builder_method!("addBox", spawn_default_box),
         native_host_method!("addHinge", 1, add_hinge),
@@ -1283,6 +1310,7 @@ struct NativeRegistry {
     entities: HashMap<Entity, NativeObjectId>,
     globals: Vec<NativeObjectId>,
     loading_scene: bool,
+    load_origin: Vec2,
     load_entities: HashMap<i32, Entity>,
     load_geometries: HashMap<i32, Entity>,
     next_id: u64,
@@ -1322,6 +1350,7 @@ impl NativeRegistry {
             entities: HashMap::new(),
             globals: Vec::new(),
             loading_scene: false,
+            load_origin: Vec2::ZERO,
             load_entities: HashMap::new(),
             load_geometries: HashMap::new(),
             next_id: 0,
@@ -1422,14 +1451,16 @@ impl NativeRegistry {
             .ok_or_else(|| HostError::new(HostErrorKind::UnknownObject, "unknown object"))
     }
 
-    fn begin_scene_load(&mut self) {
+    fn begin_scene_load(&mut self, origin: Vec2) {
         self.loading_scene = true;
+        self.load_origin = origin;
         self.load_entities.clear();
         self.load_geometries.clear();
     }
 
     fn end_scene_load(&mut self) {
         self.loading_scene = false;
+        self.load_origin = Vec2::ZERO;
         self.load_entities.clear();
         self.load_geometries.clear();
         for instance in self.instances.values_mut() {
@@ -1539,10 +1570,38 @@ impl ScriptEngine {
 
     #[allow(dead_code)]
     pub(crate) fn eval_scene(&mut self, world: &mut World, source: &str) -> Result<Value, String> {
-        self.registry.begin_scene_load();
+        self.registry.begin_scene_load(Vec2::ZERO);
         let result = self.eval(world, source);
         self.registry.end_scene_load();
         result
+    }
+
+    pub(crate) fn eval_scene_statements(
+        &mut self,
+        world: &mut World,
+        expression: &Expr,
+        origin: Vec2,
+    ) -> Vec<String> {
+        self.registry.begin_scene_load(origin);
+        let runtime = &self.runtime;
+        let mut host = WorldHost {
+            runtime,
+            world,
+            registry: &mut self.registry,
+        };
+        let errors = match expression {
+            Expr::Seq(statements) => statements
+                .iter()
+                .filter_map(|statement| runtime.eval_expr(&mut host, &statement.0).err())
+                .collect(),
+            expression => runtime
+                .eval_expr(&mut host, expression)
+                .err()
+                .into_iter()
+                .collect(),
+        };
+        self.registry.end_scene_load();
+        errors
     }
 
     fn event_handler(&self, object: NativeObjectId, name: &str) -> Option<(Object, Function)> {
@@ -1854,6 +1913,13 @@ fn add_hinge(host: &mut WorldHost<'_>, arguments: &[Value]) -> Result<Value, Hos
             host.registry.geometry(host.world, settings.geoms[1])?,
         ];
         let mut positions = settings.positions;
+        for (geom, position) in geoms.iter().zip(&mut positions) {
+            if geom.is_none()
+                && let Some(position) = position
+            {
+                *position += host.registry.load_origin;
+            }
+        }
         if positions == [None, None] {
             positions[if geoms[0].is_some() { 0 } else { 1 }] = Some(Vec2::ZERO);
         }
@@ -1914,7 +1980,7 @@ impl Host for WorldHost<'_> {
         property: PropertyId,
     ) -> Result<Value, HostError> {
         let (instance, member) = self.registry.member(object, property)?;
-        let NativeMember::Property { get, .. } = member else {
+        let NativeMember::Property { name, get, .. } = member else {
             return Err(HostError::new(
                 HostErrorKind::UnknownProperty,
                 "not a property",
@@ -1929,7 +1995,15 @@ impl Host for WorldHost<'_> {
             };
             return Ok(id.map(Value::from).unwrap_or(Value::Undefined));
         }
-        get(self.world, instance.entity)
+        let value = get(self.world, instance.entity)?;
+        if *name == "pos" && self.registry.load_origin != Vec2::ZERO {
+            let [x, y] = float_list(&value, name)?;
+            return Ok(floats([
+                x - self.registry.load_origin.x,
+                y - self.registry.load_origin.y,
+            ]));
+        }
+        Ok(value)
     }
 
     fn set_property(
@@ -1962,7 +2036,16 @@ impl Host for WorldHost<'_> {
                 format!("{name} is read-only"),
             ));
         };
-        set(self.world, entity, value)
+        let translated = if name == "pos" && self.registry.load_origin != Vec2::ZERO {
+            let [x, y] = float_list(value, name)?;
+            Some(floats([
+                x + self.registry.load_origin.x,
+                y + self.registry.load_origin.y,
+            ]))
+        } else {
+            None
+        };
+        set(self.world, entity, translated.as_ref().unwrap_or(value))
     }
 
     fn call_intrinsic(
@@ -2001,6 +2084,7 @@ mod tests {
     use super::*;
     use crate::objects::phy_obj::PhysicalObject;
     use crate::objects::spring::{SpringEnd, SpringEndIndex};
+    use bevy::prelude::With;
 
     fn world() -> World {
         let mut world = World::new();
@@ -2323,7 +2407,7 @@ mod tests {
             real_id
         );
 
-        engine.registry.begin_scene_load();
+        engine.registry.begin_scene_load(Vec2::ZERO);
         let first = engine
             .eval(&mut world, "Scene.addBox { geomID = 123 }")
             .unwrap();
@@ -2354,6 +2438,185 @@ mod tests {
             Some(second)
         );
         engine.registry.end_scene_load();
+    }
+
+    #[test]
+    fn scene_open_replaces_state_and_continues_after_statement_errors() {
+        let mut world = scene_world();
+        world.init_resource::<super::super::scene::PendingScene>();
+        let mut engine = ScriptEngine::default();
+        assert_eq!(
+            engine
+                .eval(&mut world, "Scene.addBox {}; oldGlobal = 1")
+                .unwrap(),
+            Value::from(1)
+        );
+        let old_entity = world
+            .query_filtered::<Entity, With<Collider>>()
+            .single(&world)
+            .unwrap();
+        let state = world.resource::<crate::ui::SceneState>();
+        let (scene, sky) = (state.scene, state.sky);
+        let descendant = world.spawn(ChildOf(old_entity)).id();
+        let root_child = world.spawn(ChildOf(scene)).id();
+        let rng = world
+            .query_filtered::<Entity, With<crate::rng::RngComponent>>()
+            .single(&world)
+            .unwrap();
+        world.resource_mut::<Console>().output = "before".into();
+
+        {
+            let mut app = world.resource_mut::<AppConfig>();
+            app.ui_scale = 1.7;
+            app.zoom_speed = 2.0;
+            app.tool_cursor = false;
+            app.kinetic_panning = false;
+            app.laser_width = 9.0;
+        }
+        world.resource_mut::<GridSettings>().axes = 7;
+        world.resource_mut::<DragConfig>().strength = 12.0;
+
+        let path = format!("target/scene-open-{}.zip", std::process::id());
+        std::fs::write(
+            &path,
+            "Scene.addBox { pos = [1, 2] }; Scene.addBox 1; Scene.addBox { pos = [3, 4] }",
+        )
+        .unwrap();
+        engine
+            .eval(&mut world, &format!("Scene.Open(\"{path}\")"))
+            .unwrap();
+        world.insert_non_send(engine);
+        super::super::scene::load_pending(&mut world);
+        std::fs::remove_file(path).unwrap();
+
+        assert!(world.get_entity(old_entity).is_err());
+        assert!(world.get_entity(descendant).is_err());
+        assert!(world.get_entity(root_child).is_err());
+        assert!(world.get_entity(sky).is_ok());
+        assert!(world.get_entity(rng).is_ok());
+        assert_eq!(world.query::<&Collider>().iter(&world).count(), 2);
+        assert!(
+            world
+                .resource::<Console>()
+                .output
+                .starts_with("before\nERROR loading")
+        );
+        let app = world.resource::<AppConfig>();
+        assert_eq!(
+            (
+                app.ui_scale,
+                app.zoom_speed,
+                app.tool_cursor,
+                app.kinetic_panning
+            ),
+            (1.7, 2.0, false, false)
+        );
+        assert_eq!(app.laser_width, AppConfig::default().laser_width);
+        assert_eq!(
+            world.resource::<GridSettings>().axes,
+            GridSettings::default().axes
+        );
+        assert_eq!(
+            world.resource::<DragConfig>().strength,
+            DragConfig::default().strength
+        );
+        assert!(world.resource::<Time<Physics>>().is_paused());
+        assert!(
+            world
+                .get_non_send::<ScriptEngine>()
+                .unwrap()
+                .runtime
+                .global("oldGlobal")
+                .is_none()
+        );
+
+        let count = world.query::<&Collider>().iter(&world).count();
+        super::super::scene::queue_bytes(&mut world, "broken.phn", b"Scene.addBox {".to_vec());
+        super::super::scene::load_pending(&mut world);
+        assert_eq!(world.query::<&Collider>().iter(&world).count(), count);
+
+        let mut engine = world.remove_non_send::<ScriptEngine>().unwrap();
+        let path = format!("target/scene-load-alias-{}.phn", std::process::id());
+        std::fs::write(&path, "Scene.addBox {}").unwrap();
+        engine
+            .eval(&mut world, &format!("Scene.loadScene(\"{path}\")"))
+            .unwrap();
+        world.insert_non_send(engine);
+        super::super::scene::load_pending(&mut world);
+        std::fs::remove_file(path).unwrap();
+        assert_eq!(world.query::<&Collider>().iter(&world).count(), 1);
+    }
+
+    #[test]
+    fn scene_import_clear_and_new_share_the_loader_and_reset_paths() {
+        let mut world = scene_world();
+        world.init_resource::<super::super::scene::PendingScene>();
+        let mut engine = ScriptEngine::default();
+        engine
+            .eval(&mut world, "old = Scene.addBox {}; marker = 5")
+            .unwrap();
+        let old = world
+            .query_filtered::<Entity, With<Collider>>()
+            .single(&world)
+            .unwrap();
+        let sky = world.resource::<crate::ui::SceneState>().sky;
+
+        super::super::scene::queue_import_bytes(
+            &mut world,
+            "part.phn",
+            b"importedPos = [0, 0]; Scene.addBox { pos = [1, 2]; importedPos = pos }; imported = 9"
+                .to_vec(),
+            Vec2::new(10.0, 20.0),
+        );
+        world.insert_non_send(engine);
+        super::super::scene::load_pending(&mut world);
+
+        assert!(world.get_entity(old).is_ok());
+        assert!(
+            world
+                .query::<&Position>()
+                .iter(&world)
+                .any(|pos| pos.0 == Vec2::new(11.0, 22.0))
+        );
+        let mut engine = world.remove_non_send::<ScriptEngine>().unwrap();
+        assert_eq!(engine.runtime.global("marker"), Some(Value::from(5)));
+        assert_eq!(engine.runtime.global("imported"), Some(Value::from(9)));
+        assert_eq!(
+            engine.eval(&mut world, "importedPos == [1, 2]"),
+            Ok(Value::Bool(true))
+        );
+
+        engine.eval(&mut world, "Scene.Clear").unwrap();
+        assert_eq!(world.query::<&Collider>().iter(&world).count(), 0);
+        assert!(world.get_entity(sky).is_ok());
+        assert_eq!(engine.runtime.global("marker"), Some(Value::from(5)));
+
+        engine
+            .eval(&mut world, "Scene.addBox {}; Scene.New")
+            .unwrap();
+        world.insert_non_send(engine);
+        super::super::scene::load_pending(&mut world);
+
+        assert_eq!(
+            world
+                .query_filtered::<Entity, With<crate::objects::plane::PlaneObject>>()
+                .iter(&world)
+                .count(),
+            1
+        );
+        let camera = world
+            .query_filtered::<&Transform, With<MainCamera>>()
+            .single(&world)
+            .unwrap();
+        assert_eq!(camera.translation.truncate(), Vec2::new(0.0, 2.0));
+        assert!(
+            world
+                .get_non_send::<ScriptEngine>()
+                .unwrap()
+                .runtime
+                .global("marker")
+                .is_none()
+        );
     }
 
     #[test]

@@ -4,6 +4,7 @@ use bevy::{ecs::world::World, prelude::Resource};
 
 pub(crate) mod events;
 mod native;
+pub(crate) mod scene;
 
 pub(crate) use events::PendingEvents;
 pub(crate) use native::{SceneProperty, ScriptEngine};

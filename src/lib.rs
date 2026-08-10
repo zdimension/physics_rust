@@ -71,6 +71,10 @@ const CAMERA_FAR: f32 = 1e6f32;
 const CAMERA_Z: f32 = CAMERA_FAR - 0.1;
 const FOREGROUND_Z: f32 = CAMERA_Z - 0.2;
 
+pub(crate) fn default_camera_transform() -> Transform {
+    Transform::from_xyz(0.0, 0.0, CAMERA_Z).with_scale(Vec3::new(0.01, 0.01, 1.0))
+}
+
 pub trait InvTransformPoint {
     fn to_global(&self, point: Vec2) -> Vec2;
 
@@ -508,11 +512,7 @@ fn setup_graphics(mut commands: Commands) {
                 ..OrthographicProjection::default_2d()
             }),
         ))
-        .insert(
-            Transform::default()
-                .with_translation(Vec3::new(0.0, 0.0, CAMERA_FAR - 0.1))
-                .with_scale(Vec3::new(0.01, 0.01, 1.0)),
-        )
+        .insert(default_camera_transform())
         .insert((
             Msaa::Off,
             Smaa {

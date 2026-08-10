@@ -285,7 +285,8 @@ impl<'runtime, 'host> Evaluator<'runtime, 'host> {
                     }
                     _ => {
                         return Err(format!(
-                            "Cannot call non-function value {function_value} at {call_span:?}"
+                            "Cannot call non-function value {function_value} at {call_span:?}: {}",
+                            expr.pretty_print()
                         ));
                     }
                 }

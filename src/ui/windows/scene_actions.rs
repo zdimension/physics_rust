@@ -6,7 +6,7 @@ use bevy_egui::{egui, EguiContexts};
 
 use crate::ui::icon_button::IconButton;
 use crate::ui::images::GuiIcons;
-use crate::ui::{InitialPos, SceneState, Subwindow, WindowExt};
+use crate::ui::{InitialPos, Subwindow, WindowExt};
 
 egui_systems!(draw_scene_actions, NewSceneWindow::show);
 
@@ -46,7 +46,6 @@ impl NewSceneWindow {
         mut commands: Commands,
         mut palette_config: ResMut<PaletteConfig>,
         assets: Res<Assets<PaletteList>>,
-        scene_state: Res<SceneState>,
     ) {
         let ctx = egui_ctx.ctx_mut().expect("primary egui context");
         for (id, mut initial_pos) in wnds.iter_mut() {
@@ -64,7 +63,7 @@ impl NewSceneWindow {
                         {
                             if ui.button(name).clicked() {
                                 palette_config.current_palette = *palette;
-                                commands.entity(scene_state.scene).despawn_children();
+                                commands.queue(crate::script::thyme::scene::queue_new);
                                 commands.entity(id).despawn();
                             }
                         }

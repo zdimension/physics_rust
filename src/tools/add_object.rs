@@ -140,20 +140,39 @@ fn box_bundle(pos: Vec3, size: Vec2, scene: Entity) -> impl Bundle {
     (PhysicalObject::rect(size, pos), ChildOf(scene))
 }
 
-pub(crate) fn spawn_default_box(world: &mut World) -> Entity {
+fn random_color(world: &mut World) -> bevy_egui::egui::ecolor::Hsva {
     let palette = world.resource::<PaletteConfig>().current_palette;
-    let color = palette.get_color_hsva(
+    palette.get_color_hsva(
         &mut *world
             .query::<&mut RngComponent>()
             .single_mut(world)
             .unwrap(),
-    );
+    )
+}
+
+pub(crate) fn spawn_default_box(world: &mut World) -> Entity {
+    let color = random_color(world);
     let scene = world.resource::<SceneState>().scene;
     let pos = world.resource_mut::<DepthSorter>().pos(-Vec2::splat(0.5));
     world
         .spawn(box_bundle(pos, Vec2::ONE, scene))
         .insert(ColorComponent(color).update_from_this())
         .id()
+}
+
+pub(crate) fn spawn_default_plane(world: &mut World, point: Vec2) -> Entity {
+    let color = random_color(world);
+    let scene = world.resource::<SceneState>().scene;
+    let mut queue = CommandQueue::default();
+    let entity = spawn_plane(
+        &mut Commands::new(&mut queue, world),
+        scene,
+        point,
+        Vec2::Y,
+        color,
+    );
+    queue.apply(world);
+    entity
 }
 
 fn hinge_placement(world: &World, hinge: HingeGeometry) -> AttachmentPlacement {

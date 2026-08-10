@@ -5,7 +5,7 @@ use std::fmt::{self, Debug, Display};
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 
-use crate::parse::{Number, UserFunctionDef};
+use crate::parse::{Expr, Number, UserFunctionDef};
 
 mod builtins;
 pub mod eval;
@@ -729,11 +729,16 @@ impl Runtime {
                 .collect::<Vec<_>>()
                 .join("\n")
         })?;
+        self.eval_expr(host, &expression)
+    }
+
+    /// Evaluates an already-parsed expression in this runtime's global environment.
+    pub fn eval_expr(&self, host: &mut dyn Host, expression: &Expr) -> Result<Value, String> {
         eval::Evaluator {
             runtime: self,
             host,
         }
-        .eval_expr(&expression, &self.globals)
+        .eval_expr(expression, &self.globals)
     }
 
     pub fn call_function(
@@ -1135,6 +1140,19 @@ mod tests {
 
         assert!(runtime.eval(&mut host, "locked = false").is_err());
         assert_eq!(runtime.global("LOCKED"), Some(Value::Bool(true)));
+    }
+
+    #[test]
+    fn parsed_expressions_can_share_the_runtime_globals() {
+        let runtime = Runtime::new();
+        let mut host = FakeHost { set: None };
+        let (expression, _) = parse::parse_thyme("answer = 42").into_result().unwrap();
+
+        assert_eq!(
+            runtime.eval_expr(&mut host, &expression),
+            Ok(Value::from(42))
+        );
+        assert_eq!(runtime.global("answer"), Some(Value::from(42)));
     }
 
     #[test]
