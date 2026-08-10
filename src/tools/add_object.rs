@@ -160,6 +160,17 @@ pub(crate) fn spawn_default_box(world: &mut World) -> Entity {
         .id()
 }
 
+pub(crate) fn spawn_default_circle(world: &mut World) -> Entity {
+    let color = random_color(world);
+    let scene = world.resource::<SceneState>().scene;
+    let pos = world.resource_mut::<DepthSorter>().pos(-Vec2::splat(0.5));
+    world
+        .spawn(PhysicalObject::ball(1.0, pos))
+        .insert(ChildOf(scene))
+        .insert(ColorComponent(color).update_from_this())
+        .id()
+}
+
 pub(crate) fn spawn_default_plane(world: &mut World, point: Vec2) -> Entity {
     let color = random_color(world);
     let scene = world.resource::<SceneState>().scene;

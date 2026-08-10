@@ -38,7 +38,7 @@ use crate::{
         tracer::TracerSettings,
     },
     tools::{
-        add_object::{AttachmentKind, configure_hinge, spawn_default_box, spawn_pending_hinge},
+        add_object::{AttachmentKind, configure_hinge, spawn_default_box, spawn_default_circle, spawn_pending_hinge},
         drag::DragConfig,
         gear::GearSettings,
         r#move::attachment_local_position,
@@ -1122,6 +1122,7 @@ native_class!(
             Ok(Value::Void)
         }),
         native_builder_method!("addBox", spawn_default_box),
+        native_builder_method!("addCircle", spawn_default_circle),
         native_host_method!("addHinge", 1, add_hinge),
     ]
 );
