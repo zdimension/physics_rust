@@ -2,6 +2,7 @@ use std::time::Duration;
 
 use crate::config::AppConfig;
 use crate::mouse_tracking::{MainCamera, MousePos, MousePosWorld};
+use avian2d::prelude::{Position, RigidBody};
 use bevy::ecs::component::Mutable;
 use bevy::ecs::query::{QueryData, QueryFilter};
 use bevy::log::info;
@@ -756,21 +757,29 @@ impl Default for PointerToolState {
 #[derivative(Debug)]
 pub struct SceneState {
     pub scene: Entity,
+    pub sky: Entity,
 }
 
 impl FromWorld for SceneState {
     fn from_world(world: &mut World) -> Self {
-        Self {
-            scene: world
-                .spawn((
-                    Scene,
-                    Transform::default(),
-                    Visibility::Inherited,
-                    InheritedVisibility::default(),
-                    ViewVisibility::default(),
-                ))
-                .id(),
-        }
+        let scene = world
+            .spawn((
+                Scene,
+                Transform::default(),
+                Visibility::Inherited,
+                InheritedVisibility::default(),
+                ViewVisibility::default(),
+            ))
+            .id();
+        let sky = world
+            .spawn((
+                RigidBody::Static,
+                Position::default(),
+                Transform::default(),
+                ChildOf(scene),
+            ))
+            .id();
+        Self { scene, sky }
     }
 }
 

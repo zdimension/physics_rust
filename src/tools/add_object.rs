@@ -5,8 +5,8 @@ use crate::lyon_compat::shapes;
 use crate::mouse::select::{SelectUnderMouseEvent, SelectionMode};
 use crate::mouse_tracking::MainCamera;
 use crate::objects::axle::{
-    AxleObject, AxleVisual, FixObject, HINGE_MOTOR_VISUAL_DIAMETER, HingeMotorDirection,
-    HingeMotorRing, hinge_selection_radius,
+    AxleObject, AxleVisual, FixObject, HINGE_MOTOR_VISUAL_DIAMETER, HingeGeometry,
+    HingeMotorDirection, HingeMotorRing, hinge_selection_radius,
 };
 use crate::objects::laser::{LaserSettings, LaserVisual};
 use crate::objects::phy_obj::{FreeformObject, PhysicalObject};
@@ -21,6 +21,7 @@ use crate::ui::SceneState;
 use crate::ui::images::AppIcons;
 use crate::update_from::UpdateFrom;
 use avian2d::prelude::*;
+use bevy::ecs::world::CommandQueue;
 use bevy::log::info;
 use bevy::math::{Vec2, Vec3};
 use bevy::prelude::*;
@@ -86,7 +87,6 @@ pub enum AttachmentKind {
 #[derive(Copy, Clone, Debug, Default, Component)]
 pub struct AttachmentLinks {
     pub(crate) joint: Option<Entity>,
-    pub(crate) sky_anchor: Option<Entity>,
 }
 
 #[derive(Copy, Clone, Debug, Component)]
@@ -154,6 +154,138 @@ pub(crate) fn spawn_default_box(world: &mut World) -> Entity {
         .spawn(box_bundle(pos, Vec2::ONE, scene))
         .insert(ColorComponent(color).update_from_this())
         .id()
+}
+
+fn hinge_placement(world: &World, hinge: HingeGeometry) -> AttachmentPlacement {
+    let hit = |entity, local_pos| {
+        let rotation = *world.get::<Rotation>(entity).unwrap();
+        BodyHit {
+            entity,
+            local_pos,
+            z: world.get::<Transform>(entity).unwrap().translation.z,
+            rotation: Quat::from_rotation_z(rotation.as_radians()),
+        }
+    };
+    let (body1, body2, pos) = match hinge.geoms {
+        [Some(geom0), geom1] => (
+            hit(geom0, hinge.positions[0]),
+            geom1.map(|entity| hit(entity, hinge.positions[1])),
+            if geom1.is_none() {
+                hinge.positions[1]
+            } else {
+                world.get::<Position>(geom0).unwrap().0
+                    + *world.get::<Rotation>(geom0).unwrap() * hinge.positions[0]
+            },
+        ),
+        [None, Some(geom1)] => (hit(geom1, hinge.positions[1]), None, hinge.positions[0]),
+        [None, None] => unreachable!(),
+    };
+    AttachmentPlacement { body1, body2, pos }
+}
+
+fn spawn_hinge_visual(world: &mut World, placement: AttachmentPlacement) -> Entity {
+    let images = world.resource::<AppIcons>().clone();
+    let palette = world.resource::<PaletteConfig>().current_palette;
+    let color = palette.get_color_hsva_opaque(
+        &mut *world
+            .query::<&mut RngComponent>()
+            .single_mut(world)
+            .unwrap(),
+    );
+    let camera = *world
+        .query_filtered::<&Transform, With<MainCamera>>()
+        .single(world)
+        .unwrap();
+    let z = world.resource_mut::<DepthSorter>().next();
+    let mut queue = CommandQueue::default();
+    let visual = spawn_axle_visual(
+        &mut Commands::new(&mut queue, world),
+        placement,
+        &images,
+        color,
+        palette.sky_color,
+        camera.scale.x,
+        camera.rotation,
+        z,
+    );
+    queue.apply(world);
+    visual
+}
+
+pub(crate) fn spawn_pending_hinge(world: &mut World) -> Entity {
+    let sky = world.resource::<SceneState>().sky;
+    spawn_hinge_visual(
+        world,
+        AttachmentPlacement {
+            body1: BodyHit {
+                entity: sky,
+                local_pos: Vec2::ZERO,
+                z: 0.0,
+                rotation: Quat::IDENTITY,
+            },
+            body2: None,
+            pos: Vec2::ZERO,
+        },
+    )
+}
+
+pub(crate) fn configure_hinge(world: &mut World, visual: Entity, hinge: HingeGeometry) {
+    if world.get::<HingeGeometry>(visual) == Some(&hinge) {
+        return;
+    }
+    let placement = hinge_placement(world, hinge);
+    let scene = world.resource::<SceneState>().scene;
+    let sky = world.resource::<SceneState>().sky;
+    let transform = *world.get::<Transform>(visual).unwrap();
+    let (rotation, z) = world.get::<HingeGeometry>(visual).map_or(
+        (transform.rotation, transform.translation.z),
+        |_| {
+            let transform = world.get::<GlobalTransform>(visual).unwrap();
+            (transform.rotation(), transform.translation().z)
+        },
+    );
+    if let Some(joint) = world
+        .get::<AttachmentLinks>(visual)
+        .and_then(|links| links.joint)
+    {
+        world.despawn(joint);
+    }
+    let mut queue = CommandQueue::default();
+    let mut commands = Commands::new(&mut queue, world);
+    commands.entity(visual).insert((
+        attachment_pose(placement, z)
+            .with_rotation(placement.body1.rotation.inverse() * rotation)
+            .with_scale(transform.scale),
+        ChildOf(placement.body1.entity),
+        hinge,
+    ));
+    let links = spawn_axle_joint(&mut commands, visual, placement, scene, sky);
+    commands.entity(visual).insert(links);
+    queue.apply(world);
+
+    let children = world
+        .get::<Children>(visual)
+        .map(|children| children.iter().collect::<Vec<_>>())
+        .unwrap_or_default();
+    let sky_color = world.resource::<PaletteConfig>().current_palette.sky_color;
+    for child in children {
+        if world.get::<AxleBodyColor>(child).is_some() {
+            world
+                .entity_mut(child)
+                .insert(UpdateFrom::<ColorComponent>::entity(placement.body1.entity));
+        } else if world.get::<AttachmentSupportColor>(child).is_some() {
+            if let Some(body2) = placement.body2 {
+                world
+                    .entity_mut(child)
+                    .insert(UpdateFrom::<ColorComponent>::entity(body2.entity));
+            } else {
+                world
+                    .entity_mut(child)
+                    .remove::<UpdateFrom<ColorComponent>>();
+                world.get_mut::<Sprite>(child).unwrap().color = sky_color;
+            }
+        }
+    }
 }
 
 pub fn process_add_object(
@@ -242,8 +374,9 @@ pub fn process_add_object(
                     palette.sky_color,
                     camera_scale,
                     camera_rotation,
-                    &mut z,
+                    z.next(),
                     scene_state.scene,
+                    scene_state.sky,
                 );
             }
             Plane {
@@ -304,6 +437,7 @@ pub fn process_add_object(
                     camera_rotation,
                     &mut z,
                     scene_state.scene,
+                    scene_state.sky,
                 );
             }
             Axle(ref ev) => {
@@ -329,8 +463,9 @@ pub fn process_add_object(
                     palette.sky_color,
                     camera_scale,
                     camera_rotation,
-                    &mut z,
+                    z.next(),
                     scene_state.scene,
+                    scene_state.sky,
                 );
             }
             Laser(pos) => {
@@ -533,7 +668,13 @@ pub fn process_place_attachment(
                     &mut commands,
                     &mut attachment_colors,
                 );
-                spawn_fix_joint(&mut commands, event.entity, placement, scene_state.scene)
+                spawn_fix_joint(
+                    &mut commands,
+                    event.entity,
+                    placement,
+                    scene_state.scene,
+                    scene_state.sky,
+                )
             }
             AttachmentKind::Axle => {
                 update_attachment_color_sources(
@@ -544,7 +685,16 @@ pub fn process_place_attachment(
                     &mut commands,
                     &mut attachment_colors,
                 );
-                spawn_axle_joint(&mut commands, event.entity, placement, scene_state.scene)
+                commands
+                    .entity(event.entity)
+                    .insert(hinge_geometry(placement));
+                spawn_axle_joint(
+                    &mut commands,
+                    event.entity,
+                    placement,
+                    scene_state.scene,
+                    scene_state.sky,
+                )
             }
             AttachmentKind::Laser => AttachmentLinks::default(),
             AttachmentKind::Thruster => AttachmentLinks::default(),
@@ -698,6 +848,19 @@ fn attachment_transform(placement: AttachmentPlacement, scale: f32, z: f32) -> T
     attachment_pose(placement, z).with_scale(Vec3::new(scale, scale, 1.0))
 }
 
+fn hinge_geometry(placement: AttachmentPlacement) -> HingeGeometry {
+    HingeGeometry {
+        geoms: [
+            Some(placement.body1.entity),
+            placement.body2.map(|body| body.entity),
+        ],
+        positions: [
+            placement.body1.local_pos,
+            placement.body2.map_or(placement.pos, |body| body.local_pos),
+        ],
+    }
+}
+
 fn attachment_pose(placement: AttachmentPlacement, z: f32) -> Transform {
     Transform::from_translation(placement.body1.local_pos.extend(z - placement.body1.z))
 }
@@ -742,9 +905,6 @@ pub(crate) fn despawn_attachment_links(commands: &mut Commands, links: Option<&A
     if let Some(joint) = links.joint {
         commands.entity(joint).despawn();
     }
-    if let Some(sky_anchor) = links.sky_anchor {
-        commands.entity(sky_anchor).despawn();
-    }
 }
 
 fn clear_attachment_links(commands: &mut Commands, links: Option<AttachmentLinks>) {
@@ -761,6 +921,7 @@ fn spawn_fix_attachment(
     camera_rotation: Quat,
     z: &mut DepthSorter,
     scene: Entity,
+    sky: Entity,
 ) -> Entity {
     let scale = camera_scale * DEFAULT_OBJ_SIZE;
     let visual = commands
@@ -805,12 +966,12 @@ fn spawn_fix_attachment(
             }
         })
         .id();
-    let links = spawn_fix_joint(commands, visual, placement, scene);
+    let links = spawn_fix_joint(commands, visual, placement, scene, sky);
     commands.entity(visual).insert(links);
     visual
 }
 
-fn spawn_axle_attachment(
+fn spawn_axle_visual(
     commands: &mut Commands,
     placement: AttachmentPlacement,
     images: &AppIcons,
@@ -818,21 +979,20 @@ fn spawn_axle_attachment(
     sky_color: Color,
     camera_scale: f32,
     camera_rotation: Quat,
-    z: &mut DepthSorter,
-    scene: Entity,
+    z: f32,
 ) -> Entity {
     let scale = camera_scale * DEFAULT_OBJ_SIZE;
     const IMAGE_SCALE: f32 = 1.0 / 256.0;
     const IMAGE_SCALE_VEC: Vec3 = Vec3::new(IMAGE_SCALE, IMAGE_SCALE, 1.0);
 
-    let visual = commands
+    commands
         .spawn((
             ShapeBundle::new(
                 GeometryBuilder::build_as(&shapes::Circle {
                     radius: hinge_selection_radius(false),
                     ..Default::default()
                 }),
-                screen_aligned_attachment_transform(placement, scale, z.next(), camera_rotation),
+                screen_aligned_attachment_transform(placement, scale, z, camera_rotation),
                 Visibility::Inherited,
             ),
             crate::make_stroke(Color::srgba(0.0, 0.0, 0.0, 0.0), BORDER_WIDTH_PX),
@@ -908,9 +1068,35 @@ fn spawn_axle_attachment(
                 inner.insert(UpdateFrom::<ColorComponent>::entity(body2.entity));
             }
         })
-        .id();
-    let links = spawn_axle_joint(commands, visual, placement, scene);
-    commands.entity(visual).insert(links);
+        .id()
+}
+
+fn spawn_axle_attachment(
+    commands: &mut Commands,
+    placement: AttachmentPlacement,
+    images: &AppIcons,
+    color: bevy_egui::egui::ecolor::Hsva,
+    sky_color: Color,
+    camera_scale: f32,
+    camera_rotation: Quat,
+    z: f32,
+    scene: Entity,
+    sky: Entity,
+) -> Entity {
+    let visual = spawn_axle_visual(
+        commands,
+        placement,
+        images,
+        color,
+        sky_color,
+        camera_scale,
+        camera_rotation,
+        z,
+    );
+    let links = spawn_axle_joint(commands, visual, placement, scene, sky);
+    commands
+        .entity(visual)
+        .insert((hinge_geometry(placement), links));
     visual
 }
 
@@ -1079,13 +1265,12 @@ fn spawn_axle_joint(
     visual: Entity,
     placement: AttachmentPlacement,
     scene: Entity,
+    sky: Entity,
 ) -> AttachmentLinks {
-    let (body2, sky_anchor) = body2_or_sky_anchor(commands, placement, scene);
-    let mut joint = RevoluteJoint::new(placement.body1.entity, body2)
-        .with_local_anchor1(placement.body1.local_pos);
-    if let Some(body2) = placement.body2 {
-        joint = joint.with_local_anchor2(body2.local_pos);
-    }
+    let (body2, anchor2) = body2_or_sky(placement, sky);
+    let joint = RevoluteJoint::new(placement.body1.entity, body2)
+        .with_local_anchor1(placement.body1.local_pos)
+        .with_local_anchor2(anchor2);
     let joint = commands
         .spawn((
             AxleObject,
@@ -1098,10 +1283,7 @@ fn spawn_axle_joint(
         ))
         .id();
 
-    AttachmentLinks {
-        joint: Some(joint),
-        sky_anchor,
-    }
+    AttachmentLinks { joint: Some(joint) }
 }
 
 fn spawn_fix_joint(
@@ -1109,14 +1291,13 @@ fn spawn_fix_joint(
     visual: Entity,
     placement: AttachmentPlacement,
     scene: Entity,
+    sky: Entity,
 ) -> AttachmentLinks {
-    let (body2, sky_anchor) = body2_or_sky_anchor(commands, placement, scene);
-    let mut joint = FixedJoint::new(placement.body1.entity, body2)
+    let (body2, anchor2) = body2_or_sky(placement, sky);
+    let joint = FixedJoint::new(placement.body1.entity, body2)
         .with_local_anchor1(placement.body1.local_pos)
+        .with_local_anchor2(anchor2)
         .with_basis(Rotation::default());
-    if let Some(body2) = placement.body2 {
-        joint = joint.with_local_anchor2(body2.local_pos);
-    }
     let joint = commands
         .spawn((
             FixObject,
@@ -1127,30 +1308,14 @@ fn spawn_fix_joint(
         ))
         .id();
 
-    AttachmentLinks {
-        joint: Some(joint),
-        sky_anchor,
-    }
+    AttachmentLinks { joint: Some(joint) }
 }
 
-fn body2_or_sky_anchor(
-    commands: &mut Commands,
-    placement: AttachmentPlacement,
-    scene: Entity,
-) -> (Entity, Option<Entity>) {
+fn body2_or_sky(placement: AttachmentPlacement, sky: Entity) -> (Entity, Vec2) {
     if let Some(body2) = placement.body2 {
-        return (body2.entity, None);
+        return (body2.entity, body2.local_pos);
     }
-
-    let sky_anchor = commands
-        .spawn((
-            RigidBody::Kinematic,
-            Position(placement.pos),
-            Transform::from_translation(placement.pos.extend(0.0)),
-            ChildOf(scene),
-        ))
-        .id();
-    (sky_anchor, Some(sky_anchor))
+    (sky, placement.pos)
 }
 
 #[derive(Component)]

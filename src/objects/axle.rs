@@ -12,6 +12,12 @@ pub struct AxleObject;
 #[derive(Component)]
 pub struct FixObject;
 
+#[derive(Component, Copy, Clone, Debug, PartialEq)]
+pub(crate) struct HingeGeometry {
+    pub(crate) geoms: [Option<Entity>; 2],
+    pub(crate) positions: [Vec2; 2],
+}
+
 #[derive(Component)]
 pub(crate) struct AxleVisual;
 

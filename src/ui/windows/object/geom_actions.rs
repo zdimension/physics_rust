@@ -52,16 +52,13 @@ enum GeometryActionEvent {
 /// Marks a fixed joint created by a glue action. Unlike an ordinary fixpoint,
 /// this joint deliberately has no selectable or rendered visual entity.
 #[derive(Copy, Clone, Debug, Component)]
-struct VirtualFixpoint {
-    sky_anchor: Option<Entity>,
-}
+struct VirtualFixpoint;
 
 type JointData<'a> = (
     Entity,
     Option<&'a AttachmentJoint>,
     Option<&'a FixedJoint>,
     Option<&'a RevoluteJoint>,
-    Option<&'a VirtualFixpoint>,
 );
 type JointFilter = Or<(With<FixedJoint>, With<RevoluteJoint>)>;
 
@@ -228,7 +225,13 @@ fn process_geometry_actions(
         match event {
             GeometryActionEvent::GlueToBackground(targets) => {
                 for entity in unique_valid_targets(targets, &bodies) {
-                    spawn_background_glue(&mut commands, scene_state.scene, entity, &bodies);
+                    spawn_background_glue(
+                        &mut commands,
+                        scene_state.scene,
+                        scene_state.sky,
+                        entity,
+                        &bodies,
+                    );
                 }
             }
             GeometryActionEvent::GlueTogether(targets) => {
@@ -310,25 +313,16 @@ fn unique_valid_targets(
 fn spawn_background_glue(
     commands: &mut Commands,
     scene: Entity,
+    sky: Entity,
     body: Entity,
     bodies: &Query<(&Position, &Rotation), With<RigidBody>>,
 ) {
     let Ok((position, _)) = bodies.get(body) else {
         return;
     };
-    let sky_anchor = commands
-        .spawn((
-            RigidBody::Kinematic,
-            *position,
-            Transform::from_translation(position.0.extend(0.0)),
-            ChildOf(scene),
-        ))
-        .id();
     commands.spawn((
-        VirtualFixpoint {
-            sky_anchor: Some(sky_anchor),
-        },
-        FixedJoint::new(body, sky_anchor)
+        VirtualFixpoint,
+        FixedJoint::new(body, sky)
             .with_anchor(position.0)
             .with_basis(Rotation::default()),
         JointCollisionDisabled,
@@ -350,7 +344,7 @@ fn spawn_body_glue(
         return;
     }
     commands.spawn((
-        VirtualFixpoint { sky_anchor: None },
+        VirtualFixpoint,
         FixedJoint::new(body1, body2)
             .with_anchor(position.0)
             .with_basis(Rotation::default()),
@@ -375,7 +369,7 @@ fn loosen_objects(
     }
 
     let mut removed_visuals = HashSet::new();
-    for (joint_entity, attachment, fixed, revolute, virtual_fix) in joints.iter() {
+    for (joint_entity, attachment, fixed, revolute) in joints.iter() {
         let attached = fixed
             .map(|joint| targets.contains(&joint.body1) || targets.contains(&joint.body2))
             .unwrap_or(false)
@@ -398,9 +392,6 @@ fn loosen_objects(
             commands.entity(attachment.visual).despawn();
         } else {
             commands.entity(joint_entity).despawn();
-            if let Some(anchor) = virtual_fix.and_then(|fix| fix.sky_anchor) {
-                commands.entity(anchor).despawn();
-            }
         }
     }
 }
@@ -735,20 +726,22 @@ mod tests {
     }
 
     #[test]
-    fn background_glue_is_invisible_and_loosen_removes_it_and_its_anchor() {
+    fn background_glue_reuses_the_sky_body_and_loosen_preserves_it() {
         let mut app = geometry_action_app();
         let body = spawn_body(&mut app, Vec2::new(2.0, 3.0));
+        let sky = app.world().resource::<SceneState>().sky;
 
         app.world_mut()
             .write_message(GeometryActionEvent::GlueToBackground(vec![body]));
         app.update();
 
-        let (joint_entity, anchor) = {
+        let joint_entity = {
             let world = app.world_mut();
             let mut fixes = world.query::<(Entity, &FixedJoint, &VirtualFixpoint)>();
-            let (joint_entity, joint, virtual_fix) = fixes.single(world).unwrap();
+            let (joint_entity, joint, _) = fixes.single(world).unwrap();
             assert_eq!(joint.body1, body);
-            (joint_entity, virtual_fix.sky_anchor.unwrap())
+            assert_eq!(joint.body2, sky);
+            joint_entity
         };
         assert!(app.world().get::<AttachmentJoint>(joint_entity).is_none());
 
@@ -758,7 +751,7 @@ mod tests {
 
         assert!(app.world().get_entity(body).is_ok());
         assert!(app.world().get_entity(joint_entity).is_err());
-        assert!(app.world().get_entity(anchor).is_err());
+        assert!(app.world().get_entity(sky).is_ok());
     }
 
     fn path_segments(
@@ -775,7 +768,7 @@ mod tests {
     }
 
     #[test]
-    fn glue_together_connects_every_selected_body_without_sky_anchors() {
+    fn glue_together_connects_every_selected_body() {
         let mut app = geometry_action_app();
         let bodies = [
             spawn_body(&mut app, Vec2::ZERO),
@@ -791,7 +784,6 @@ mod tests {
         let mut fixes = world.query::<(&FixedJoint, &VirtualFixpoint)>();
         let fixes = fixes.iter(world).collect::<Vec<_>>();
         assert_eq!(fixes.len(), bodies.len() - 1);
-        assert!(fixes.iter().all(|(_, fix)| fix.sky_anchor.is_none()));
         assert!(fixes.iter().all(|(joint, _)| joint.body1 == bodies[0]));
     }
 
@@ -828,10 +820,9 @@ mod tests {
             .world_mut()
             .spawn((RevoluteJoint::new(body, other), ChildOf(scene)))
             .id();
-        app.world_mut().entity_mut(visual).insert(AttachmentLinks {
-            joint: Some(joint),
-            sky_anchor: None,
-        });
+        app.world_mut()
+            .entity_mut(visual)
+            .insert(AttachmentLinks { joint: Some(joint) });
 
         app.world_mut()
             .write_message(GeometryActionEvent::Loosen(vec![body]));

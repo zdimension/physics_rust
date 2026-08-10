@@ -12,7 +12,7 @@ use bevy::{
     app::AppExit,
     ecs::world::World,
     math::{EulerRot, Quat, Vec2, Vec3},
-    prelude::{ChildOf, Color, Entity, GlobalTransform, Time, Transform},
+    prelude::{ChildOf, Color, Component, Entity, GlobalTransform, Time, Transform},
 };
 use bevy_egui::egui::ecolor::Hsva;
 
@@ -27,6 +27,7 @@ use crate::{
         ColorComponent, MotorComponent,
         air::AirSettings,
         attraction::{Attraction, AttractionFalloff},
+        axle::HingeGeometry,
         laser::LaserSettings,
         phy_obj::{
             CircleVisual, FreeformObject, RefractiveIndex, set_box_geometry, set_circle_geometry,
@@ -36,7 +37,7 @@ use crate::{
         tracer::TracerSettings,
     },
     tools::{
-        add_object::{AttachmentKind, spawn_default_box},
+        add_object::{AttachmentKind, configure_hinge, spawn_default_box, spawn_pending_hinge},
         drag::DragConfig,
         gear::GearSettings,
         r#move::attachment_local_position,
@@ -131,33 +132,33 @@ macro_rules! native_property {
 }
 
 macro_rules! scene_property {
-    ($name:literal, $applies:expr, $get:path) => {
+    ($name:literal, $applies:expr, $get:expr) => {
         NativeMember::Property {
             name: $name,
             applies: Some($applies),
-            get: |world, entity| $get(world, scene_entity(entity)?),
+            get: |world, entity| ($get)(world, scene_entity(entity)?),
             set: None,
         }
     };
-    ($name:literal, $applies:expr, $get:path, $set:path) => {
+    ($name:literal, $applies:expr, $get:expr, $set:expr) => {
         NativeMember::Property {
             name: $name,
             applies: Some($applies),
-            get: |world, entity| $get(world, scene_entity(entity)?),
-            set: Some(|world, entity, value| $set(world, scene_entity(entity)?, value)),
+            get: |world, entity| ($get)(world, scene_entity(entity)?),
+            set: Some(|world, entity, value| ($set)(world, scene_entity(entity)?, value)),
         }
     };
 }
 
 macro_rules! scene_component_property {
-    ($name:literal, $component:ty, $get:path) => {
+    ($name:literal, $component:ty, $get:expr) => {
         scene_property!(
             $name,
             |world: &World, entity| world.get::<$component>(entity).is_some(),
             $get
         )
     };
-    ($name:literal, $component:ty, $get:path, $set:path) => {
+    ($name:literal, $component:ty, $get:expr, $set:expr) => {
         scene_property!(
             $name,
             |world: &World, entity| world.get::<$component>(entity).is_some(),
@@ -248,6 +249,16 @@ macro_rules! native_builder_method {
                     .map_err(|error| HostError::new(HostErrorKind::Intrinsic, error))?;
                 Ok(Value::Object(object))
             },
+        }
+    };
+}
+
+macro_rules! native_host_method {
+    ($name:literal, $arity:expr, $call:path) => {
+        NativeMember::Method {
+            name: $name,
+            arity: $arity,
+            call: |host, _, arguments| $call(host, arguments),
         }
     };
 }
@@ -427,14 +438,6 @@ fn event_object(this: Object) -> Object {
     event
 }
 
-fn has_angle(world: &World, entity: Entity) -> bool {
-    world.get::<RigidBody>(entity).is_some() && world.get::<Rotation>(entity).is_some()
-}
-
-fn has_rotation(world: &World, entity: Entity) -> bool {
-    world.get::<AttachmentKind>(entity).is_some()
-}
-
 fn get_world_rotation(world: &World, entity: Entity) -> Result<Value, HostError> {
     let attachment = world.get::<AttachmentKind>(entity).is_some();
     let angle = if attachment {
@@ -489,14 +492,6 @@ fn set_world_rotation(
     Ok(())
 }
 
-fn set_angle(world: &mut World, entity: Entity, value: &Value) -> Result<(), HostError> {
-    set_world_rotation(world, entity, value, "angle")
-}
-
-fn set_rotation(world: &mut World, entity: Entity, value: &Value) -> Result<(), HostError> {
-    set_world_rotation(world, entity, value, "rotation")
-}
-
 fn has_area(world: &World, entity: Entity) -> bool {
     world.get::<RigidBody>(entity).is_some() && world.get::<Collider>(entity).is_some()
 }
@@ -506,10 +501,6 @@ fn get_area(world: &World, entity: Entity) -> Result<Value, HostError> {
         .get::<Collider>(entity)
         .ok_or_else(|| object_error("area"))?;
     Ok(Value::from(collider.shape().mass_properties(1.0).mass()))
-}
-
-fn has_collision_set(world: &World, entity: Entity) -> bool {
-    world.get::<RigidBody>(entity).is_some() && world.get::<CollisionLayers>(entity).is_some()
 }
 
 fn get_collision_set(world: &World, entity: Entity) -> Result<Value, HostError> {
@@ -597,31 +588,6 @@ fn is_box(world: &World, entity: Entity) -> bool {
             .is_some_and(|collider| collider.shape().as_cuboid().is_some())
 }
 
-fn get_box_size(world: &World, entity: Entity) -> Result<Value, HostError> {
-    let size = world
-        .get::<Collider>(entity)
-        .and_then(|collider| collider.shape().as_cuboid())
-        .map(|cuboid| cuboid.half_extents * 2.0)
-        .ok_or_else(|| object_error("size"))?;
-    Ok(floats(size.to_array()))
-}
-
-fn set_box_size(world: &mut World, entity: Entity, value: &Value) -> Result<(), HostError> {
-    let size = Vec2::from_array(float_list(value, "size")?);
-    let mut query = world.query::<(&mut Collider, &mut Shape)>();
-    let (mut collider, mut shape) = query
-        .get_mut(world, entity)
-        .map_err(|_| object_error("size"))?;
-    set_box_geometry(&mut collider, &mut shape, size);
-    Ok(())
-}
-
-fn has_radius(world: &World, entity: Entity) -> bool {
-    world
-        .get::<CircleVisual>(entity)
-        .is_some_and(|circle| circle.0 > 0.0)
-}
-
 fn get_radius(world: &World, entity: Entity) -> Result<Value, HostError> {
     Ok(Value::from(
         world
@@ -639,10 +605,6 @@ fn set_radius(world: &mut World, entity: Entity, value: &Value) -> Result<(), Ho
         .map_err(|_| object_error("radius"))?;
     set_circle_geometry(&mut collider, &mut shape, &mut circle, radius);
     Ok(())
-}
-
-fn has_pos(world: &World, entity: Entity) -> bool {
-    world.get::<Position>(entity).is_some() || world.get::<AttachmentKind>(entity).is_some()
 }
 
 fn get_pos(world: &World, entity: Entity) -> Result<Value, HostError> {
@@ -699,7 +661,13 @@ fn has_size(world: &World, entity: Entity) -> bool {
 
 fn get_size(world: &World, entity: Entity) -> Result<Value, HostError> {
     if is_box(world, entity) {
-        return get_box_size(world, entity);
+        let size = world
+            .get::<Collider>(entity)
+            .and_then(|collider| collider.shape().as_cuboid())
+            .unwrap()
+            .half_extents
+            * 2.0;
+        return Ok(floats(size.to_array()));
     }
     let size = world
         .get::<LaserSettings>(entity)
@@ -713,7 +681,13 @@ fn get_size(world: &World, entity: Entity) -> Result<Value, HostError> {
 
 fn set_size(world: &mut World, entity: Entity, value: &Value) -> Result<(), HostError> {
     if is_box(world, entity) {
-        return set_box_size(world, entity, value);
+        let size = Vec2::from_array(float_list(value, "size")?);
+        let mut query = world.query::<(&mut Collider, &mut Shape)>();
+        let (mut collider, mut shape) = query
+            .get_mut(world, entity)
+            .map_err(|_| object_error("size"))?;
+        set_box_geometry(&mut collider, &mut shape, size);
+        return Ok(());
     }
     let size = number(value, "size")?;
     if let Some(mut settings) = world.get_mut::<LaserSettings>(entity) {
@@ -761,6 +735,96 @@ fn get_z_order(world: &World, entity: Entity) -> Result<Value, HostError> {
 
 fn get_entity_id(_: &World, entity: Entity) -> Result<Value, HostError> {
     Ok(Value::from(entity.index_u32() as i32))
+}
+
+#[derive(Component, Copy, Clone, Default)]
+struct PendingHinge {
+    geoms: [i32; 2],
+    positions: [Option<Vec2>; 2],
+}
+
+fn has_hinge(world: &World, entity: Entity) -> bool {
+    world.get::<PendingHinge>(entity).is_some() || world.get::<HingeGeometry>(entity).is_some()
+}
+
+fn get_hinge_geom(world: &World, entity: Entity, index: usize) -> Result<Value, HostError> {
+    if let Some(hinge) = world.get::<PendingHinge>(entity) {
+        return Ok(Value::from(hinge.geoms[index]));
+    }
+    let hinge = world
+        .get::<HingeGeometry>(entity)
+        .ok_or_else(|| object_error("hinge geometry"))?;
+    Ok(Value::from(
+        hinge.geoms[index].map_or(0, |entity| entity.index_u32() as i32),
+    ))
+}
+
+fn set_hinge_geom(
+    world: &mut World,
+    entity: Entity,
+    value: &Value,
+    index: usize,
+) -> Result<(), HostError> {
+    let Value::Number(Number::Int(value)) = value else {
+        return Err(type_error(
+            if index == 0 { "geom0" } else { "geom1" },
+            "int",
+        ));
+    };
+    if let Some(mut hinge) = world.get_mut::<PendingHinge>(entity) {
+        hinge.geoms[index] = *value;
+        return Ok(());
+    }
+    let geometry = if *value == 0 {
+        None
+    } else {
+        Some(
+            real_entity(world, *value)
+                .filter(|&entity| is_geometry(world, entity))
+                .ok_or_else(|| object_error(&format!("geometry {value}")))?,
+        )
+    };
+    let mut hinge = *world
+        .get::<HingeGeometry>(entity)
+        .ok_or_else(|| object_error("hinge geometry"))?;
+    hinge.geoms[index] = geometry;
+    if hinge.geoms == [None, None] {
+        return Err(object_error("hinge geometry"));
+    }
+    configure_hinge(world, entity, hinge);
+    Ok(())
+}
+
+fn get_hinge_pos(world: &World, entity: Entity, index: usize) -> Result<Value, HostError> {
+    let pos = if let Some(hinge) = world.get::<PendingHinge>(entity) {
+        hinge.positions[index].unwrap_or(Vec2::ZERO)
+    } else {
+        world
+            .get::<HingeGeometry>(entity)
+            .ok_or_else(|| object_error("hinge geometry"))?
+            .positions[index]
+    };
+    Ok(floats(pos.to_array()))
+}
+
+fn set_hinge_pos(
+    world: &mut World,
+    entity: Entity,
+    value: &Value,
+    index: usize,
+) -> Result<(), HostError> {
+    let name = if index == 0 { "geom0pos" } else { "geom1pos" };
+    let pos = Vec2::from_array(float_list(value, name)?);
+    if let Some(mut hinge) = world.get_mut::<PendingHinge>(entity) {
+        hinge.positions[index] = Some(pos);
+        return Ok(());
+    }
+    let mut hinge = *world
+        .get::<HingeGeometry>(entity)
+        .ok_or_else(|| object_error("hinge geometry"))?;
+    hinge.positions[index] = pos;
+    configure_hinge(world, entity, hinge);
+    Ok(())
 }
 
 #[derive(Copy, Clone)]
@@ -1000,15 +1064,25 @@ fn entity_by_id(
     let Value::Number(Number::Int(id)) = &arguments[0] else {
         return Err(type_error(name, "int"));
     };
-    let Some(raw) = Entity::from_raw_u32(*id as u32) else {
+    let Some(entity) = real_entity(world, *id) else {
         return Ok(Value::Null);
     };
-    let entity = world.entities().resolve_from_index(raw.index());
-    if world.get_entity(entity).is_err() {
-        return Ok(Value::Null);
-    }
     let object = registry.ensure_entity(entity);
     Ok(Value::Object(registry.instance(object)?.object.clone()))
+}
+
+fn real_entity(world: &World, id: i32) -> Option<Entity> {
+    let raw = Entity::from_raw_u32(id as u32)?;
+    let entity = world.entities().resolve_from_index(raw.index());
+    world.get_entity(entity).is_ok().then_some(entity)
+}
+
+fn is_geometry(world: &World, entity: Entity) -> bool {
+    world.get::<RigidBody>(entity).is_some()
+        && world.get::<Collider>(entity).is_some()
+        && world.get::<Position>(entity).is_some()
+        && world.get::<Rotation>(entity).is_some()
+        && world.get::<Transform>(entity).is_some()
 }
 
 native_class!(
@@ -1021,6 +1095,7 @@ native_class!(
             entity_by_id(world, registry, arguments, "entityByGeomID")
         }),
         native_builder_method!("addBox", spawn_default_box),
+        native_host_method!("addHinge", 1, add_hinge),
     ]
 );
 
@@ -1072,7 +1147,13 @@ native_class!(
 native_class!(
     SCENE_OBJECT = "SceneObject",
     [
-        scene_property!("angle", has_angle, get_world_rotation, set_angle),
+        scene_property!(
+            "angle",
+            |world: &World, entity| world.get::<RigidBody>(entity).is_some()
+                && world.get::<Rotation>(entity).is_some(),
+            get_world_rotation,
+            |world, entity, value| set_world_rotation(world, entity, value, "angle")
+        ),
         scene_component_value!("angvel", AngularVelocity, 0, float),
         scene_property!("area", has_area, get_area),
         scene_component_value!("attraction", Attraction, strength, float),
@@ -1084,7 +1165,8 @@ native_class!(
         ),
         scene_property!(
             "collideSet",
-            has_collision_set,
+            |world: &World, entity| world.get::<RigidBody>(entity).is_some()
+                && world.get::<CollisionLayers>(entity).is_some(),
             get_collision_set,
             set_collision_set
         ),
@@ -1097,17 +1179,59 @@ native_class!(
         scene_property!("geomID", has_area, get_entity_id),
         scene_component_value!("fadeDist", LaserSettings, fade_distance, float),
         scene_component_value!("force", ThrusterSettings, force, float),
+        scene_property!(
+            "geom0",
+            has_hinge,
+            |world, entity| get_hinge_geom(world, entity, 0),
+            |world, entity, value| set_hinge_geom(world, entity, value, 0)
+        ),
+        scene_property!(
+            "geom0pos",
+            has_hinge,
+            |world, entity| get_hinge_pos(world, entity, 0),
+            |world, entity, value| set_hinge_pos(world, entity, value, 0)
+        ),
+        scene_property!(
+            "geom1",
+            has_hinge,
+            |world, entity| get_hinge_geom(world, entity, 1),
+            |world, entity, value| set_hinge_geom(world, entity, value, 1)
+        ),
+        scene_property!(
+            "geom1pos",
+            has_hinge,
+            |world, entity| get_hinge_pos(world, entity, 1),
+            |world, entity, value| set_hinge_pos(world, entity, value, 1)
+        ),
         scene_component_value!("length", SpringObject, target_length, float),
         scene_component_value!("motor", MotorComponent, enabled, bool),
         scene_component_value!("motorSpeed", MotorComponent, vel, float),
         scene_component_value!("motorTorque", MotorComponent, torque, float),
         native_event!("onClick"),
         native_event!("onKey"),
-        scene_property!("pos", has_pos, get_pos, set_pos),
-        scene_property!("radius", has_radius, get_radius, set_radius),
+        scene_property!(
+            "pos",
+            |world: &World, entity| world.get::<Position>(entity).is_some()
+                || world.get::<AttachmentKind>(entity).is_some(),
+            get_pos,
+            set_pos
+        ),
+        scene_property!(
+            "radius",
+            |world: &World, entity| world
+                .get::<CircleVisual>(entity)
+                .is_some_and(|circle| circle.0 > 0.0),
+            get_radius,
+            set_radius
+        ),
         scene_component_value!("restitution", Restitution, coefficient, float),
         scene_component_value!("refractiveIndex", RefractiveIndex, 0, float),
-        scene_property!("rotation", has_rotation, get_world_rotation, set_rotation),
+        scene_component_property!(
+            "rotation",
+            AttachmentKind,
+            get_world_rotation,
+            |world, entity, value| set_world_rotation(world, entity, value, "rotation")
+        ),
         scene_property!("size", has_size, get_size, set_size),
         scene_component_property!("vel", LinearVelocity, get_vel, set_vel),
         scene_component_property!("zOrder", Transform, get_z_order, set_z_order),
@@ -1347,6 +1471,20 @@ impl NativeRegistry {
         }
         .get(&id)
         .copied()
+    }
+
+    fn geometry(&self, world: &World, id: i32) -> Result<Option<Entity>, HostError> {
+        if id == 0 {
+            return Ok(None);
+        }
+        let entity = self
+            .loading_scene
+            .then(|| self.load_entity(LoadId::Geometry, id))
+            .flatten()
+            .or_else(|| real_entity(world, id))
+            .filter(|&entity| is_geometry(world, entity))
+            .ok_or_else(|| object_error(&format!("geometry {id}")))?;
+        Ok(Some(entity))
     }
 
     fn member(
@@ -1675,6 +1813,75 @@ struct WorldHost<'a> {
     registry: &'a mut NativeRegistry,
 }
 
+fn hinge_world_pos(world: &World, geometry: Option<Entity>, local: Vec2) -> Vec2 {
+    geometry.map_or(local, |entity| {
+        world.get::<Position>(entity).unwrap().0 + *world.get::<Rotation>(entity).unwrap() * local
+    })
+}
+
+fn hinge_local_pos(world: &World, geometry: Option<Entity>, pos: Vec2) -> Vec2 {
+    geometry.map_or(pos, |entity| {
+        world.get::<Rotation>(entity).unwrap().inverse()
+            * (pos - world.get::<Position>(entity).unwrap().0)
+    })
+}
+
+fn add_hinge(host: &mut WorldHost<'_>, arguments: &[Value]) -> Result<Value, HostError> {
+    let Value::Function(builder) = &arguments[0] else {
+        return Err(type_error("addHinge", "zero-argument function"));
+    };
+    if builder.arity() != 0 {
+        return Err(type_error("addHinge", "zero-argument function"));
+    }
+
+    let entity = spawn_pending_hinge(host.world);
+    host.world
+        .entity_mut(entity)
+        .insert(PendingHinge::default());
+    let id = host.registry.ensure_entity(entity);
+    let object = host.registry.instance(id)?.object.clone();
+    let runtime = host.runtime;
+    let result = (|| {
+        runtime
+            .call_function_with_receiver(host, builder, &[], object.clone())
+            .map_err(|error| HostError::new(HostErrorKind::Intrinsic, error))?;
+        let settings = *host.world.get::<PendingHinge>(entity).unwrap();
+        if settings.geoms == [0, 0] {
+            return Err(object_error("addHinge geometry"));
+        }
+        let geoms = [
+            host.registry.geometry(host.world, settings.geoms[0])?,
+            host.registry.geometry(host.world, settings.geoms[1])?,
+        ];
+        let mut positions = settings.positions;
+        if positions == [None, None] {
+            positions[if geoms[0].is_some() { 0 } else { 1 }] = Some(Vec2::ZERO);
+        }
+        let positions = match positions {
+            [Some(pos0), Some(pos1)] => [pos0, pos1],
+            [Some(pos0), None] => {
+                let world_pos = hinge_world_pos(host.world, geoms[0], pos0);
+                [pos0, hinge_local_pos(host.world, geoms[1], world_pos)]
+            }
+            [None, Some(pos1)] => {
+                let world_pos = hinge_world_pos(host.world, geoms[1], pos1);
+                [hinge_local_pos(host.world, geoms[0], world_pos), pos1]
+            }
+            [None, None] => unreachable!(),
+        };
+        configure_hinge(host.world, entity, HingeGeometry { geoms, positions });
+        host.world.entity_mut(entity).remove::<PendingHinge>();
+        Ok(Value::Object(object))
+    })();
+    if result.is_err() {
+        host.registry.entities.remove(&entity);
+        host.registry.instances.remove(&id);
+        runtime.unbind_object(id);
+        host.world.despawn(entity);
+    }
+    result
+}
+
 impl Host for WorldHost<'_> {
     fn resolve_property(
         &mut self,
@@ -1818,12 +2025,22 @@ mod tests {
     fn scene_world() -> World {
         let mut world = world();
         let scene = world.spawn_empty().id();
-        world.insert_resource(crate::ui::SceneState { scene });
+        let sky = world
+            .spawn((
+                RigidBody::Static,
+                Position::default(),
+                Transform::default(),
+                ChildOf(scene),
+            ))
+            .id();
+        world.insert_resource(crate::ui::SceneState { scene, sky });
         world.insert_resource(crate::tools::add_object::DepthSorter::default());
         world.insert_resource(crate::palette::PaletteConfig {
             palettes: Default::default(),
             current_palette: Default::default(),
         });
+        world.insert_resource(crate::ui::images::AppIcons::empty());
+        world.init_resource::<avian2d::dynamics::solver::joint_graph::JointGraph>();
         world.spawn(crate::rng::RngComponent::default());
         world
     }
@@ -2024,7 +2241,7 @@ mod tests {
             .entity
             .unwrap();
         assert_eq!(world.get::<Position>(entity).unwrap().0, Vec2::ZERO);
-        assert_eq!(get_box_size(&world, entity).unwrap().to_string(), "[1, 1]");
+        assert_eq!(get_size(&world, entity).unwrap().to_string(), "[1, 1]");
         assert_eq!(world.get::<ColliderDensity>(entity).unwrap().0, 2.0);
         assert_eq!(world.get::<ChildOf>(entity).unwrap().parent(), scene);
 
@@ -2047,7 +2264,7 @@ mod tests {
             world.get::<Position>(entity).unwrap().0,
             Vec2::new(10.0, 15.0)
         );
-        assert_eq!(get_box_size(&world, entity).unwrap().to_string(), "[2, 4]");
+        assert_eq!(get_size(&world, entity).unwrap().to_string(), "[2, 4]");
         assert_eq!(world.get::<ColliderDensity>(entity).unwrap().0, 3.0);
 
         assert!(engine.eval(&mut world, "Scene.addBox 1").is_err());
@@ -2137,6 +2354,191 @@ mod tests {
             Some(second)
         );
         engine.registry.end_scene_load();
+    }
+
+    #[test]
+    fn add_hinge_validates_then_spawns_and_computes_the_missing_anchor() {
+        let mut engine = ScriptEngine::default();
+        let mut world = scene_world();
+        let Value::Object(body) = engine
+            .eval(&mut world, "Scene.addBox { pos = [10, 15] }")
+            .unwrap()
+        else {
+            unreachable!()
+        };
+        let body = engine
+            .registry
+            .instance(body.native_id().unwrap())
+            .unwrap()
+            .entity
+            .unwrap();
+        let id = body.index_u32() as i32;
+
+        for source in [
+            "Scene.addHinge {}",
+            "Scene.addHinge { geom0 = 0; geom1 = 0; geom0pos = [0, 0] }",
+        ] {
+            assert!(engine.eval(&mut world, source).is_err());
+        }
+        assert_eq!(world.query::<&HingeGeometry>().iter(&world).count(), 0);
+        assert_eq!(world.query::<&PendingHinge>().iter(&world).count(), 0);
+        assert_eq!(world.query::<&AttachmentKind>().iter(&world).count(), 0);
+
+        let Value::Object(defaulted) = engine
+            .eval(&mut world, &format!("Scene.addHinge {{ geom0 = {id} }}"))
+            .unwrap()
+        else {
+            unreachable!()
+        };
+        let defaulted = engine
+            .registry
+            .instance(defaulted.native_id().unwrap())
+            .unwrap()
+            .entity
+            .unwrap();
+        let geometry = world.get::<HingeGeometry>(defaulted).unwrap();
+        assert_eq!(geometry.positions, [Vec2::ZERO, Vec2::new(10.0, 15.0)]);
+
+        let Value::Object(hinge) = engine
+            .eval(
+                &mut world,
+                &format!("Scene.addHinge {{ geom1 = {id}; geom1pos = [0, 0]; motor = true }}"),
+            )
+            .unwrap()
+        else {
+            unreachable!()
+        };
+        let hinge = engine
+            .registry
+            .instance(hinge.native_id().unwrap())
+            .unwrap()
+            .entity
+            .unwrap();
+        let geometry = *world.get::<HingeGeometry>(hinge).unwrap();
+        assert_eq!(geometry.geoms, [None, Some(body)]);
+        assert_eq!(geometry.positions, [Vec2::new(10.0, 15.0), Vec2::ZERO]);
+        assert!(world.get::<MotorComponent>(hinge).unwrap().enabled);
+        let joint = world
+            .get::<crate::tools::add_object::AttachmentLinks>(hinge)
+            .unwrap()
+            .joint
+            .unwrap();
+        assert_eq!(
+            world
+                .get::<avian2d::prelude::RevoluteJoint>(joint)
+                .unwrap()
+                .body2,
+            world.resource::<crate::ui::SceneState>().sky
+        );
+        assert_eq!(
+            world
+                .query::<&RigidBody>()
+                .iter(&world)
+                .filter(|body| **body == RigidBody::Kinematic)
+                .count(),
+            0
+        );
+        engine
+            .eval(
+                &mut world,
+                &format!(
+                    "Scene.entityByID({}).geom0pos = [2, 3]",
+                    hinge.index_u32() as i32
+                ),
+            )
+            .unwrap();
+        assert_eq!(
+            world.get::<HingeGeometry>(hinge).unwrap().positions[0],
+            Vec2::new(2.0, 3.0)
+        );
+        assert_ne!(
+            world
+                .get::<crate::tools::add_object::AttachmentLinks>(hinge)
+                .unwrap()
+                .joint,
+            Some(joint)
+        );
+        assert!(
+            engine
+                .eval(
+                    &mut world,
+                    &format!("Scene.entityByID({}).geom1 = 0", hinge.index_u32() as i32),
+                )
+                .is_err()
+        );
+        assert_eq!(
+            world.get::<HingeGeometry>(hinge).unwrap().geoms[1],
+            Some(body)
+        );
+
+        let Value::Object(other) = engine.eval(&mut world, "Scene.addBox {}").unwrap() else {
+            unreachable!()
+        };
+        let other = engine
+            .registry
+            .instance(other.native_id().unwrap())
+            .unwrap()
+            .entity
+            .unwrap();
+        engine
+            .eval(
+                &mut world,
+                &format!(
+                    "Scene.entityByID({}).geom0 = {}",
+                    hinge.index_u32() as i32,
+                    other.index_u32() as i32
+                ),
+            )
+            .unwrap();
+        let geometry = world.get::<HingeGeometry>(hinge).unwrap();
+        assert_eq!(geometry.geoms, [Some(other), Some(body)]);
+        let joint = world
+            .get::<crate::tools::add_object::AttachmentLinks>(hinge)
+            .and_then(|links| links.joint)
+            .and_then(|joint| world.get::<avian2d::prelude::RevoluteJoint>(joint))
+            .unwrap();
+        assert_eq!((joint.body1, joint.body2), (other, body));
+
+        let properties = engine.selection_properties(&mut world, &[hinge]);
+        assert_eq!(
+            properties.iter().find(|p| p.name == "geom0").unwrap().value,
+            (other.index_u32() as i32).to_string()
+        );
+        assert!(
+            !properties
+                .iter()
+                .find(|p| p.name == "geom1pos")
+                .unwrap()
+                .read_only
+        );
+    }
+
+    #[test]
+    fn add_hinge_resolves_scene_geometry_aliases() {
+        let mut engine = ScriptEngine::default();
+        let mut world = scene_world();
+        let Value::Object(hinge) = engine
+            .eval_scene(
+                &mut world,
+                "Scene.addBox { geomID = 100; pos = [2, 3] }; \
+                 Scene.addBox { geomID = 200; pos = [8, 5] }; \
+                 Scene.addHinge { geom0 = 100; geom1 = 200; geom0pos = [1, 2] }",
+            )
+            .unwrap()
+        else {
+            unreachable!()
+        };
+        let hinge = engine
+            .registry
+            .instance(hinge.native_id().unwrap())
+            .unwrap()
+            .entity
+            .unwrap();
+        let geometry = world.get::<HingeGeometry>(hinge).unwrap();
+        assert_eq!(
+            geometry.positions,
+            [Vec2::new(1.0, 2.0), Vec2::new(-5.0, 0.0)]
+        );
     }
 
     #[test]

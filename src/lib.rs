@@ -197,6 +197,7 @@ pub fn app_main() {
             ..Default::default()
         }))
         .add_plugins(EguiPlugin::default())
+        .add_plugins(PhysicsPlugins::default())
         //.add_plugins(WorldInspectorPlugin::new())
         .init_asset::<PaletteList>()
         .init_asset_loader::<PaletteLoader>()
@@ -233,7 +234,6 @@ pub fn app_main() {
             loop_.pause();
             loop_
         })
-        .add_plugins(PhysicsPlugins::default())
         /*.add_plugins(RapierPhysicsPlugin::<CollideHooks>::pixels_per_meter(1.0))
         .add_plugins(RapierDebugRenderPlugin {
             style: DebugRenderStyle {

@@ -86,7 +86,7 @@ macro_rules! icon_set {
 
 macro_rules! image_set {
     ($type:ident, $root:literal, [$($name:ident),*$(,)?]) => {
-        #[derive(Resource)]
+        #[derive(Resource, Clone)]
         pub struct $type {
             $(
                 pub $name: Handle<Image>,
@@ -105,6 +105,11 @@ macro_rules! image_set {
         }
 
         impl $type {
+            #[cfg(test)]
+            pub(crate) fn empty() -> Self {
+                Self { $($name: default(),)* }
+            }
+
             pub(crate) fn contains_image(&self, image_id: AssetId<Image>) -> bool {
                 [$(self.$name.id(),)*].contains(&image_id)
             }
