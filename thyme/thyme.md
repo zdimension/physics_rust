@@ -27,3 +27,11 @@ error
 ```
 
 So instead of throwing errors we should print warnings and propagate that error value.
+
+## Extensions
+
+Lists can be indexed starting from end. `l(-1)` is the last element.
+
+Calls and member access can be chained. `a.b(c).d` is equivalent to `((a.b)(c)).d`.
+
+Any lvalue can be assigned to, e.g. `a.b(c).d = 5` is valid.

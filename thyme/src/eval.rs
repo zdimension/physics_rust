@@ -244,16 +244,51 @@ impl<'runtime, 'host> Evaluator<'runtime, 'host> {
             }
             Expr::Call(function_expr, (argument_exprs, call_span)) => {
                 let function_value = self.eval_expr(&function_expr.0, env)?;
-                let Value::Function(function) = function_value else {
-                    return Err(format!(
-                        "Cannot call non-function value {function_value} at {call_span:?}"
-                    ));
-                };
                 let arguments = argument_exprs
                     .iter()
                     .map(|(argument, _)| self.eval_expr(argument, env))
                     .collect::<Result<Vec<_>, _>>()?;
-                self.call_function(&function, &arguments, *call_span)?
+                match function_value {
+                    Value::Function(function) => {
+                        self.call_function(&function, &arguments, *call_span)?
+                    }
+                    Value::List(list) => {
+                        let [index] = &arguments[..] else {
+                            return Err(format!(
+                                "List index expects exactly 1 argument (got {}) at {call_span:?}",
+                                arguments.len()
+                            ));
+                        };
+                        self.apply_unary(
+                            |index| match index {
+                                Value::Number(Number::Int(i)) => {
+                                    let i = if i < 0 {
+                                        list.0.len().wrapping_add(i as isize as usize)
+                                    } else {
+                                        i as usize
+                                    };
+                                    if i < list.0.len() {
+                                        Ok(list.0[i].clone())
+                                    } else {
+                                        Err(format!(
+                                            "List index {i} out of bounds (length {})",
+                                            list.0.len()
+                                        ))
+                                    }
+                                }
+                                _ => Err(format!(
+                                    "Cannot use non-integer value {index} as a list index"
+                                )),
+                            },
+                            index.clone(),
+                        )?
+                    }
+                    _ => {
+                        return Err(format!(
+                            "Cannot call non-function value {function_value} at {call_span:?}"
+                        ));
+                    }
+                }
             }
             Expr::Ternary(cond, then_expr, else_expr) => {
                 let cond_value = self.eval_expr(&cond.0, env)?;
