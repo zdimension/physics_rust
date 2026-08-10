@@ -107,7 +107,11 @@ pub(crate) fn execute_console(world: &mut World) {
 
     let console = &mut *world.resource_mut::<Console>();
     match result {
-        Ok(value) => console.push_line(value),
+        Ok(value) => {
+            if value != thyme::Value::Void {
+                console.push_line(value);
+            }
+        },
         Err(error) => console.push_line(format_args!("ERROR: {error}")),
     }
 }
