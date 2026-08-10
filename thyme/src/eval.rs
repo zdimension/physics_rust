@@ -297,11 +297,12 @@ impl<'runtime, 'host> Evaluator<'runtime, 'host> {
                         "Cannot use non-boolean value {cond_value} as a condition"
                     ));
                 };
-                if cond_bool {
+                let res = if cond_bool {
                     self.eval_expr(&then_expr.0, env)?
                 } else {
                     self.eval_expr(&else_expr.0, env)?
-                }
+                };
+                self.collapse(res)?
             }
             Expr::Func(definition) => {
                 Value::Function(Function(Gc::new(FunctionValue::User(UserFunction {
