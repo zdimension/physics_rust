@@ -1,5 +1,8 @@
-use crate::objects::plane::PlaneObject;
-use crate::objects::spring::SpringObject;
+use crate::objects::{
+    body::{velocity_at_point, world_point},
+    plane::PlaneObject,
+    spring::SpringObject,
+};
 use avian2d::prelude::*;
 use bevy::{ecs::query::QueryData, prelude::*};
 
@@ -176,8 +179,7 @@ pub fn aggregate_measures(
         {
             has_mass = true;
             total_mass += mass.mass;
-            let center_offset = *rotation * mass.center_of_mass;
-            let center = position.0 + center_offset;
+            let center = world_point((position.0, *rotation), mass.center_of_mass);
             weighted_pos += center * mass.mass;
             gravity_energy += -mass.mass * gravity.dot(center);
             has_gravity = true;
@@ -185,9 +187,8 @@ pub fn aggregate_measures(
             let motion = if let Ok((body_pos, body_rotation, body_center, linear, angular)) =
                 bodies.get(link.body)
             {
-                let body_center = body_pos.0 + *body_rotation * body_center.0;
-                let offset = center - body_center;
-                let velocity = linear.0 + Vec2::new(-offset.y, offset.x) * angular.0;
+                let body_center = world_point((body_pos.0, *body_rotation), body_center.0);
+                let velocity = velocity_at_point(body_center, linear.0, angular.0, center);
                 has_velocity = true;
                 weighted_vel += velocity * mass.mass;
                 linear_momentum += mass.mass * velocity;

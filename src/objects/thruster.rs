@@ -2,7 +2,10 @@ use avian2d::prelude::*;
 use bevy::math::{EulerRot, Quat, Vec2};
 use bevy::prelude::*;
 
-use crate::objects::{body::PhysicsBody, phy_obj::PhysicalGeometry};
+use crate::objects::{
+    body::{PhysicsBody, world_point},
+    phy_obj::PhysicalGeometry,
+};
 use crate::tools::add_object::AttachmentKind;
 
 #[derive(Component, Copy, Clone, Debug)]
@@ -75,7 +78,7 @@ pub(crate) fn apply_thruster_forces(
         };
 
         let local_point = transform.translation.truncate();
-        let point = application_point(position.0, *geometry_rotation, local_point);
+        let point = world_point((position.0, *geometry_rotation), local_point);
         let force = force_vector(
             settings,
             geometry_rotation.as_radians(),
@@ -83,10 +86,6 @@ pub(crate) fn apply_thruster_forces(
         );
         forces.apply_force_at_point(force, point);
     }
-}
-
-fn application_point(body_position: Vec2, body_rotation: Rotation, local_point: Vec2) -> Vec2 {
-    body_position + body_rotation * local_point
 }
 
 fn force_vector(settings: &ThrusterSettings, body_angle: f32, local_angle: f32) -> Vec2 {
@@ -115,9 +114,11 @@ mod tests {
         let settings = ThrusterSettings::default();
 
         let force = force_vector(&settings, std::f32::consts::FRAC_PI_2, 0.0);
-        let point = application_point(
-            Vec2::new(1.0, 2.0),
-            Rotation::radians(std::f32::consts::FRAC_PI_2),
+        let point = world_point(
+            (
+                Vec2::new(1.0, 2.0),
+                Rotation::radians(std::f32::consts::FRAC_PI_2),
+            ),
             Vec2::new(2.0, 0.0),
         );
 

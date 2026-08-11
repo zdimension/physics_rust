@@ -1,4 +1,7 @@
-use super::phy_obj::PhysicalGeometry;
+use super::{
+    body::{velocity_at_point, world_point},
+    phy_obj::PhysicalGeometry,
+};
 use avian2d::prelude::*;
 use bevy::math::{Vec2, Vec3};
 use bevy::prelude::*;
@@ -508,8 +511,9 @@ impl SpringBodyPoint {
             } => {
                 let (position, rotation, link) = geometries.get(entity).ok()?;
                 let body = bodies.get(link.body).ok()?;
-                let point = position.0 + *rotation * local_anchor;
-                let center_of_mass = body.position.0 + body.rotation * body.center_of_mass.0;
+                let point = world_point((position.0, *rotation), local_anchor);
+                let center_of_mass =
+                    world_point((body.position.0, *body.rotation), body.center_of_mass.0);
                 Some(Self {
                     entity: Some(link.body),
                     point,
@@ -538,7 +542,7 @@ impl SpringEnd {
                 local_anchor,
             } => {
                 let (position, rotation) = bodies.get(entity).ok()?;
-                Some(position.0 + *rotation * local_anchor)
+                Some(world_point((position.0, *rotation), local_anchor))
             }
             Self::Sky { world_anchor } => Some(world_anchor),
         }

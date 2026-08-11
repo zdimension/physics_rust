@@ -10,6 +10,18 @@ use super::{
 };
 use crate::ui::SceneState;
 
+pub(crate) fn world_point(pose: (Vec2, Rotation), local: Vec2) -> Vec2 {
+    pose.0 + pose.1 * local
+}
+
+pub(crate) fn local_point(pose: (Vec2, Rotation), world: Vec2) -> Vec2 {
+    pose.1.inverse() * (world - pose.0)
+}
+
+pub(crate) fn velocity_at_point(center: Vec2, linear: Vec2, angular: f32, point: Vec2) -> Vec2 {
+    linear + (point - center).perp() * angular
+}
+
 #[derive(Component, Copy, Clone, Debug)]
 pub struct PhysicsBody;
 
@@ -17,13 +29,17 @@ pub struct PhysicsBody;
 pub struct BodyTransform(pub ColliderTransform);
 
 impl BodyTransform {
+    pub fn transform_point(&self, point: Vec2) -> Vec2 {
+        world_point((self.translation, self.rotation), point * self.scale)
+    }
+
     pub fn set_world_pose(
         &mut self,
         collider: &mut ColliderTransform,
         body: (Vec2, Rotation),
         pose: (Vec2, Rotation),
     ) {
-        self.translation = body.1.inverse() * (pose.0 - body.0);
+        self.translation = local_point(body, pose.0);
         self.rotation = body.1.inverse() * pose.1;
         *collider = self.0;
     }
@@ -101,7 +117,7 @@ pub fn pose(world: &World, geometry: Entity) -> Option<(Vec2, Rotation)> {
     let pos = world.get::<Position>(link.body)?;
     let rotation = world.get::<Rotation>(link.body)?;
     Some((
-        pos.0 + *rotation * local.translation,
+        world_point((pos.0, *rotation), local.translation),
         *rotation * local.rotation,
     ))
 }
@@ -109,14 +125,18 @@ pub fn pose(world: &World, geometry: Entity) -> Option<(Vec2, Rotation)> {
 pub fn point_velocity(world: &World, geometry: Entity) -> Option<Vec2> {
     let body = entity(world, geometry)?;
     let (point, _) = pose(world, geometry)?;
-    let center = world.get::<Position>(body)?.0
-        + *world.get::<Rotation>(body)?
-            * world
-                .get::<ComputedCenterOfMass>(body)
-                .map_or(Vec2::ZERO, |center| center.0);
+    let center = world_point(
+        (
+            world.get::<Position>(body)?.0,
+            *world.get::<Rotation>(body)?,
+        ),
+        world
+            .get::<ComputedCenterOfMass>(body)
+            .map_or(Vec2::ZERO, |center| center.0),
+    );
     let linear = world.get::<LinearVelocity>(body)?.0;
     let angular = world.get::<AngularVelocity>(body)?.0;
-    Some(linear + Vec2::new(-(point.y - center.y), point.x - center.x) * angular)
+    Some(velocity_at_point(center, linear, angular, point))
 }
 
 pub fn set_point_velocity(world: &mut World, geometry: Entity, velocity: Vec2) -> bool {
@@ -128,19 +148,19 @@ pub fn set_point_velocity(world: &mut World, geometry: Entity, velocity: Vec2) -
     };
     let body_pos = world.get::<Position>(body).map_or(Vec2::ZERO, |pos| pos.0);
     let body_rotation = world.get::<Rotation>(body).copied().unwrap_or_default();
-    let center = body_pos
-        + body_rotation
-            * world
-                .get::<ComputedCenterOfMass>(body)
-                .map_or(Vec2::ZERO, |center| center.0);
+    let center = world_point(
+        (body_pos, body_rotation),
+        world
+            .get::<ComputedCenterOfMass>(body)
+            .map_or(Vec2::ZERO, |center| center.0),
+    );
     let angular = world
         .get::<AngularVelocity>(body)
         .map_or(0.0, |velocity| velocity.0);
-    let offset = point - center;
     let Some(mut linear) = world.get_mut::<LinearVelocity>(body) else {
         return false;
     };
-    linear.0 = velocity - Vec2::new(-offset.y, offset.x) * angular;
+    linear.0 = velocity_at_point(center, velocity, -angular, point);
     true
 }
 
@@ -324,7 +344,7 @@ pub fn rebuild_welds(world: &mut World) {
             world.get::<Collider>(entity).unwrap(),
             world.get::<ColliderDensity>(entity).map_or(1.0, |d| d.0),
         );
-        let center = pos.0 + rotation * mass.center_of_mass;
+        let center = world_point((pos.0, rotation), mass.center_of_mass);
         states.insert(
             entity,
             GeometryState {
@@ -359,13 +379,14 @@ pub fn rebuild_welds(world: &mut World) {
         state.angular_velocity = world
             .get::<AngularVelocity>(state.body)
             .map_or(0.0, |velocity| velocity.0);
-        state.velocity = world
-            .get::<LinearVelocity>(state.body)
-            .map_or(Vec2::ZERO, |velocity| velocity.0)
-            + Vec2::new(
-                -(state.center.y - body_center.y),
-                state.center.x - body_center.x,
-            ) * state.angular_velocity;
+        state.velocity = velocity_at_point(
+            body_center,
+            world
+                .get::<LinearVelocity>(state.body)
+                .map_or(Vec2::ZERO, |velocity| velocity.0),
+            state.angular_velocity,
+            state.center,
+        );
     }
 
     let mut components: HashMap<Entity, Vec<GeometryState>> = HashMap::new();
@@ -455,7 +476,7 @@ pub fn rebuild_welds(world: &mut World) {
         };
         for member in members {
             let local = ColliderTransform {
-                translation: body_rotation.inverse() * (member.pos - body_pos),
+                translation: local_point((body_pos, body_rotation), member.pos),
                 rotation: body_rotation.inverse() * member.rotation,
                 scale: Vec2::ONE,
             };
@@ -505,7 +526,7 @@ pub fn sync_mass_properties(
                 let props = ColliderMassProperties::from_shape(collider, density.0);
                 (props.mass > 0.0 && props.mass.is_finite()).then_some((
                     props.mass,
-                    local.translation + local.rotation * props.center_of_mass,
+                    world_point((local.translation, local.rotation), props.center_of_mass),
                     props.angular_inertia,
                 ))
             })
@@ -549,7 +570,7 @@ pub fn sync_transforms(
         let Ok((pos, rotation)) = bodies.get(link.body) else {
             continue;
         };
-        let world_pos = pos.0 + *rotation * local.translation;
+        let world_pos = world_point((pos.0, *rotation), local.translation);
         let world_rotation = *rotation * local.rotation;
         *collider_transform = local.0;
         position.0 = world_pos;

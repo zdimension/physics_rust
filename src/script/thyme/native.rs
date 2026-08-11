@@ -2041,17 +2041,21 @@ struct WorldHost<'a> {
     registry: &'a mut NativeRegistry,
 }
 
-fn joint_world_pos(world: &World, geometry: Option<Entity>, local: Vec2) -> Vec2 {
-    geometry.map_or(local, |entity| {
-        world.get::<Position>(entity).unwrap().0 + *world.get::<Rotation>(entity).unwrap() * local
+fn joint_pose(world: &World, geometry: Option<Entity>) -> Option<(Vec2, Rotation)> {
+    geometry.map(|entity| {
+        (
+            world.get::<Position>(entity).unwrap().0,
+            *world.get::<Rotation>(entity).unwrap(),
+        )
     })
 }
 
+fn joint_world_pos(world: &World, geometry: Option<Entity>, local: Vec2) -> Vec2 {
+    joint_pose(world, geometry).map_or(local, |pose| body::world_point(pose, local))
+}
+
 fn joint_local_pos(world: &World, geometry: Option<Entity>, pos: Vec2) -> Vec2 {
-    geometry.map_or(pos, |entity| {
-        world.get::<Rotation>(entity).unwrap().inverse()
-            * (pos - world.get::<Position>(entity).unwrap().0)
-    })
+    joint_pose(world, geometry).map_or(pos, |pose| body::local_point(pose, pos))
 }
 
 fn build_native(

@@ -8,7 +8,7 @@ use crate::objects::axle::{
     AxleObject, AxleVisual, FixObject, HINGE_MOTOR_VISUAL_DIAMETER, HingeMotorDirection,
     HingeMotorRing, JointGeometry, hinge_selection_radius,
 };
-use crate::objects::body::BodyTransform;
+use crate::objects::body::{BodyTransform, local_point, world_point};
 use crate::objects::laser::{LaserSettings, LaserVisual};
 use crate::objects::phy_obj::{FreeformObject, PhysicalGeometry, PhysicalObject};
 use crate::objects::plane::spawn_plane;
@@ -204,7 +204,7 @@ fn joint_placement(world: &World, geometry: JointGeometry) -> AttachmentPlacemen
             entity,
             body: link.body,
             local_pos,
-            body_local_pos: local.translation + local.rotation * (local_pos * local.scale),
+            body_local_pos: local.transform_point(local_pos),
             z: world.get::<Transform>(entity).unwrap().translation.z,
             rotation: Quat::from_rotation_z(rotation.as_radians()),
         }
@@ -216,8 +216,13 @@ fn joint_placement(world: &World, geometry: JointGeometry) -> AttachmentPlacemen
             if geom1.is_none() {
                 geometry.positions[1]
             } else {
-                world.get::<Position>(geom0).unwrap().0
-                    + *world.get::<Rotation>(geom0).unwrap() * geometry.positions[0]
+                world_point(
+                    (
+                        world.get::<Position>(geom0).unwrap().0,
+                        *world.get::<Rotation>(geom0).unwrap(),
+                    ),
+                    geometry.positions[0],
+                )
             },
         ),
         [None, Some(geom1)] => (
@@ -396,7 +401,7 @@ pub(crate) fn sync_axle_anchors(
             geometries
                 .get(entity)
                 .ok()
-                .map(|local| local.translation + local.rotation * (pos * local.scale))
+                .map(|local| local.transform_point(pos))
         };
         let anchors = (|| {
             Some(match geometry.geoms {
@@ -940,12 +945,12 @@ fn body_hit(
     link: &ColliderOf,
     local: &BodyTransform,
 ) -> BodyHit {
-    let local_pos = rotation.inverse() * (pos - position.0);
+    let local_pos = local_point((position.0, *rotation), pos);
     BodyHit {
         entity,
         body: link.body,
         local_pos,
-        body_local_pos: local.translation + local.rotation * (local_pos * local.scale),
+        body_local_pos: local.transform_point(local_pos),
         z: transform.translation_vec3a().z,
         rotation: transform.rotation(),
     }

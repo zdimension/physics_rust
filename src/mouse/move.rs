@@ -6,6 +6,7 @@ use crate::objects::spring::{self, SpringEnd, SpringObject, SpringPlacementState
 use crate::objects::{
     ColorComponent,
     axle::{FixObject, JointGeometry},
+    body::world_point,
 };
 use crate::palette::PaletteConfig;
 use crate::rng::RngComponent;
@@ -474,7 +475,7 @@ fn center_of_mass(
             continue;
         };
         mass_sum += mass.mass;
-        weighted += (position.0 + *rotation * mass.center_of_mass) * mass.mass;
+        weighted += world_point((position.0, *rotation), mass.center_of_mass) * mass.mass;
     }
     (mass_sum > 0.0).then_some(weighted / mass_sum)
 }

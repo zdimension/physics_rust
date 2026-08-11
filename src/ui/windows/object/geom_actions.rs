@@ -3,6 +3,7 @@ use std::f32::consts::PI;
 
 use crate::lyon_compat::Shape;
 use crate::objects::axle::{FixObject, JointGeometry};
+use crate::objects::body::local_point;
 use crate::objects::phy_obj::{
     CircleVisual, FreeformObject, PhysicalGeometry, set_box_geometry, set_circle_geometry,
 };
@@ -323,7 +324,10 @@ fn spawn_body_glue(
         VirtualFixpoint,
         JointGeometry {
             geoms: [Some(body1), Some(body2)],
-            positions: [Vec2::ZERO, rotation2.inverse() * (position.0 - position2.0)],
+            positions: [
+                Vec2::ZERO,
+                local_point((position2.0, *rotation2), position.0),
+            ],
         },
         ChildOf(scene),
     ));

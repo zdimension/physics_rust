@@ -1,6 +1,9 @@
 use crate::FOREGROUND_Z;
 use crate::mouse_tracking::MainCamera;
-use crate::objects::{body::PhysicsBody, phy_obj::PhysicalGeometry};
+use crate::objects::{
+    body::{PhysicsBody, world_point},
+    phy_obj::PhysicalGeometry,
+};
 use avian2d::prelude::*;
 use bevy::math::Vec2;
 use bevy::prelude::*;
@@ -107,11 +110,11 @@ pub fn apply_drag_force(
         else {
             continue;
         };
-        let center_of_mass = body_pos.0 + *body_rotation * center.0;
+        let center_of_mass = world_point((body_pos.0, *body_rotation), center.0);
         let attachment_point = if config.drag_center_of_mass {
             center_of_mass
         } else {
-            position.0 + *rotation * target.grab_local_point
+            world_point((position.0, *rotation), target.grab_local_point)
         };
         let stiffness = effective_stiffness(cam_scale.recip(), config.strength, mass.value());
         let damping = critical_damping(stiffness, mass.value());

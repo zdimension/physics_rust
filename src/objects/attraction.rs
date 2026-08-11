@@ -1,7 +1,7 @@
 use avian2d::prelude::*;
 use bevy::prelude::*;
 
-use super::phy_obj::PhysicalGeometry;
+use super::{body::world_point, phy_obj::PhysicalGeometry};
 
 const MIN_ATTRACTION_DISTANCE: f32 = 1.0e-4;
 
@@ -114,7 +114,7 @@ fn apply_attraction_forces(
                 (mass.mass > 0.0 && mass.mass.is_finite()).then_some(BodySample {
                     entity,
                     body: link.body,
-                    center: position.0 + *rotation * mass.center_of_mass,
+                    center: world_point((position.0, *rotation), mass.center_of_mass),
                     mass: mass.mass,
                 })
             }),

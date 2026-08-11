@@ -1,7 +1,10 @@
 use avian2d::prelude::*;
 use bevy::prelude::*;
 
-use super::phy_obj::PhysicalGeometry;
+use super::{
+    body::{velocity_at_point, world_point},
+    phy_obj::PhysicalGeometry,
+};
 
 #[derive(Resource, Copy, Clone, Debug)]
 pub struct AirSettings {
@@ -75,9 +78,11 @@ fn apply_air_friction(
                 continue;
             }
 
-            let center = body_pos.0 + *body_rotation * center.map_or(Vec2::ZERO, |center| center.0);
-            let offset = position.0 - center;
-            let point_velocity = velocity.0 + Vec2::new(-offset.y, offset.x) * angular.0;
+            let center = world_point(
+                (body_pos.0, *body_rotation),
+                center.map_or(Vec2::ZERO, |center| center.0),
+            );
+            let point_velocity = velocity_at_point(center, velocity.0, angular.0, position.0);
             let relative_velocity = point_velocity - wind_velocity;
             let speed = relative_velocity.length();
             if speed <= f32::EPSILON || !speed.is_finite() {
