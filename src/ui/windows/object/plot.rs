@@ -194,6 +194,13 @@ impl PlotWindow {
         )>,
         ents: Query<AggregateMeasureData>,
         body_positions: Query<(&Position, &Rotation)>,
+        bodies: Query<(
+            &Position,
+            &Rotation,
+            &ComputedCenterOfMass,
+            &LinearVelocity,
+            &AngularVelocity,
+        )>,
         physics: Res<Time<Physics>>,
         gravity: Res<Gravity>,
     ) {
@@ -203,8 +210,13 @@ impl PlotWindow {
 
         for (parent, target, mut plot) in &mut plots {
             let targets = window_target_entities(target, parent);
-            let aggregate =
-                aggregate_measures(targets.iter().copied(), &ents, &body_positions, gravity.0);
+            let aggregate = aggregate_measures(
+                targets.iter().copied(),
+                &ents,
+                &body_positions,
+                &bodies,
+                gravity.0,
+            );
             let current_time = plot.time;
 
             for series in &mut plot.series {
@@ -231,6 +243,13 @@ impl PlotWindow {
         )>,
         ents: Query<AggregateMeasureData>,
         body_positions: Query<(&Position, &Rotation)>,
+        bodies: Query<(
+            &Position,
+            &Rotation,
+            &ComputedCenterOfMass,
+            &LinearVelocity,
+            &AngularVelocity,
+        )>,
         mut egui_ctx: EguiContexts,
         mut commands: Commands,
         gui_icons: Res<GuiIcons>,
@@ -240,8 +259,13 @@ impl PlotWindow {
         for (id, parent, target, mut initial_pos, mut plot) in wnds.iter_mut() {
             let targets = window_target_entities(target, parent);
             if plot.quantities.is_empty() {
-                let aggregate =
-                    aggregate_measures(targets.iter().copied(), &ents, &body_positions, gravity.0);
+                let aggregate = aggregate_measures(
+                    targets.iter().copied(),
+                    &ents,
+                    &body_positions,
+                    &bodies,
+                    gravity.0,
+                );
                 plot.quantities = PLOT_QUANTITIES
                     .iter()
                     .filter_map(|&group| {
@@ -259,12 +283,7 @@ impl PlotWindow {
             }
             egui::Window::new(window_title(target, "plot"))
                 .resizable(true)
-                .subwindow(
-                id,
-                ctx,
-                &mut initial_pos,
-                &mut commands,
-                |ui, _commands| {
+                .subwindow(id, ctx, &mut initial_pos, &mut commands, |ui, _commands| {
                     let plot = &mut *plot;
                     let switch_sidebar = egui::Panel::show_switched(
                         ui,
@@ -505,8 +524,7 @@ impl PlotWindow {
                                 }
                             });
                     });
-                },
-            );
+                });
         }
     }
 }

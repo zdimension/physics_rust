@@ -107,7 +107,6 @@ impl HsvaRange {
         let sr = f32_between(rng, self.0.s, self.1.s).sqrt();
         let vr = f32_between(rng, self.0.v, self.1.v).cbrt();
         let ar = f32_between(rng, self.0.a, self.1.a);
-        println!("rand_hsva: hr={hr}, sr={sr}, vr={vr}, ar={ar}");
         Hsva::new(hr, sr, vr, ar)
     }
 }

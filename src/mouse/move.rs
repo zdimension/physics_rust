@@ -2,12 +2,15 @@ use crate::config::AppConfig;
 use crate::mouse::select;
 use crate::mouse::select::{SelectEvent, SelectionMode};
 use crate::mouse_tracking::{MainCamera, MousePosWorld};
-use crate::objects::ColorComponent;
 use crate::objects::spring::{self, SpringEnd, SpringObject, SpringPlacementState};
+use crate::objects::{
+    ColorComponent,
+    axle::{FixObject, JointGeometry},
+};
 use crate::palette::PaletteConfig;
 use crate::rng::RngComponent;
 use crate::tools::ToolEnum;
-use crate::tools::add_object::{AttachmentJoint, DepthSorter};
+use crate::tools::add_object::DepthSorter;
 use crate::tools::drag::{DragObject, DragState, DragTarget};
 use crate::tools::r#move::MoveState;
 use crate::tools::pan::PanState;
@@ -55,7 +58,7 @@ pub fn mouse_long_or_moved(
             &GlobalTransform,
             Option<&Position>,
             Option<&Rotation>,
-            Option<&RigidBody>,
+            Option<&ColliderOf>,
         ),
         Without<MainCamera>,
     >,
@@ -192,15 +195,16 @@ pub fn mouse_long_or_moved(
                         if !params.selected.contains(under) {
                             continue;
                         }
+                        let selected_entities =
+                            expand_compounds(&selected_entities, params.fixes.iter());
+                        select_expanded(&mut select_mouse, &selected_entities, &params.selected);
                         info!("start rotate {:?}", under);
                         let pivot = rotation_pivot(
                             &selected_entities,
                             &params.rotation_pivots.body_masses,
                             &params.rotation_pivots.body_positions,
                             &params.rotation_pivots.springs,
-                            &params.rotation_pivots.attachment_visuals,
-                            &params.rotation_pivots.axle_joints,
-                            &params.rotation_pivots.fix_joints,
+                            &params.rotation_pivots.joints,
                         )
                         .unwrap_or_else(|| query.get(under).unwrap().0.translation_vec3a().xy());
                         let targets = selected_entities
@@ -237,13 +241,8 @@ pub fn mouse_long_or_moved(
                             scale,
                         })));
                         for entity in &selected_entities {
-                            if query
-                                .get(*entity)
-                                .ok()
-                                .and_then(|(_, _, _, body)| body)
-                                .is_some()
-                            {
-                                commands.entity(*entity).insert(RigidBody::Static);
+                            if let Ok((_, _, _, Some(body))) = query.get(*entity) {
+                                commands.entity(body.body).insert(RigidBody::Static);
                             }
                         }
                     }
@@ -253,6 +252,9 @@ pub fn mouse_long_or_moved(
                         );
                     }
                     (_, Some(under)) if params.selected.contains(under) => {
+                        let selected_entities =
+                            expand_compounds(&selected_entities, params.fixes.iter());
+                        select_expanded(&mut select_mouse, &selected_entities, &params.selected);
                         let (transform, _, _, _) = query.get(under).unwrap();
                         *ui_button = Some(Move(Some(MoveState {
                             primary_delta: transform.translation_vec3a().xy() - curpos,
@@ -266,13 +268,8 @@ pub fn mouse_long_or_moved(
                                 .collect(),
                         })));
                         for entity in &selected_entities {
-                            if query
-                                .get(*entity)
-                                .ok()
-                                .and_then(|(_, _, _, body)| body)
-                                .is_some()
-                            {
-                                commands.entity(*entity).insert(RigidBody::Static);
+                            if let Ok((_, _, _, Some(body))) = query.get(*entity) {
+                                commands.entity(body.body).insert(RigidBody::Static);
                             }
                         }
                     }
@@ -383,6 +380,50 @@ pub struct MouseLongOrMovedParams<'w, 's> {
     draw_objects: Query<'w, 's, Entity, With<crate::DrawObject>>,
     overlay: ResMut<'w, OverlayState>,
     rotation_pivots: RotationPivotQueries<'w, 's>,
+    fixes: Query<'w, 's, &'static JointGeometry, With<FixObject>>,
+}
+
+fn expand_compounds<'a>(
+    selected: &[Entity],
+    fixes: impl IntoIterator<Item = &'a JointGeometry>,
+) -> Vec<Entity> {
+    let fixes = fixes.into_iter().collect::<Vec<_>>();
+    let mut expanded = selected.to_vec();
+    loop {
+        let len = expanded.len();
+        for joint in &fixes {
+            if joint
+                .geoms
+                .iter()
+                .flatten()
+                .any(|entity| expanded.contains(entity))
+            {
+                for entity in joint.geoms.iter().flatten() {
+                    if !expanded.contains(entity) {
+                        expanded.push(*entity);
+                    }
+                }
+            }
+        }
+        if expanded.len() == len {
+            return expanded;
+        }
+    }
+}
+
+fn select_expanded(
+    events: &mut MessageWriter<SelectEvent>,
+    expanded: &[Entity],
+    selected: &Query<Entity, With<Selected>>,
+) {
+    if expanded.len() != selected.iter().count() {
+        events.write(SelectEvent {
+            entities: expanded.to_vec(),
+            mode: SelectionMode::Replace,
+            open_menu: false,
+            expand_groups: false,
+        });
+    }
 }
 
 #[derive(SystemParam)]
@@ -398,9 +439,7 @@ pub struct RotationPivotQueries<'w, 's> {
     >,
     body_positions: Query<'w, 's, (&'static Position, &'static Rotation)>,
     springs: Query<'w, 's, (Entity, &'static SpringObject)>,
-    attachment_visuals: Query<'w, 's, &'static GlobalTransform>,
-    axle_joints: Query<'w, 's, (&'static RevoluteJoint, &'static AttachmentJoint)>,
-    fix_joints: Query<'w, 's, (&'static FixedJoint, &'static AttachmentJoint)>,
+    joints: Query<'w, 's, (&'static JointGeometry, &'static GlobalTransform)>,
 }
 
 fn rotation_pivot(
@@ -408,18 +447,9 @@ fn rotation_pivot(
     body_masses: &Query<(&Position, &Rotation, &ColliderMassProperties)>,
     body_positions: &Query<(&Position, &Rotation)>,
     springs: &Query<(Entity, &SpringObject)>,
-    attachment_visuals: &Query<&GlobalTransform>,
-    axle_joints: &Query<(&RevoluteJoint, &AttachmentJoint)>,
-    fix_joints: &Query<(&FixedJoint, &AttachmentJoint)>,
+    joints: &Query<(&JointGeometry, &GlobalTransform)>,
 ) -> Option<Vec2> {
-    let external = external_attachment_pivots(
-        selected,
-        body_positions,
-        springs,
-        attachment_visuals,
-        axle_joints,
-        fix_joints,
-    );
+    let external = external_attachment_pivots(selected, body_positions, springs, joints);
     if external.len() == 1 {
         return external.first().copied();
     }
@@ -453,31 +483,17 @@ fn external_attachment_pivots(
     selected: &[Entity],
     body_positions: &Query<(&Position, &Rotation)>,
     springs: &Query<(Entity, &SpringObject)>,
-    attachment_visuals: &Query<&GlobalTransform>,
-    axle_joints: &Query<(&RevoluteJoint, &AttachmentJoint)>,
-    fix_joints: &Query<(&FixedJoint, &AttachmentJoint)>,
+    joints: &Query<(&JointGeometry, &GlobalTransform)>,
 ) -> Vec<Vec2> {
     let mut pivots = Vec::new();
 
-    for (joint, attachment) in axle_joints.iter() {
-        push_joint_pivot(
-            selected,
-            joint.body1,
-            joint.body2,
-            attachment,
-            attachment_visuals,
-            &mut pivots,
-        );
-    }
-    for (joint, attachment) in fix_joints.iter() {
-        push_joint_pivot(
-            selected,
-            joint.body1,
-            joint.body2,
-            attachment,
-            attachment_visuals,
-            &mut pivots,
-        );
+    for (joint, transform) in joints.iter() {
+        let selected_ends = joint
+            .geoms
+            .map(|geom| geom.is_some_and(|entity| selected.contains(&entity)));
+        if selected_ends[0] != selected_ends[1] {
+            push_unique_pivot(&mut pivots, transform.translation_vec3a().xy());
+        }
     }
 
     for (spring_entity, spring) in springs.iter() {
@@ -500,22 +516,6 @@ fn external_attachment_pivots(
     }
 
     pivots
-}
-
-fn push_joint_pivot(
-    selected: &[Entity],
-    body1: Entity,
-    body2: Entity,
-    attachment: &AttachmentJoint,
-    attachment_visuals: &Query<&GlobalTransform>,
-    pivots: &mut Vec<Vec2>,
-) {
-    if selected.contains(&body1) == selected.contains(&body2) {
-        return;
-    }
-    if let Ok(transform) = attachment_visuals.get(attachment.visual) {
-        push_unique_pivot(pivots, transform.translation_vec3a().xy());
-    }
 }
 
 fn push_spring_pivot(
@@ -632,6 +632,24 @@ mod tests {
             entity,
             local_anchor,
         }
+    }
+
+    #[test]
+    fn mouse_gestures_expand_logical_compounds_but_not_the_whole_sky() {
+        let (a, b, c, sky_a, sky_b) = (entity(1), entity(2), entity(3), entity(4), entity(5));
+        let joint = |geoms| JointGeometry {
+            geoms,
+            positions: [Vec2::ZERO; 2],
+        };
+        let fixes = [
+            joint([Some(a), Some(b)]),
+            joint([Some(b), Some(c)]),
+            joint([Some(sky_a), None]),
+            joint([Some(sky_b), None]),
+        ];
+
+        assert_eq!(expand_compounds(&[a], &fixes), vec![a, b, c]);
+        assert_eq!(expand_compounds(&[sky_a], &fixes), vec![sky_a]);
     }
 
     #[test]

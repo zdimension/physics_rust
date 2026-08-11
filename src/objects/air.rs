@@ -1,6 +1,8 @@
 use avian2d::prelude::*;
 use bevy::prelude::*;
 
+use super::phy_obj::PhysicalGeometry;
+
 #[derive(Resource, Copy, Clone, Debug)]
 pub struct AirSettings {
     pub enabled: bool,
@@ -35,14 +37,25 @@ pub(crate) fn add_systems(app: &mut App) {
 
 fn apply_air_friction(
     settings: Res<AirSettings>,
+    geometries: Query<
+        (Entity, &Collider, &Position, &Rotation, &ColliderOf),
+        (With<PhysicalGeometry>, Without<RigidBodyDisabled>),
+    >,
     mut bodies: ParamSet<(
         Query<
-            (Entity, &RigidBody, &Collider, &Rotation, &LinearVelocity),
-            Without<RigidBodyDisabled>,
+            (
+                &RigidBody,
+                &Position,
+                &Rotation,
+                &LinearVelocity,
+                &AngularVelocity,
+                Option<&ComputedCenterOfMass>,
+            ),
+            Without<PhysicalGeometry>,
         >,
-        Query<Forces, Without<RigidBodyDisabled>>,
+        Query<Forces, (Without<RigidBodyDisabled>, Without<PhysicalGeometry>)>,
     )>,
-    mut pending_forces: Local<Vec<(Entity, Vec2)>>,
+    mut pending_forces: Local<Vec<(Entity, Vec2, Vec2)>>,
 ) {
     if !settings.enabled || settings.multiplier == 0.0 {
         return;
@@ -51,13 +64,21 @@ fn apply_air_friction(
     let wind_velocity = Vec2::from_angle(settings.wind_direction) * settings.wind_speed;
     pending_forces.clear();
     {
-        let body_samples = bodies.p0();
-        for (entity, rigid_body, collider, rotation, velocity) in &body_samples {
+        let body_query = bodies.p0();
+        for (_, collider, position, rotation, link) in &geometries {
+            let Ok((rigid_body, body_pos, body_rotation, velocity, angular, center)) =
+                body_query.get(link.body)
+            else {
+                continue;
+            };
             if !rigid_body.is_dynamic() {
                 continue;
             }
 
-            let relative_velocity = velocity.0 - wind_velocity;
+            let center = body_pos.0 + *body_rotation * center.map_or(Vec2::ZERO, |center| center.0);
+            let offset = position.0 - center;
+            let point_velocity = velocity.0 + Vec2::new(-offset.y, offset.x) * angular.0;
+            let relative_velocity = point_velocity - wind_velocity;
             let speed = relative_velocity.length();
             if speed <= f32::EPSILON || !speed.is_finite() {
                 continue;
@@ -69,15 +90,15 @@ fn apply_air_friction(
                 * (settings.linear_term * speed + settings.quadratic_term * speed * speed);
             let force = -relative_velocity / speed * magnitude;
             if force.is_finite() {
-                pending_forces.push((entity, force));
+                pending_forces.push((link.body, force, position.0));
             }
         }
     }
 
-    let mut body_forces = bodies.p1();
-    for (entity, force) in pending_forces.iter().copied() {
-        if let Ok(mut forces) = body_forces.get_mut(entity) {
-            forces.apply_force(force);
+    let mut forces = bodies.p1();
+    for (entity, force, point) in pending_forces.iter().copied() {
+        if let Ok(mut forces) = forces.get_mut(entity) {
+            forces.apply_force_at_point(force, point);
         }
     }
 }

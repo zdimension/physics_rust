@@ -1,6 +1,8 @@
 use avian2d::prelude::*;
 use bevy::prelude::*;
 
+use super::phy_obj::PhysicalGeometry;
+
 const MIN_ATTRACTION_DISTANCE: f32 = 1.0e-4;
 
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
@@ -31,6 +33,7 @@ struct ActiveAttractor;
 #[derive(Copy, Clone)]
 struct BodySample {
     entity: Entity,
+    body: Entity,
     center: Vec2,
     mass: f32,
 }
@@ -70,13 +73,17 @@ fn sync_active_attractors(
 
 fn apply_attraction_forces(
     attractors: Query<(Entity, &Attraction), (With<ActiveAttractor>, Without<RigidBodyDisabled>)>,
-    mut bodies: ParamSet<(
-        Query<
-            (Entity, &Position, &Rotation, &ColliderMassProperties),
-            (With<RigidBody>, Without<RigidBodyDisabled>),
-        >,
-        Query<Forces, Without<RigidBodyDisabled>>,
-    )>,
+    geometries: Query<
+        (
+            Entity,
+            &Position,
+            &Rotation,
+            &ColliderMassProperties,
+            &ColliderOf,
+        ),
+        (With<PhysicalGeometry>, Without<RigidBodyDisabled>),
+    >,
+    mut forces: Query<Forces, (Without<RigidBodyDisabled>, Without<PhysicalGeometry>)>,
     mut workspace: Local<AttractionWorkspace>,
 ) {
     if attractors.is_empty() {
@@ -100,20 +107,18 @@ fn apply_attraction_forces(
     }
 
     samples.clear();
-    {
-        let bodies = bodies.p0();
-        samples.extend(
-            bodies
-                .iter()
-                .filter_map(|(entity, position, rotation, mass)| {
-                    (mass.mass > 0.0 && mass.mass.is_finite()).then_some(BodySample {
-                        entity,
-                        center: position.0 + *rotation * mass.center_of_mass,
-                        mass: mass.mass,
-                    })
-                }),
-        );
-    }
+    samples.extend(
+        geometries
+            .iter()
+            .filter_map(|(entity, position, rotation, mass, link)| {
+                (mass.mass > 0.0 && mass.mass.is_finite()).then_some(BodySample {
+                    entity,
+                    body: link.body,
+                    center: position.0 + *rotation * mass.center_of_mass,
+                    mass: mass.mass,
+                })
+            }),
+    );
     accumulated.clear();
     accumulated.resize(samples.len(), Vec2::ZERO);
 
@@ -127,7 +132,7 @@ fn apply_attraction_forces(
         let source = samples[source_index];
 
         for (target_index, target) in samples.iter().copied().enumerate() {
-            if target_index == source_index {
+            if target.body == source.body {
                 continue;
             }
             let force_on_target = attraction_force(source, target, attraction);
@@ -136,12 +141,11 @@ fn apply_attraction_forces(
         }
     }
 
-    let mut forces = bodies.p1();
     for (sample, force) in samples.iter().copied().zip(accumulated.iter().copied()) {
         if force != Vec2::ZERO
-            && let Ok(mut body_forces) = forces.get_mut(sample.entity)
+            && let Ok(mut body_forces) = forces.get_mut(sample.body)
         {
-            body_forces.apply_force(force);
+            body_forces.apply_force_at_point(force, sample.center);
         }
     }
 }
@@ -169,6 +173,7 @@ mod tests {
     fn sample(entity: u32, x: f32, mass: f32) -> BodySample {
         BodySample {
             entity: Entity::from_raw_u32(entity).unwrap(),
+            body: Entity::from_raw_u32(entity).unwrap(),
             center: Vec2::new(x, 0.0),
             mass,
         }

@@ -1,17 +1,17 @@
+use crate::CAMERA_Z;
 use crate::config::AppConfig;
 use crate::mouse_tracking::MainCamera;
-use crate::objects::laser::LaserSettings;
 use crate::objects::kind::ObjectKinds;
-use crate::objects::spring::{SpringEndHandle, SpringObject};
+use crate::objects::laser::LaserSettings;
 use crate::objects::plane::PlaneObject;
-use crate::objects::tracer::TracerSettings;
+use crate::objects::spring::{SpringEndHandle, SpringObject};
 use crate::objects::thruster::ThrusterSettings;
+use crate::objects::tracer::TracerSettings;
 use crate::objects::{ColorComponent, MotorComponent};
 use crate::tools::ToolIcons;
 use crate::tools::add_object::{AttachmentLinks, despawn_attachment_links};
 use crate::ui::images::GuiIcons;
 use crate::ui::{InitialPos, Subwindow, TemporaryWindow, WindowSelectionTarget};
-use crate::CAMERA_Z;
 use avian2d::prelude::*;
 use bevy::camera::primitives::Aabb;
 use bevy::math::Vec3Swizzles;
@@ -34,8 +34,8 @@ use crate::ui::windows::object::plot::PlotWindow;
 use crate::ui::windows::object::script::ScriptWindow;
 use crate::ui::windows::object::selection::SelectionWindow;
 use crate::ui::windows::object::spring::SpringWindow;
-use crate::ui::windows::object::tracer::TracerWindow;
 use crate::ui::windows::object::thruster::ThrusterWindow;
+use crate::ui::windows::object::tracer::TracerWindow;
 
 use crate::ui::windows::object::velocities::VelocitiesWindow;
 
@@ -88,10 +88,10 @@ impl MenuWindow {
         mut commands: Commands,
         entity_info: Query<(
             Option<&ColorComponent>,
-            Option<&LinearVelocity>,
+            Option<&ColliderOf>,
             Option<&CollisionLayers>,
             Option<&LaserSettings>,
-            Option<&RigidBody>,
+            Option<&crate::objects::phy_obj::PhysicalGeometry>,
             Option<&MotorComponent>,
             Option<&SpringObject>,
             Option<&SpringEndHandle>,
@@ -184,10 +184,10 @@ impl MenuWindow {
                     if !targets.is_empty() {
                         let has = |mut f: Box<dyn FnMut(&(
                             Option<&ColorComponent>,
-                            Option<&LinearVelocity>,
+                            Option<&ColliderOf>,
                             Option<&CollisionLayers>,
                             Option<&LaserSettings>,
-                            Option<&RigidBody>,
+                            Option<&crate::objects::phy_obj::PhysicalGeometry>,
                             Option<&MotorComponent>,
                             Option<&SpringObject>,
                             Option<&SpringEndHandle>,
@@ -287,7 +287,10 @@ fn handle_zoom_to_scene(
     mut cameras: Query<&mut Transform, With<MainCamera>>,
     bboxes: Query<
         (&Position, &Aabb),
-        (Without<MainCamera>, Without<crate::objects::plane::PlaneObject>),
+        (
+            Without<MainCamera>,
+            Without<crate::objects::plane::PlaneObject>,
+        ),
     >,
     windows: Query<&Window, With<PrimaryWindow>>,
 ) {

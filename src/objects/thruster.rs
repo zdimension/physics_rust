@@ -2,6 +2,7 @@ use avian2d::prelude::*;
 use bevy::math::{EulerRot, Quat, Vec2};
 use bevy::prelude::*;
 
+use crate::objects::{body::PhysicsBody, phy_obj::PhysicalGeometry};
 use crate::tools::add_object::AttachmentKind;
 
 #[derive(Component, Copy, Clone, Debug)]
@@ -36,7 +37,7 @@ pub fn add_systems(app: &mut App) {
 
 fn sync_independent_rotation(
     mut thrusters: Query<(&ThrusterSettings, &ChildOf, &mut Transform), With<AttachmentKind>>,
-    bodies: Query<&Rotation, With<RigidBody>>,
+    bodies: Query<&Rotation, With<PhysicalGeometry>>,
 ) {
     for (settings, parent, mut transform) in &mut thrusters {
         if settings.follow_geometry_rotation {
@@ -52,18 +53,32 @@ fn sync_independent_rotation(
 
 pub(crate) fn apply_thruster_forces(
     thrusters: Query<(&ThrusterSettings, &Transform, &ChildOf)>,
-    mut bodies: Query<(&Position, &Rotation, Forces), Without<RigidBodyDisabled>>,
+    geometries: Query<
+        (&Position, &Rotation, &ColliderOf),
+        (With<PhysicalGeometry>, Without<PhysicsBody>),
+    >,
+    mut bodies: Query<
+        Forces,
+        (
+            With<PhysicsBody>,
+            Without<PhysicalGeometry>,
+            Without<RigidBodyDisabled>,
+        ),
+    >,
 ) {
     for (settings, transform, parent) in &thrusters {
-        let Ok((position, body_rotation, mut forces)) = bodies.get_mut(parent.parent()) else {
+        let Ok((position, geometry_rotation, link)) = geometries.get(parent.parent()) else {
+            continue;
+        };
+        let Ok(mut forces) = bodies.get_mut(link.body) else {
             continue;
         };
 
         let local_point = transform.translation.truncate();
-        let point = application_point(position.0, *body_rotation, local_point);
+        let point = application_point(position.0, *geometry_rotation, local_point);
         let force = force_vector(
             settings,
-            body_rotation.as_radians(),
+            geometry_rotation.as_radians(),
             transform.rotation.to_euler(EulerRot::XYZ).2,
         );
         forces.apply_force_at_point(force, point);

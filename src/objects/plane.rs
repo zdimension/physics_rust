@@ -6,7 +6,8 @@ use bevy::prelude::*;
 use crate::lyon_compat::{GeometryBuilder, Shape, ShapeBundle, shapes};
 use crate::mouse_tracking::MainCamera;
 use crate::objects::ColorComponent;
-use crate::objects::phy_obj::PhysicalProperties;
+use crate::objects::body::BodyTransform;
+use crate::objects::phy_obj::{PhysicalGeometry, PhysicalProperties};
 use crate::update_from::UpdateFrom;
 use crate::{BORDER_WIDTH_PX, make_fill, make_stroke};
 
@@ -22,6 +23,7 @@ pub(crate) struct PlaneBoundary;
 pub(crate) fn spawn_plane(
     commands: &mut Commands,
     scene: Entity,
+    sky: Entity,
     point: Vec2,
     outward_normal: Vec2,
     color: bevy_egui::egui::ecolor::Hsva,
@@ -36,9 +38,20 @@ pub(crate) fn spawn_plane(
     let entity = commands
         .spawn((
             PlaneObject,
-            RigidBody::Static,
+            PhysicalGeometry,
             Collider::half_space(Vec2::Y),
             PhysicalProperties::default().with_collision_layers(CollisionLayers::ALL),
+            ColliderOf { body: sky },
+            BodyTransform(ColliderTransform {
+                translation: point,
+                rotation: Rotation::radians(angle),
+                scale: Vec2::ONE,
+            }),
+            ColliderTransform {
+                translation: point,
+                rotation: Rotation::radians(angle),
+                scale: Vec2::ONE,
+            },
             Position(point),
             Rotation::radians(angle),
             ChildOf(scene),

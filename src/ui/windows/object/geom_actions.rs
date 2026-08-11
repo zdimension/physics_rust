@@ -2,14 +2,15 @@ use std::collections::HashSet;
 use std::f32::consts::PI;
 
 use crate::lyon_compat::Shape;
+use crate::objects::axle::{FixObject, JointGeometry};
 use crate::objects::phy_obj::{
-    CircleVisual, FreeformObject, set_box_geometry, set_circle_geometry,
+    CircleVisual, FreeformObject, PhysicalGeometry, set_box_geometry, set_circle_geometry,
 };
 use crate::objects::plane::PlaneObject;
 use crate::objects::spring::{SpringEnd, SpringObject};
 use crate::tools::ToolIcons;
 use crate::tools::add_object::{
-    AddAxleEvent, AddObjectEvent, AttachmentJoint, AttachmentLinks, despawn_attachment_links,
+    AddAxleEvent, AddObjectEvent, AttachmentLinks, despawn_attachment_links,
 };
 use crate::tools::gear::{GearOutline, GearSettings, gearify_path};
 use crate::tools::polygon::tessellate_path;
@@ -54,14 +55,6 @@ enum GeometryActionEvent {
 #[derive(Copy, Clone, Debug, Component)]
 struct VirtualFixpoint;
 
-type JointData<'a> = (
-    Entity,
-    Option<&'a AttachmentJoint>,
-    Option<&'a FixedJoint>,
-    Option<&'a RevoluteJoint>,
-);
-type JointFilter = Or<(With<FixedJoint>, With<RevoluteJoint>)>;
-
 impl GeometryActionsWindow {
     #[allow(clippy::too_many_arguments)]
     fn show(
@@ -81,11 +74,10 @@ impl GeometryActionsWindow {
         gui_icons: Res<GuiIcons>,
         tool_icons: Res<ToolIcons>,
         gear_settings: Res<GearSettings>,
-        physical_objects: Query<&Collider, (With<RigidBody>, Without<PlaneObject>)>,
+        physical_objects: Query<&Collider, (With<PhysicalGeometry>, Without<PlaneObject>)>,
         freeform_objects: Query<(), With<FreeformObject>>,
         springs: Query<&SpringObject>,
-        fixed_joints: Query<&FixedJoint>,
-        revolute_joints: Query<&RevoluteJoint>,
+        joints: Query<&JointGeometry>,
     ) {
         let ctx = egui_ctx.ctx_mut().expect("primary egui context");
         for (id, parent, target, mut initial_pos) in wnds.iter_mut() {
@@ -102,25 +94,22 @@ impl GeometryActionsWindow {
 
             let contains_box_or_polygon = bodies.iter().any(|entity| {
                 freeform_objects.contains(*entity)
-                    || physical_objects
-                        .get(*entity)
-                        .is_ok_and(collider_is_box)
+                    || physical_objects.get(*entity).is_ok_and(collider_is_box)
             });
             let contains_circle_or_polygon = bodies.iter().any(|entity| {
                 freeform_objects.contains(*entity)
-                    || physical_objects
-                        .get(*entity)
-                        .is_ok_and(collider_is_circle)
+                    || physical_objects.get(*entity).is_ok_and(collider_is_circle)
             });
             let can_gearify = bodies.iter().any(|entity| {
                 freeform_objects.contains(*entity)
-                    || physical_objects
-                        .get(*entity)
-                        .is_ok_and(|collider| collider_is_box(collider) || collider_is_circle(collider))
+                    || physical_objects.get(*entity).is_ok_and(|collider| {
+                        collider_is_box(collider) || collider_is_circle(collider)
+                    })
             });
-            let can_loosen = bodies.iter().copied().any(|entity| {
-                object_has_attachment(entity, &springs, &fixed_joints, &revolute_joints)
-            });
+            let can_loosen = bodies
+                .iter()
+                .copied()
+                .any(|entity| object_has_attachment(entity, &springs, &joints));
 
             egui::Window::new(window_title(target, "Geom actions"))
                 .resizable(false)
@@ -159,11 +148,7 @@ impl GeometryActionsWindow {
                         });
                     }
                     if contains_box_or_polygon
-                        && action_button(
-                            ui,
-                            tool_icons.egui_icon_circle,
-                            "Transform into circle",
-                        )
+                        && action_button(ui, tool_icons.egui_icon_circle, "Transform into circle")
                     {
                         actions.write(GeometryActionEvent::ShapesToCircles(bodies.clone()));
                     }
@@ -188,18 +173,12 @@ fn action_button(ui: &mut egui::Ui, icon: egui::TextureId, text: &str) -> bool {
 fn object_has_attachment(
     entity: Entity,
     springs: &Query<&SpringObject>,
-    fixed_joints: &Query<&FixedJoint>,
-    revolute_joints: &Query<&RevoluteJoint>,
+    joints: &Query<&JointGeometry>,
 ) -> bool {
-    springs
-        .iter()
-        .any(|spring| spring_mentions(spring, entity))
-        || fixed_joints
+    springs.iter().any(|spring| spring_mentions(spring, entity))
+        || joints
             .iter()
-            .any(|joint| joint.body1 == entity || joint.body2 == entity)
-        || revolute_joints
-            .iter()
-            .any(|joint| joint.body1 == entity || joint.body2 == entity)
+            .any(|joint| joint.geoms.contains(&Some(entity)))
 }
 
 fn spring_mentions(spring: &SpringObject, entity: Entity) -> bool {
@@ -212,12 +191,16 @@ fn process_geometry_actions(
     mut events: MessageReader<GeometryActionEvent>,
     mut commands: Commands,
     scene_state: Res<SceneState>,
-    bodies: Query<(&Position, &Rotation), With<RigidBody>>,
+    bodies: Query<(&Position, &Rotation), With<PhysicalGeometry>>,
     springs: Query<(Entity, &SpringObject)>,
-    joints: Query<JointData, JointFilter>,
-    attachment_links: Query<&AttachmentLinks>,
+    joints: Query<(Entity, &JointGeometry, Option<&AttachmentLinks>)>,
     mut geometry: Query<
-        (&mut Collider, &mut Shape, &mut CircleVisual, Has<FreeformObject>),
+        (
+            &mut Collider,
+            &mut Shape,
+            &mut CircleVisual,
+            Has<FreeformObject>,
+        ),
         Without<PlaneObject>,
     >,
 ) {
@@ -242,13 +225,9 @@ fn process_geometry_actions(
                     }
                 }
             }
-            GeometryActionEvent::Loosen(targets) => loosen_objects(
-                targets,
-                &mut commands,
-                &springs,
-                &joints,
-                &attachment_links,
-            ),
+            GeometryActionEvent::Loosen(targets) => {
+                loosen_objects(targets, &mut commands, &springs, &joints)
+            }
             GeometryActionEvent::Gearify {
                 targets,
                 teeth_size,
@@ -259,12 +238,7 @@ fn process_geometry_actions(
                         && (is_polygon
                             || collider_is_box(&collider)
                             || collider_is_circle(&collider))
-                        && gearify_geometry(
-                            &mut collider,
-                            &mut shape,
-                            &mut circle,
-                            *teeth_size,
-                        )
+                        && gearify_geometry(&mut collider, &mut shape, &mut circle, *teeth_size)
                     {
                         commands.entity(entity).insert(FreeformObject);
                     }
@@ -300,7 +274,7 @@ fn process_geometry_actions(
 
 fn unique_valid_targets(
     targets: &[Entity],
-    bodies: &Query<(&Position, &Rotation), With<RigidBody>>,
+    bodies: &Query<(&Position, &Rotation), With<PhysicalGeometry>>,
 ) -> Vec<Entity> {
     let mut seen = HashSet::new();
     targets
@@ -313,19 +287,20 @@ fn unique_valid_targets(
 fn spawn_background_glue(
     commands: &mut Commands,
     scene: Entity,
-    sky: Entity,
+    _sky: Entity,
     body: Entity,
-    bodies: &Query<(&Position, &Rotation), With<RigidBody>>,
+    bodies: &Query<(&Position, &Rotation), With<PhysicalGeometry>>,
 ) {
     let Ok((position, _)) = bodies.get(body) else {
         return;
     };
     commands.spawn((
+        FixObject,
         VirtualFixpoint,
-        FixedJoint::new(body, sky)
-            .with_anchor(position.0)
-            .with_basis(Rotation::default()),
-        JointCollisionDisabled,
+        JointGeometry {
+            geoms: [Some(body), None],
+            positions: [Vec2::ZERO, position.0],
+        },
         ChildOf(scene),
     ));
 }
@@ -335,20 +310,21 @@ fn spawn_body_glue(
     scene: Entity,
     body1: Entity,
     body2: Entity,
-    bodies: &Query<(&Position, &Rotation), With<RigidBody>>,
+    bodies: &Query<(&Position, &Rotation), With<PhysicalGeometry>>,
 ) {
     let Ok((position, _)) = bodies.get(body1) else {
         return;
     };
-    if !bodies.contains(body2) {
+    let Ok((position2, rotation2)) = bodies.get(body2) else {
         return;
-    }
+    };
     commands.spawn((
+        FixObject,
         VirtualFixpoint,
-        FixedJoint::new(body1, body2)
-            .with_anchor(position.0)
-            .with_basis(Rotation::default()),
-        JointCollisionDisabled,
+        JointGeometry {
+            geoms: [Some(body1), Some(body2)],
+            positions: [Vec2::ZERO, rotation2.inverse() * (position.0 - position2.0)],
+        },
         ChildOf(scene),
     ));
 }
@@ -357,42 +333,30 @@ fn loosen_objects(
     targets: &[Entity],
     commands: &mut Commands,
     springs: &Query<(Entity, &SpringObject)>,
-    joints: &Query<JointData, JointFilter>,
-    attachment_links: &Query<&AttachmentLinks>,
+    joints: &Query<(Entity, &JointGeometry, Option<&AttachmentLinks>)>,
 ) {
     let targets = targets.iter().copied().collect::<HashSet<_>>();
 
     for (spring_entity, spring) in springs.iter() {
-        if targets.iter().any(|target| spring_mentions(spring, *target)) {
+        if targets
+            .iter()
+            .any(|target| spring_mentions(spring, *target))
+        {
             commands.entity(spring_entity).despawn();
         }
     }
 
-    let mut removed_visuals = HashSet::new();
-    for (joint_entity, attachment, fixed, revolute) in joints.iter() {
-        let attached = fixed
-            .map(|joint| targets.contains(&joint.body1) || targets.contains(&joint.body2))
-            .unwrap_or(false)
-            || revolute
-                .map(|joint| targets.contains(&joint.body1) || targets.contains(&joint.body2))
-                .unwrap_or(false);
-        if !attached {
+    for (joint, geometry, links) in joints.iter() {
+        if !geometry
+            .geoms
+            .iter()
+            .flatten()
+            .any(|entity| targets.contains(entity))
+        {
             continue;
         }
-
-        if let Some(attachment) = attachment {
-            if !removed_visuals.insert(attachment.visual) {
-                continue;
-            }
-            if let Ok(links) = attachment_links.get(attachment.visual) {
-                despawn_attachment_links(commands, Some(links));
-            } else {
-                commands.entity(joint_entity).despawn();
-            }
-            commands.entity(attachment.visual).despawn();
-        } else {
-            commands.entity(joint_entity).despawn();
-        }
+        despawn_attachment_links(commands, links);
+        commands.entity(joint).despawn();
     }
 }
 
@@ -452,11 +416,7 @@ fn transform_to_circle(
     true
 }
 
-fn transform_to_box(
-    collider: &mut Collider,
-    shape: &mut Shape,
-    circle: &mut CircleVisual,
-) -> bool {
+fn transform_to_box(collider: &mut Collider, shape: &mut Shape, circle: &mut CircleVisual) -> bool {
     let area = collider.shape().mass_properties(1.0).mass();
     if !area.is_finite() || area <= 0.0 {
         return false;
@@ -483,9 +443,12 @@ mod tests {
     }
 
     fn spawn_body(app: &mut App, position: Vec2) -> Entity {
-        app.world_mut()
-            .spawn((RigidBody::Dynamic, Position(position), Rotation::default()))
-            .id()
+        let scene = app.world().resource::<SceneState>().scene;
+        let mut queue = bevy::ecs::world::CommandQueue::default();
+        let entity = crate::objects::phy_obj::PhysicalObject::ball(1.0, position.extend(0.0))
+            .spawn(&mut Commands::new(&mut queue, app.world()), scene);
+        queue.apply(app.world_mut());
+        entity
     }
 
     #[test]
@@ -494,11 +457,7 @@ mod tests {
         let mut shape = Shape::default();
         let mut circle = CircleVisual(0.0);
 
-        assert!(transform_to_circle(
-            &mut collider,
-            &mut shape,
-            &mut circle,
-        ));
+        assert!(transform_to_circle(&mut collider, &mut shape, &mut circle,));
         let TypedShape::Ball(ball) = collider.shape().as_typed_shape() else {
             panic!("box was not transformed into a circle");
         };
@@ -512,11 +471,7 @@ mod tests {
         let mut shape = Shape::default();
         let mut circle = CircleVisual(3.0);
 
-        assert!(transform_to_box(
-            &mut collider,
-            &mut shape,
-            &mut circle,
-        ));
+        assert!(transform_to_box(&mut collider, &mut shape, &mut circle,));
         let TypedShape::Cuboid(square) = collider.shape().as_typed_shape() else {
             panic!("circle was not transformed into a box");
         };
@@ -615,11 +570,10 @@ mod tests {
             ))
             .id();
 
-        app.world_mut()
-            .write_message(GeometryActionEvent::Gearify {
-                targets: vec![entity],
-                teeth_size: 0.2,
-            });
+        app.world_mut().write_message(GeometryActionEvent::Gearify {
+            targets: vec![entity],
+            teeth_size: 0.2,
+        });
         app.update();
 
         assert!(app.world().get::<FreeformObject>(entity).is_some());
@@ -631,30 +585,19 @@ mod tests {
 
     #[test]
     fn parry_computes_area_without_manual_shape_cases() {
-        let mut collider = Collider::convex_hull(vec![
-            Vec2::new(-1.0, 0.0),
-            Vec2::new(1.0, 0.0),
-            Vec2::Y,
-        ])
-        .unwrap();
+        let mut collider =
+            Collider::convex_hull(vec![Vec2::new(-1.0, 0.0), Vec2::new(1.0, 0.0), Vec2::Y])
+                .unwrap();
         let mut shape = Shape::default();
         let mut circle = CircleVisual(0.0);
 
-        assert!(transform_to_circle(
-            &mut collider,
-            &mut shape,
-            &mut circle,
-        ));
+        assert!(transform_to_circle(&mut collider, &mut shape, &mut circle,));
         let TypedShape::Ball(ball) = collider.shape().as_typed_shape() else {
             panic!("convex shape was not transformed into a circle");
         };
         assert!((PI * ball.radius.powi(2) - 1.0).abs() < 1.0e-5);
 
-        assert!(transform_to_box(
-            &mut collider,
-            &mut shape,
-            &mut circle,
-        ));
+        assert!(transform_to_box(&mut collider, &mut shape, &mut circle,));
         let TypedShape::Cuboid(square) = collider.shape().as_typed_shape() else {
             panic!("circle was not transformed into a box");
         };
@@ -713,11 +656,7 @@ mod tests {
         let mut shape = Shape::default();
         let mut circle = CircleVisual(0.0);
 
-        assert!(transform_to_box(
-            &mut collider,
-            &mut shape,
-            &mut circle,
-        ));
+        assert!(transform_to_box(&mut collider, &mut shape, &mut circle,));
         let TypedShape::Cuboid(square) = collider.shape().as_typed_shape() else {
             panic!("polygon was not transformed into a box");
         };
@@ -737,13 +676,11 @@ mod tests {
 
         let joint_entity = {
             let world = app.world_mut();
-            let mut fixes = world.query::<(Entity, &FixedJoint, &VirtualFixpoint)>();
+            let mut fixes = world.query::<(Entity, &JointGeometry, &VirtualFixpoint)>();
             let (joint_entity, joint, _) = fixes.single(world).unwrap();
-            assert_eq!(joint.body1, body);
-            assert_eq!(joint.body2, sky);
+            assert_eq!(joint.geoms, [Some(body), None]);
             joint_entity
         };
-        assert!(app.world().get::<AttachmentJoint>(joint_entity).is_none());
 
         app.world_mut()
             .write_message(GeometryActionEvent::Loosen(vec![body]));
@@ -754,9 +691,7 @@ mod tests {
         assert!(app.world().get_entity(sky).is_ok());
     }
 
-    fn path_segments(
-        path: &bevy_prototype_lyon::prelude::tess::path::Path,
-    ) -> Vec<(Vec2, Vec2)> {
+    fn path_segments(path: &bevy_prototype_lyon::prelude::tess::path::Path) -> Vec<(Vec2, Vec2)> {
         path.iter()
             .map(|event| {
                 (
@@ -781,10 +716,14 @@ mod tests {
         app.update();
 
         let world = app.world_mut();
-        let mut fixes = world.query::<(&FixedJoint, &VirtualFixpoint)>();
+        let mut fixes = world.query::<(&JointGeometry, &VirtualFixpoint)>();
         let fixes = fixes.iter(world).collect::<Vec<_>>();
         assert_eq!(fixes.len(), bodies.len() - 1);
-        assert!(fixes.iter().all(|(joint, _)| joint.body1 == bodies[0]));
+        assert!(
+            fixes
+                .iter()
+                .all(|(joint, _)| joint.geoms[0] == Some(bodies[0]))
+        );
     }
 
     #[test]
@@ -807,22 +746,18 @@ mod tests {
                 1.0,
             ))
             .id();
-        let visual = app.world_mut().spawn(AttachmentLinks::default()).id();
-        let joint = app
+        let visual = app
             .world_mut()
             .spawn((
-                AttachmentJoint { visual },
-                FixedJoint::new(body, other),
+                AttachmentLinks::default(),
+                JointGeometry {
+                    geoms: [Some(body), Some(other)],
+                    positions: [Vec2::ZERO; 2],
+                },
+                FixObject,
                 ChildOf(scene),
             ))
             .id();
-        let raw_hinge = app
-            .world_mut()
-            .spawn((RevoluteJoint::new(body, other), ChildOf(scene)))
-            .id();
-        app.world_mut()
-            .entity_mut(visual)
-            .insert(AttachmentLinks { joint: Some(joint) });
 
         app.world_mut()
             .write_message(GeometryActionEvent::Loosen(vec![body]));
@@ -832,7 +767,5 @@ mod tests {
         assert!(app.world().get_entity(other).is_ok());
         assert!(app.world().get_entity(spring).is_err());
         assert!(app.world().get_entity(visual).is_err());
-        assert!(app.world().get_entity(joint).is_err());
-        assert!(app.world().get_entity(raw_hinge).is_err());
     }
 }

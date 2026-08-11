@@ -8,8 +8,9 @@ use crate::objects::axle::{
     AxleObject, AxleVisual, FixObject, HINGE_MOTOR_VISUAL_DIAMETER, HingeMotorDirection,
     HingeMotorRing, JointGeometry, hinge_selection_radius,
 };
+use crate::objects::body::BodyTransform;
 use crate::objects::laser::{LaserSettings, LaserVisual};
-use crate::objects::phy_obj::{FreeformObject, PhysicalObject};
+use crate::objects::phy_obj::{FreeformObject, PhysicalGeometry, PhysicalObject};
 use crate::objects::plane::spawn_plane;
 use crate::objects::thruster::{ThrusterInner, ThrusterSettings};
 use crate::objects::tracer::{TracerObject, TracerSettings, TracerVisual};
@@ -111,14 +112,18 @@ type BodyQuery<'w, 's> = Query<
         &'static Position,
         &'static Rotation,
         &'static Collider,
+        &'static ColliderOf,
+        &'static BodyTransform,
     ),
-    (With<RigidBody>, Without<MainCamera>),
+    (With<PhysicalGeometry>, Without<MainCamera>),
 >;
 
 #[derive(Copy, Clone)]
 struct BodyHit {
     entity: Entity,
+    body: Entity,
     local_pos: Vec2,
+    body_local_pos: Vec2,
     z: f32,
     rotation: Quat,
 }
@@ -136,10 +141,6 @@ enum LaserPlacement {
     Sky { pos: Vec2 },
 }
 
-fn box_bundle(pos: Vec3, size: Vec2, scene: Entity) -> impl Bundle {
-    (PhysicalObject::rect(size, pos), ChildOf(scene))
-}
-
 fn random_color(world: &mut World) -> bevy_egui::egui::ecolor::Hsva {
     let palette = world.resource::<PaletteConfig>().current_palette;
     palette.get_color_hsva(
@@ -154,30 +155,38 @@ pub(crate) fn spawn_default_box(world: &mut World) -> Entity {
     let color = random_color(world);
     let scene = world.resource::<SceneState>().scene;
     let pos = world.resource_mut::<DepthSorter>().pos(-Vec2::splat(0.5));
+    let mut queue = CommandQueue::default();
+    let entity =
+        PhysicalObject::rect(Vec2::ONE, pos).spawn(&mut Commands::new(&mut queue, world), scene);
+    queue.apply(world);
     world
-        .spawn(box_bundle(pos, Vec2::ONE, scene))
-        .insert(ColorComponent(color).update_from_this())
-        .id()
+        .entity_mut(entity)
+        .insert(ColorComponent(color).update_from_this());
+    entity
 }
 
 pub(crate) fn spawn_default_circle(world: &mut World) -> Entity {
     let color = random_color(world);
     let scene = world.resource::<SceneState>().scene;
     let pos = world.resource_mut::<DepthSorter>().pos(-Vec2::splat(0.5));
+    let mut queue = CommandQueue::default();
+    let entity = PhysicalObject::ball(1.0, pos).spawn(&mut Commands::new(&mut queue, world), scene);
+    queue.apply(world);
     world
-        .spawn(PhysicalObject::ball(1.0, pos))
-        .insert(ChildOf(scene))
-        .insert(ColorComponent(color).update_from_this())
-        .id()
+        .entity_mut(entity)
+        .insert(ColorComponent(color).update_from_this());
+    entity
 }
 
 pub(crate) fn spawn_default_plane(world: &mut World, point: Vec2) -> Entity {
     let color = random_color(world);
-    let scene = world.resource::<SceneState>().scene;
+    let state = world.resource::<SceneState>();
+    let (scene, sky) = (state.scene, state.sky);
     let mut queue = CommandQueue::default();
     let entity = spawn_plane(
         &mut Commands::new(&mut queue, world),
         scene,
+        sky,
         point,
         Vec2::Y,
         color,
@@ -189,9 +198,13 @@ pub(crate) fn spawn_default_plane(world: &mut World, point: Vec2) -> Entity {
 fn joint_placement(world: &World, geometry: JointGeometry) -> AttachmentPlacement {
     let hit = |entity, local_pos| {
         let rotation = *world.get::<Rotation>(entity).unwrap();
+        let link = world.get::<ColliderOf>(entity).unwrap();
+        let local = world.get::<BodyTransform>(entity).unwrap();
         BodyHit {
             entity,
+            body: link.body,
             local_pos,
+            body_local_pos: local.translation + local.rotation * (local_pos * local.scale),
             z: world.get::<Transform>(entity).unwrap().translation.z,
             rotation: Quat::from_rotation_z(rotation.as_radians()),
         }
@@ -271,7 +284,9 @@ pub(crate) fn spawn_pending_joint(world: &mut World, kind: AttachmentKind) -> En
         AttachmentPlacement {
             body1: BodyHit {
                 entity: sky,
+                body: sky,
                 local_pos: Vec2::ZERO,
+                body_local_pos: Vec2::ZERO,
                 z: 0.0,
                 rotation: Quat::IDENTITY,
             },
@@ -286,6 +301,10 @@ pub(crate) fn configure_joint(world: &mut World, visual: Entity, geometry: Joint
     if world.get::<JointGeometry>(visual) == Some(&geometry) {
         return;
     }
+    rebuild_joint(world, visual, geometry);
+}
+
+fn rebuild_joint(world: &mut World, visual: Entity, geometry: JointGeometry) {
     let placement = joint_placement(world, geometry);
     let kind = *world.get::<AttachmentKind>(visual).unwrap();
     let scene = world.resource::<SceneState>().scene;
@@ -342,6 +361,63 @@ pub(crate) fn configure_joint(world: &mut World, visual: Entity, geometry: Joint
     }
 }
 
+pub(crate) fn rebuild_hinges(world: &mut World) {
+    let hinges = world
+        .query_filtered::<(Entity, &JointGeometry), With<AxleVisual>>()
+        .iter(world)
+        .map(|(entity, geometry)| (entity, *geometry))
+        .collect::<Vec<_>>();
+    for (entity, geometry) in hinges {
+        rebuild_joint(world, entity, geometry);
+    }
+}
+
+pub(crate) fn sync_axle_anchors(
+    changed_geometries: Query<Entity, Changed<BodyTransform>>,
+    geometries: Query<&BodyTransform>,
+    visuals: Query<(Ref<JointGeometry>, &AttachmentLinks), With<AxleVisual>>,
+    mut joints: Query<&mut RevoluteJoint>,
+) {
+    let changed = changed_geometries.iter().collect::<Vec<_>>();
+    for (geometry, links) in &visuals {
+        if !geometry.is_changed()
+            && !geometry
+                .geoms
+                .iter()
+                .flatten()
+                .any(|entity| changed.contains(entity))
+        {
+            continue;
+        }
+        let Some(joint) = links.joint.and_then(|entity| joints.get_mut(entity).ok()) else {
+            continue;
+        };
+        let anchor = |entity, pos| {
+            geometries
+                .get(entity)
+                .ok()
+                .map(|local| local.translation + local.rotation * (pos * local.scale))
+        };
+        let anchors = (|| {
+            Some(match geometry.geoms {
+                [Some(a), Some(b)] => [
+                    anchor(a, geometry.positions[0])?,
+                    anchor(b, geometry.positions[1])?,
+                ],
+                [Some(a), None] => [anchor(a, geometry.positions[0])?, geometry.positions[1]],
+                [None, Some(b)] => [anchor(b, geometry.positions[1])?, geometry.positions[0]],
+                [None, None] => return None,
+            })
+        })();
+        let Some([a, b]) = anchors else {
+            continue;
+        };
+        let mut joint = joint;
+        joint.frame1.anchor = JointAnchor::Local(a);
+        joint.frame2.anchor = JointAnchor::Local(b);
+    }
+}
+
 pub fn process_add_object(
     mut events: MessageReader<AddObjectEvent>,
     query: BodyQuery,
@@ -355,7 +431,7 @@ pub fn process_add_object(
     sensor: Query<&Sensor>,
     scene_state: Res<SceneState>,
     spatial_query: SpatialQuery,
-    fixes: Query<(&FixedJoint, &AttachmentJoint), With<FixObject>>,
+    fixes: Query<(Entity, &JointGeometry), With<FixObject>>,
     body_colors: Query<&ColorComponent>,
 ) {
     let palette = &palette_config.current_palette;
@@ -367,23 +443,20 @@ pub fn process_add_object(
         use AddObjectEvent::*;
         match *ev {
             Box { pos, size } => {
-                commands
-                    .spawn(box_bundle(z.pos(pos), size, scene_state.scene))
-                    .insert(
-                        ColorComponent(palette.get_color_hsva(&mut *rng.single_mut().unwrap()))
-                            .update_from_this(),
-                    )
-                    .log_components();
+                let entity =
+                    PhysicalObject::rect(size, z.pos(pos)).spawn(&mut commands, scene_state.scene);
+                commands.entity(entity).insert(
+                    ColorComponent(palette.get_color_hsva(&mut *rng.single_mut().unwrap()))
+                        .update_from_this(),
+                );
             }
             Circle { center, radius } => {
-                commands
-                    .spawn(PhysicalObject::ball(radius, z.pos(center)))
-                    .insert(ChildOf(scene_state.scene))
-                    .insert(
-                        ColorComponent(palette.get_color_hsva(&mut *rng.single_mut().unwrap()))
-                            .update_from_this(),
-                    )
-                    .log_components();
+                let entity = PhysicalObject::ball(radius, z.pos(center))
+                    .spawn(&mut commands, scene_state.scene);
+                commands.entity(entity).insert(
+                    ColorComponent(palette.get_color_hsva(&mut *rng.single_mut().unwrap()))
+                        .update_from_this(),
+                );
             }
             Gear {
                 center,
@@ -400,20 +473,18 @@ pub fn process_add_object(
                 else {
                     continue;
                 };
-                let entity = commands
-                    .spawn(object)
-                    .insert(FreeformObject)
-                    .insert(ChildOf(scene_state.scene))
-                    .insert(
-                        ColorComponent(palette.get_color_hsva(&mut *rng.single_mut().unwrap()))
-                            .update_from_this(),
-                    )
-                    .log_components()
-                    .id();
+                let (body, entity) = object.spawn_with_body(&mut commands, scene_state.scene);
+                commands.entity(entity).insert((
+                    FreeformObject,
+                    ColorComponent(palette.get_color_hsva(&mut *rng.single_mut().unwrap()))
+                        .update_from_this(),
+                ));
                 let placement = AttachmentPlacement {
                     body1: BodyHit {
                         entity,
+                        body,
                         local_pos: Vec2::ZERO,
+                        body_local_pos: Vec2::ZERO,
                         z: gear_pos.z,
                         rotation: Quat::from_rotation_z(angle),
                     },
@@ -441,6 +512,7 @@ pub fn process_add_object(
                 spawn_plane(
                     &mut commands,
                     scene_state.scene,
+                    scene_state.sky,
                     point,
                     outward_normal,
                     color,
@@ -450,15 +522,12 @@ pub fn process_add_object(
                 let Some(object) = PhysicalObject::freeform(points, z.pos(pos)) else {
                     continue;
                 };
-                commands
-                    .spawn(object)
-                    .insert(FreeformObject)
-                    .insert(ChildOf(scene_state.scene))
-                    .insert(
-                        ColorComponent(palette.get_color_hsva(&mut *rng.single_mut().unwrap()))
-                            .update_from_this(),
-                    )
-                    .log_components();
+                let entity = object.spawn(&mut commands, scene_state.scene);
+                commands.entity(entity).insert((
+                    FreeformObject,
+                    ColorComponent(palette.get_color_hsva(&mut *rng.single_mut().unwrap()))
+                        .update_from_this(),
+                ));
             }
             Fix(pos) => {
                 let Some(placement) = attachment_placement(
@@ -614,7 +683,7 @@ pub fn process_place_attachment(
     )>,
     bodies: BodyQuery,
     spatial_query: SpatialQuery,
-    fixes: Query<(&FixedJoint, &AttachmentJoint), With<FixObject>>,
+    fixes: Query<(Entity, &JointGeometry), With<FixObject>>,
     mut z: ResMut<DepthSorter>,
     scene_state: Res<SceneState>,
     palette_config: Res<PaletteConfig>,
@@ -748,7 +817,7 @@ fn attachment_placement(
     current: Option<Entity>,
     bodies: &BodyQuery,
     spatial_query: &SpatialQuery,
-    fixes: &Query<(&FixedJoint, &AttachmentJoint), With<FixObject>>,
+    fixes: &Query<(Entity, &JointGeometry), With<FixObject>>,
 ) -> Option<AttachmentPlacement> {
     let mut hits = body_hits_at(pos, bodies, spatial_query, None);
     let body1 = hits.next()?;
@@ -787,7 +856,7 @@ fn axle_placement(
     event: &AddAxleEvent,
     bodies: &BodyQuery,
     spatial_query: &SpatialQuery,
-    fixes: &Query<(&FixedJoint, &AttachmentJoint), With<FixObject>>,
+    fixes: &Query<(Entity, &JointGeometry), With<FixObject>>,
 ) -> Option<AttachmentPlacement> {
     match *event {
         AddAxleEvent::Mouse(pos) => attachment_placement(
@@ -810,14 +879,16 @@ fn axle_placement(
 }
 
 fn center_placement(entity: Entity, bodies: &BodyQuery) -> Option<AttachmentPlacement> {
-    let Ok((_, transform, position, _rotation, _)) = bodies.get(entity) else {
+    let Ok((_, transform, position, _rotation, _, link, local)) = bodies.get(entity) else {
         info!("Can't find physical object for centered attachment");
         return None;
     };
     Some(AttachmentPlacement {
         body1: BodyHit {
             entity,
+            body: link.body,
             local_pos: Vec2::ZERO,
+            body_local_pos: local.translation,
             z: transform.translation_vec3a().z,
             rotation: transform.rotation(),
         },
@@ -837,18 +908,22 @@ fn body_hits_at<'a>(
         if Some(entity) == exclude {
             return true;
         }
-        if let Ok((entity, transform, position, rotation, _)) = bodies.get(entity) {
-            hits.push(body_hit(entity, pos, transform, position, rotation));
+        if let Ok((entity, transform, position, rotation, _, link, local)) = bodies.get(entity) {
+            hits.push(body_hit(
+                entity, pos, transform, position, rotation, link, local,
+            ));
         }
         true
     });
 
-    for (entity, transform, position, rotation, collider) in bodies.iter() {
+    for (entity, transform, position, rotation, collider, link, local) in bodies.iter() {
         if Some(entity) == exclude || hits.iter().any(|hit| hit.entity == entity) {
             continue;
         }
         if collider.contains_point(*position, *rotation, pos) {
-            hits.push(body_hit(entity, pos, transform, position, rotation));
+            hits.push(body_hit(
+                entity, pos, transform, position, rotation, link, local,
+            ));
         }
     }
 
@@ -862,23 +937,30 @@ fn body_hit(
     transform: &GlobalTransform,
     position: &Position,
     rotation: &Rotation,
+    link: &ColliderOf,
+    local: &BodyTransform,
 ) -> BodyHit {
+    let local_pos = rotation.inverse() * (pos - position.0);
     BodyHit {
         entity,
-        local_pos: rotation.inverse() * (pos - position.0),
+        body: link.body,
+        local_pos,
+        body_local_pos: local.translation + local.rotation * (local_pos * local.scale),
         z: transform.translation_vec3a().z,
         rotation: transform.rotation(),
     }
 }
 
 fn duplicate_fix_exists(
-    body1: Entity,
-    body2: Entity,
+    geom1: Entity,
+    geom2: Entity,
     current: Option<Entity>,
-    fixes: &Query<(&FixedJoint, &AttachmentJoint), With<FixObject>>,
+    fixes: &Query<(Entity, &JointGeometry), With<FixObject>>,
 ) -> bool {
-    fixes.iter().any(|(joint, link)| {
-        Some(link.visual) != current && joint.body1 == body1 && joint.body2 == body2
+    fixes.iter().any(|(entity, joint)| {
+        Some(entity) != current
+            && (joint.geoms == [Some(geom1), Some(geom2)]
+                || joint.geoms == [Some(geom2), Some(geom1)])
     })
 }
 
@@ -976,6 +1058,7 @@ fn spawn_fix_visual(
             VIRTUAL_LAYER_OBJ,
             Sensor,
             AttachmentKind::Fix,
+            FixObject,
             ColorComponent(color).update_from_this(),
             ChildOf(placement.body1.entity),
         ))
@@ -1013,8 +1096,8 @@ fn spawn_fix_attachment(
     camera_scale: f32,
     camera_rotation: Quat,
     z: f32,
-    scene: Entity,
-    sky: Entity,
+    _scene: Entity,
+    _sky: Entity,
 ) -> Entity {
     let visual = spawn_fix_visual(
         commands,
@@ -1026,10 +1109,9 @@ fn spawn_fix_attachment(
         camera_rotation,
         z,
     );
-    let links = spawn_fix_joint(commands, visual, placement, scene, sky);
     commands
         .entity(visual)
-        .insert((joint_geometry(placement), links));
+        .insert((joint_geometry(placement), AttachmentLinks::default()));
     visual
 }
 
@@ -1330,8 +1412,11 @@ fn spawn_axle_joint(
     sky: Entity,
 ) -> AttachmentLinks {
     let (body2, anchor2) = body2_or_sky(placement, sky);
-    let joint = RevoluteJoint::new(placement.body1.entity, body2)
-        .with_local_anchor1(placement.body1.local_pos)
+    if placement.body1.body == body2 {
+        return AttachmentLinks::default();
+    }
+    let joint = RevoluteJoint::new(placement.body1.body, body2)
+        .with_local_anchor1(placement.body1.body_local_pos)
         .with_local_anchor2(anchor2);
     let joint = commands
         .spawn((
@@ -1358,39 +1443,14 @@ fn spawn_joint(
 ) -> AttachmentLinks {
     match kind {
         AttachmentKind::Axle => spawn_axle_joint(commands, visual, placement, scene, sky),
-        AttachmentKind::Fix => spawn_fix_joint(commands, visual, placement, scene, sky),
+        AttachmentKind::Fix => AttachmentLinks::default(),
         _ => unreachable!(),
     }
 }
 
-fn spawn_fix_joint(
-    commands: &mut Commands,
-    visual: Entity,
-    placement: AttachmentPlacement,
-    scene: Entity,
-    sky: Entity,
-) -> AttachmentLinks {
-    let (body2, anchor2) = body2_or_sky(placement, sky);
-    let joint = FixedJoint::new(placement.body1.entity, body2)
-        .with_local_anchor1(placement.body1.local_pos)
-        .with_local_anchor2(anchor2)
-        .with_basis(Rotation::default());
-    let joint = commands
-        .spawn((
-            FixObject,
-            AttachmentJoint { visual },
-            JointCollisionDisabled,
-            joint,
-            ChildOf(scene),
-        ))
-        .id();
-
-    AttachmentLinks { joint: Some(joint) }
-}
-
 fn body2_or_sky(placement: AttachmentPlacement, sky: Entity) -> (Entity, Vec2) {
     if let Some(body2) = placement.body2 {
-        return (body2.entity, body2.local_pos);
+        return (body2.body, body2.body_local_pos);
     }
     (sky, placement.pos)
 }
@@ -1464,6 +1524,7 @@ impl DepthSorter {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bevy::ecs::system::RunSystemOnce;
 
     #[test]
     fn body_attachment_starts_horizontal_on_a_rotated_camera() {
@@ -1485,5 +1546,52 @@ mod tests {
         let screen_rotation = camera_rotation.inverse() * transform.rotation;
 
         assert!((screen_rotation * Vec3::X).distance(Vec3::X) < 1.0e-5);
+    }
+
+    #[test]
+    fn changed_geometry_pose_updates_only_the_axle_frames() {
+        let mut world = World::new();
+        let bodies = [world.spawn_empty().id(), world.spawn_empty().id()];
+        let a = world
+            .spawn(BodyTransform(ColliderTransform {
+                translation: Vec2::X,
+                rotation: Rotation::default(),
+                scale: Vec2::ONE,
+            }))
+            .id();
+        let b = world
+            .spawn(BodyTransform(ColliderTransform {
+                translation: Vec2::Y,
+                rotation: Rotation::default(),
+                scale: Vec2::ONE,
+            }))
+            .id();
+        let joint = world.spawn(RevoluteJoint::new(bodies[0], bodies[1])).id();
+        world.spawn((
+            AxleVisual,
+            JointGeometry {
+                geoms: [Some(a), Some(b)],
+                positions: [Vec2::X, Vec2::Y],
+            },
+            AttachmentLinks { joint: Some(joint) },
+        ));
+
+        world.run_system_once(sync_axle_anchors).unwrap();
+        assert_eq!(
+            world.get::<RevoluteJoint>(joint).unwrap().local_anchor1(),
+            Some(Vec2::X * 2.0)
+        );
+        assert_eq!(
+            world.get::<RevoluteJoint>(joint).unwrap().local_anchor2(),
+            Some(Vec2::Y * 2.0)
+        );
+
+        world.clear_trackers();
+        world.get_mut::<BodyTransform>(a).unwrap().translation = Vec2::splat(3.0);
+        world.run_system_once(sync_axle_anchors).unwrap();
+        assert_eq!(
+            world.get::<RevoluteJoint>(joint).unwrap().local_anchor1(),
+            Some(Vec2::new(4.0, 3.0))
+        );
     }
 }

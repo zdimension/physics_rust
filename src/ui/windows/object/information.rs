@@ -26,6 +26,13 @@ impl InformationWindow {
         >,
         ents: Query<AggregateMeasureData>,
         body_positions: Query<(&Position, &Rotation)>,
+        bodies: Query<(
+            &Position,
+            &Rotation,
+            &ComputedCenterOfMass,
+            &LinearVelocity,
+            &AngularVelocity,
+        )>,
         gravity: Res<Gravity>,
         mut egui_ctx: EguiContexts,
         mut commands: Commands,
@@ -33,7 +40,7 @@ impl InformationWindow {
         let ctx = egui_ctx.ctx_mut().expect("primary egui context");
         for (id, parent, target, mut initial_pos) in wnds.iter_mut() {
             let targets = window_target_entities(target, parent);
-            let aggregate = aggregate_measures(targets, &ents, &body_positions, gravity.0);
+            let aggregate = aggregate_measures(targets, &ents, &body_positions, &bodies, gravity.0);
             egui::Window::new(window_title(target, "info")).subwindow(
                 id,
                 ctx,
@@ -53,10 +60,18 @@ impl InformationWindow {
                             line(ui, "Moment of inertia", format!("{:.3} kg·m²", inertia));
                         }
                         if let Some(pos) = aggregate.position {
-                            line(ui, "Position", format!("[x={:.3}, y={:.3}] m", pos.x, pos.y));
+                            line(
+                                ui,
+                                "Position",
+                                format!("[x={:.3}, y={:.3}] m", pos.x, pos.y),
+                            );
                         }
                         if let Some(vel) = aggregate.velocity {
-                            line(ui, "Velocity", format!("[x={:.3}, y={:.3}] m/s", vel.x, vel.y));
+                            line(
+                                ui,
+                                "Velocity",
+                                format!("[x={:.3}, y={:.3}] m/s", vel.x, vel.y),
+                            );
                         }
                         if let Some(vel) = aggregate.angular_velocity {
                             line(ui, "Angular velocity", format!("{:.3} rad/s", vel));
@@ -70,7 +85,11 @@ impl InformationWindow {
                                     momentum.linear.x, momentum.linear.y
                                 ),
                             );
-                            line(ui, "Angular momentum", format!("{:.3} J·s", momentum.angular));
+                            line(
+                                ui,
+                                "Angular momentum",
+                                format!("{:.3} J·s", momentum.angular),
+                            );
                         }
                     });
                     ui.separator();

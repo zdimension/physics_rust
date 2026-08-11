@@ -2,6 +2,7 @@ use crate::lyon_compat::ScreenSpaceShapeMaterial;
 use crate::mouse::select::{SelectEvent, SelectionGroup, SelectionMode};
 use crate::mouse_tracking::MainCamera;
 use crate::objects::kind::{ObjectKind, ObjectKinds};
+use crate::objects::phy_obj::PhysicalGeometry;
 use crate::tools::ToolIcons;
 use crate::tools::add_object::DepthSorter;
 use crate::ui::images::GuiIcons;
@@ -11,7 +12,7 @@ use crate::ui::{InitialPos, Selected, Subwindow, WindowSelectionTarget, bool_che
 use avian2d::prelude::*;
 use bevy::prelude::*;
 use bevy::transform::TransformSystems;
-use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
+use bevy_egui::{EguiContexts, EguiPrimaryContextPass, egui};
 use egui::{Popup, RectAlign, SetOpenCommand};
 use std::collections::{HashMap, HashSet};
 
@@ -64,10 +65,7 @@ enum SelectionAction {
     DeselectAll,
     Group { targets: Vec<Entity> },
     Ungroup { targets: Vec<Entity> },
-    Move {
-        targets: Vec<Entity>,
-        to: ZOrder,
-    },
+    Move { targets: Vec<Entity>, to: ZOrder },
 }
 
 #[derive(Clone, Copy)]
@@ -80,15 +78,12 @@ type SelectableObjectFilter = (With<Collider>, Without<ColliderDisabled>);
 
 impl SelectionWindow {
     fn show(
-        mut wnds: Query<
-            (Entity, &WindowSelectionTarget, &mut InitialPos),
-            With<SelectionWindow>,
-        >,
+        mut wnds: Query<(Entity, &WindowSelectionTarget, &mut InitialPos), With<SelectionWindow>>,
         mut egui_ctx: EguiContexts,
         mut commands: Commands,
         mut actions: MessageWriter<SelectionAction>,
         mut select_events: MessageWriter<SelectEvent>,
-        physical_objects: Query<(), With<RigidBody>>,
+        physical_objects: Query<(), With<PhysicalGeometry>>,
         selection_groups: Query<&SelectionGroup>,
         object_kinds: ObjectKinds,
         tool_icons: Res<ToolIcons>,
@@ -123,17 +118,18 @@ impl SelectionWindow {
                             .align_alternatives(&[])
                             .layout(egui::Layout::top_down(egui::Align::Min))
                             .open_memory(
-                                select_menu
-                                    .hovered()
-                                    .then_some(SetOpenCommand::Bool(true)),
+                                select_menu.hovered().then_some(SetOpenCommand::Bool(true)),
                             )
                             .show(|ui| {
                                 for (kind, entities, title) in &kind_selections {
                                     if ui
-                                        .add(MenuItem::button(
-                                            Some(object_kind_icon(*kind, &tool_icons)),
-                                            format!("Select {}", kind.plural()),
-                                        ).shrink_to_fit())
+                                        .add(
+                                            MenuItem::button(
+                                                Some(object_kind_icon(*kind, &tool_icons)),
+                                                format!("Select {}", kind.plural()),
+                                            )
+                                            .shrink_to_fit(),
+                                        )
                                         .clicked()
                                     {
                                         select_events.write(SelectEvent {
@@ -153,10 +149,7 @@ impl SelectionWindow {
                                 }
                             });
                     }
-                    if ui
-                        .add(MenuItem::button(None, "Invert selection"))
-                        .clicked()
-                    {
+                    if ui.add(MenuItem::button(None, "Invert selection")).clicked() {
                         actions.write(SelectionAction::Invert);
                     }
                     if ui
@@ -193,19 +186,15 @@ impl SelectionWindow {
                         let mut ungroup_clicked = false;
                         if show_group && show_ungroup {
                             ui.columns(2, |columns| {
-                                group_clicked = columns[0]
-                                    .add(MenuItem::button(None, "Group"))
-                                    .clicked();
-                                ungroup_clicked = columns[1]
-                                    .add(MenuItem::button(None, "Ungroup"))
-                                    .clicked();
+                                group_clicked =
+                                    columns[0].add(MenuItem::button(None, "Group")).clicked();
+                                ungroup_clicked =
+                                    columns[1].add(MenuItem::button(None, "Ungroup")).clicked();
                             });
                         } else if show_group {
-                            group_clicked =
-                                ui.add(MenuItem::button(None, "Group")).clicked();
+                            group_clicked = ui.add(MenuItem::button(None, "Group")).clicked();
                         } else {
-                            ungroup_clicked =
-                                ui.add(MenuItem::button(None, "Ungroup")).clicked();
+                            ungroup_clicked = ui.add(MenuItem::button(None, "Ungroup")).clicked();
                         }
                         if group_clicked {
                             actions.write(SelectionAction::Group {
@@ -237,18 +226,11 @@ impl SelectionWindow {
                             }
                         }
 
-                        let mut track_rotation = followed
-                            && camera_follow
-                                .0
-                                .is_some_and(|target| target.track_rotation);
+                        let mut track_rotation =
+                            followed && camera_follow.0.is_some_and(|target| target.track_rotation);
                         let changed = ui
                             .add_enabled_ui(followed, |ui| {
-                                bool_checkbox(
-                                    ui,
-                                    &gui_icons,
-                                    &mut track_rotation,
-                                    "Track rotation",
-                                )
+                                bool_checkbox(ui, &gui_icons, &mut track_rotation, "Track rotation")
                             })
                             .inner;
                         if changed
@@ -278,25 +260,24 @@ fn object_kind_icon(kind: ObjectKind, icons: &ToolIcons) -> egui::TextureId {
     }
 }
 
-fn group_action_visibility(
-    targets: &[Entity],
-    groups: &Query<&SelectionGroup>,
-) -> (bool, bool) {
+fn group_action_visibility(targets: &[Entity], groups: &Query<&SelectionGroup>) -> (bool, bool) {
     let first_group = targets
         .first()
         .and_then(|entity| groups.get(*entity).ok())
         .map(|group| group.0);
     let all_in_same_group = first_group.is_some()
-        && targets
-            .iter()
-            .all(|entity| groups.get(*entity).is_ok_and(|group| Some(group.0) == first_group));
+        && targets.iter().all(|entity| {
+            groups
+                .get(*entity)
+                .is_ok_and(|group| Some(group.0) == first_group)
+        });
     let any_grouped = targets.iter().any(|entity| groups.contains(*entity));
     (!targets.is_empty() && !all_in_same_group, any_grouped)
 }
 
 fn update_camera_follow(
     mut follow: ResMut<CameraFollow>,
-    targets: Query<(&Position, &Rotation), With<RigidBody>>,
+    targets: Query<(&Position, &Rotation)>,
     mut cameras: Query<&mut Transform, With<MainCamera>>,
 ) {
     let Some(target) = &mut follow.0 else {
@@ -538,14 +519,8 @@ mod tests {
             .add_systems(Update, process_selection_actions);
 
         let old_group = app.world_mut().spawn_empty().id();
-        let first = app
-            .world_mut()
-            .spawn(SelectionGroup(old_group))
-            .id();
-        let second = app
-            .world_mut()
-            .spawn(SelectionGroup(old_group))
-            .id();
+        let first = app.world_mut().spawn(SelectionGroup(old_group)).id();
+        let second = app.world_mut().spawn(SelectionGroup(old_group)).id();
         let third = app.world_mut().spawn_empty().id();
 
         app.world_mut().write_message(SelectionAction::Group {

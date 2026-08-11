@@ -1,5 +1,6 @@
 use crate::FOREGROUND_Z;
 use crate::mouse_tracking::MainCamera;
+use crate::objects::{body::PhysicsBody, phy_obj::PhysicalGeometry};
 use avian2d::prelude::*;
 use bevy::math::Vec2;
 use bevy::prelude::*;
@@ -71,9 +72,27 @@ pub fn update_drag_target(
 
 pub fn apply_drag_force(
     drag_targets: Query<&DragTarget, With<DragObject>>,
-    mut drag_ent: Query<
-        (&Position, &Rotation, &ColliderMassProperties, Forces),
-        Without<MainCamera>,
+    geometries: Query<
+        (&Position, &Rotation, &ColliderOf),
+        (
+            With<PhysicalGeometry>,
+            Without<PhysicsBody>,
+            Without<MainCamera>,
+        ),
+    >,
+    mut bodies: Query<
+        (
+            &Position,
+            &Rotation,
+            &ComputedCenterOfMass,
+            &ComputedMass,
+            Forces,
+        ),
+        (
+            With<PhysicsBody>,
+            Without<PhysicalGeometry>,
+            Without<MainCamera>,
+        ),
     >,
     mut gizmos: Gizmos,
     config: Res<DragConfig>,
@@ -81,17 +100,21 @@ pub fn apply_drag_force(
 ) {
     let cam_scale = cameras.single().unwrap().scale.x;
     for target in drag_targets.iter() {
-        let Ok((position, rotation, mass, mut forces)) = drag_ent.get_mut(target.entity) else {
+        let Ok((position, rotation, link)) = geometries.get(target.entity) else {
             continue;
         };
-        let center_of_mass = position.0 + *rotation * mass.center_of_mass;
+        let Ok((body_pos, body_rotation, center, mass, mut forces)) = bodies.get_mut(link.body)
+        else {
+            continue;
+        };
+        let center_of_mass = body_pos.0 + *body_rotation * center.0;
         let attachment_point = if config.drag_center_of_mass {
             center_of_mass
         } else {
             position.0 + *rotation * target.grab_local_point
         };
-        let stiffness = effective_stiffness(cam_scale.recip(), config.strength, mass.mass);
-        let damping = critical_damping(stiffness, mass.mass);
+        let stiffness = effective_stiffness(cam_scale.recip(), config.strength, mass.value());
+        let damping = critical_damping(stiffness, mass.value());
         let force = ((target.mouse_pos - attachment_point) * stiffness
             - forces.velocity_at_point(attachment_point) * damping)
             .clamp_length_max(config.max_force);

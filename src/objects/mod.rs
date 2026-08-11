@@ -1,8 +1,10 @@
 use crate::palette::ToRgba;
 use crate::update_from::UpdateFrom;
 use avian2d::collision::narrow_phase::CollisionEventSystems;
+use avian2d::dynamics::rigid_body::mass_properties::MassPropertySystems;
+use avian2d::physics_transform::PhysicsTransformSystems;
 use avian2d::prelude::*;
-use bevy::app::Update;
+use bevy::app::{FixedPostUpdate, PreUpdate, Update};
 use bevy::prelude::ChildOf;
 use bevy::prelude::{
     App, Changed, Component, Entity, IntoScheduleConfigs, Query, Ref, Sprite, With,
@@ -12,6 +14,7 @@ use bevy_egui::egui::ecolor::Hsva;
 pub(crate) mod air;
 pub(crate) mod attraction;
 pub(crate) mod axle;
+pub(crate) mod body;
 pub(crate) mod kind;
 pub(crate) mod laser;
 pub(crate) mod phy_obj;
@@ -55,6 +58,22 @@ pub mod spring;
 pub mod tracer;
 
 pub fn add_systems(app: &mut App) {
+    app.init_resource::<body::WeldTopology>()
+        .add_systems(
+            PreUpdate,
+            body::rebuild_welds.after(crate::script::thyme::evaluate_bindings),
+        )
+        .add_systems(
+            FixedPostUpdate,
+            (
+                body::sync_transforms,
+                crate::tools::add_object::sync_axle_anchors,
+                body::sync_mass_properties,
+            )
+                .chain()
+                .after(PhysicsTransformSystems::TransformToPosition)
+                .before(MassPropertySystems::UpdateColliderMassProperties),
+        );
     air::add_systems(app);
     attraction::add_systems(app);
     spring::add_systems(app);
@@ -64,6 +83,7 @@ pub fn add_systems(app: &mut App) {
     app.add_systems(
         Update,
         (
+            body::sync_transforms,
             update_sprites_color,
             laser::sync_laser_size.before(laser::draw_lasers),
             axle::sync_hinge_motors,

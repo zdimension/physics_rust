@@ -1,3 +1,4 @@
+use super::phy_obj::PhysicalGeometry;
 use avian2d::prelude::*;
 use bevy::math::{Vec2, Vec3};
 use bevy::prelude::*;
@@ -152,11 +153,10 @@ pub fn unit_size_for_camera(camera: &Transform) -> f32 {
 
 pub fn pick_body_at(
     colliders: &Query<(Entity, &Collider, &GlobalTransform), Without<ColliderDisabled>>,
-    bodies: &Query<(&GlobalTransform, Option<&RigidBody>)>,
+    bodies: &Query<&GlobalTransform, With<PhysicalGeometry>>,
     point: Vec2,
 ) -> Option<Entity> {
-    select::colliders_under_point(point, colliders)
-        .find(|ent| bodies.get(*ent).is_ok_and(|(_, body)| body.is_some()))
+    select::colliders_under_point(point, colliders).find(|ent| bodies.contains(*ent))
 }
 
 pub fn spawn_spring(
@@ -265,7 +265,7 @@ fn update_spring_previews(
 fn finish_springs(
     mut events: MessageReader<FinishSpringEvent>,
     colliders: Query<(Entity, &Collider, &GlobalTransform), Without<ColliderDisabled>>,
-    bodies: Query<(&GlobalTransform, Option<&RigidBody>)>,
+    bodies: Query<&GlobalTransform, With<PhysicalGeometry>>,
     body_positions: Query<(&Position, &Rotation)>,
     body_masses: Query<&ColliderMassProperties>,
     mut springs: Query<&mut SpringObject, With<SpringPreview>>,
@@ -284,7 +284,7 @@ fn finish_springs(
             }
             (Some(start), Some(end)) if start == end => SpringEnd::sky(event.end_pos),
             (_, Some(end)) => {
-                let Ok((transform, _)) = bodies.get(end) else {
+                let Ok(transform) = bodies.get(end) else {
                     commands.entity(event.state.preview).despawn();
                     continue;
                 };
@@ -427,19 +427,23 @@ fn update_spring_visuals(
 
 pub(crate) fn apply_spring_forces(
     springs: Query<&SpringObject, Without<SpringPreview>>,
+    geometries: Query<
+        (&Position, &Rotation, &ColliderOf),
+        (With<PhysicalGeometry>, Without<RigidBodyDisabled>),
+    >,
     mut bodies: ParamSet<(
-        Query<RigidBodyQueryReadOnly, Without<RigidBodyDisabled>>,
-        Query<Forces, Without<RigidBodyDisabled>>,
+        Query<RigidBodyQueryReadOnly, (Without<PhysicalGeometry>, Without<RigidBodyDisabled>)>,
+        Query<Forces, (Without<PhysicalGeometry>, Without<RigidBodyDisabled>)>,
     )>,
 ) {
     let mut applications = Vec::new();
     {
         let body_query = bodies.p0();
         for spring in &springs {
-            let Some(a) = SpringBodyPoint::from_end(spring.end_a, &body_query) else {
+            let Some(a) = SpringBodyPoint::from_end(spring.end_a, &geometries, &body_query) else {
                 continue;
             };
-            let Some(b) = SpringBodyPoint::from_end(spring.end_b, &body_query) else {
+            let Some(b) = SpringBodyPoint::from_end(spring.end_b, &geometries, &body_query) else {
                 continue;
             };
             let delta = b.point - a.point;
@@ -464,10 +468,10 @@ pub(crate) fn apply_spring_forces(
         }
     }
 
-    let mut force_query = bodies.p1();
+    let mut forces = bodies.p1();
     for (entity, force, point) in applications {
-        if let Ok(mut forces) = force_query.get_mut(entity) {
-            forces.apply_force_at_point(force, point);
+        if let Ok(mut body_forces) = forces.get_mut(entity) {
+            body_forces.apply_force_at_point(force, point);
         }
     }
 }
@@ -482,7 +486,14 @@ struct SpringBodyPoint {
 impl SpringBodyPoint {
     fn from_end(
         end: SpringEnd,
-        bodies: &Query<RigidBodyQueryReadOnly, Without<RigidBodyDisabled>>,
+        geometries: &Query<
+            (&Position, &Rotation, &ColliderOf),
+            (With<PhysicalGeometry>, Without<RigidBodyDisabled>),
+        >,
+        bodies: &Query<
+            RigidBodyQueryReadOnly,
+            (Without<PhysicalGeometry>, Without<RigidBodyDisabled>),
+        >,
     ) -> Option<Self> {
         match end {
             SpringEnd::Sky { world_anchor } => Some(Self {
@@ -495,13 +506,14 @@ impl SpringBodyPoint {
                 entity,
                 local_anchor,
             } => {
-                let body = bodies.get(entity).ok()?;
-                let point = body.position.0 + body.rotation * local_anchor;
-                let center_of_mass = body.rotation * body.center_of_mass.0;
+                let (position, rotation, link) = geometries.get(entity).ok()?;
+                let body = bodies.get(link.body).ok()?;
+                let point = position.0 + *rotation * local_anchor;
+                let center_of_mass = body.position.0 + body.rotation * body.center_of_mass.0;
                 Some(Self {
-                    entity: Some(entity),
+                    entity: Some(link.body),
                     point,
-                    velocity: body.velocity_at_point(point - (body.position.0 + center_of_mass)),
+                    velocity: body.velocity_at_point(point - center_of_mass),
                     mass: body.mass().value(),
                 })
             }

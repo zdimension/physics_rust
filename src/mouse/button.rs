@@ -14,6 +14,7 @@ use crate::mouse::select::{
     SelectEnclosedEvent, SelectUnderMouseEvent, SelectionConfig, SelectionMode,
     collider_under_point,
 };
+use crate::objects::phy_obj::PhysicalGeometry;
 use crate::objects::spring::{FinishSpringEvent, UpdateSpringPreviewEvent};
 use crate::script::thyme::PendingEvents;
 use crate::tools::add_object::{
@@ -53,7 +54,7 @@ pub struct AttachmentMoveCommit<'w, 's> {
 
 #[derive(SystemParam)]
 pub struct LaserClickTargets<'w, 's> {
-    rigid_bodies: Query<'w, 's, (), With<RigidBody>>,
+    rigid_bodies: Query<'w, 's, (), With<PhysicalGeometry>>,
     colliders: Query<
         'w,
         's,

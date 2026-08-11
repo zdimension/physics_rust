@@ -1,9 +1,10 @@
-use avian2d::prelude::{Position, Rotation};
+use avian2d::prelude::{ColliderOf, ColliderTransform, Position, Rotation};
 use bevy::math::{Quat, Vec2};
 use bevy::prelude::{
     ChildOf, Entity, GlobalTransform, Message, MessageReader, Query, Transform, With, Without,
 };
 
+use crate::objects::body::BodyTransform;
 use crate::objects::thruster::ThrusterSettings;
 use crate::tools::add_object::AttachmentKind;
 use crate::tools::r#move::attachment_local_position;
@@ -28,7 +29,18 @@ pub fn process_rotate(
     >,
     parents: Query<&GlobalTransform, Without<AttachmentKind>>,
     mut thrusters: Query<&mut ThrusterSettings>,
-    mut bodies: Query<(&mut Position, &mut Rotation, &mut Transform), Without<AttachmentKind>>,
+    mut geometries: Query<
+        (
+            &mut Position,
+            &mut Rotation,
+            &mut Transform,
+            &mut BodyTransform,
+            &mut ColliderTransform,
+            &ColliderOf,
+        ),
+        Without<AttachmentKind>,
+    >,
+    bodies: Query<(&Position, &Rotation), (Without<ColliderOf>, Without<AttachmentKind>)>,
 ) {
     for RotateEvent {
         state,
@@ -63,14 +75,24 @@ pub fn process_rotate(
                 continue;
             }
 
-            let Ok((mut position, mut rotation, mut transform)) = bodies.get_mut(target.entity)
+            let Ok((mut position, mut rotation, mut transform, mut local, mut collider, link)) =
+                geometries.get_mut(target.entity)
             else {
                 continue;
             };
+            let Ok((body_pos, body_rotation)) = bodies.get(link.body) else {
+                continue;
+            };
+            let world_rotation = Rotation::radians(angle);
+            local.set_world_pose(
+                &mut collider,
+                (body_pos.0, *body_rotation),
+                (rotated_pos, world_rotation),
+            );
             position.0 = rotated_pos;
+            *rotation = world_rotation;
             transform.translation.x = rotated_pos.x;
             transform.translation.y = rotated_pos.y;
-            *rotation = Rotation::radians(angle);
             transform.rotation = Quat::from_rotation_z(angle);
         }
     }

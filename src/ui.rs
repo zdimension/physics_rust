@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use crate::config::AppConfig;
 use crate::mouse_tracking::{MainCamera, MousePos, MousePosWorld};
-use avian2d::prelude::{Position, RigidBody};
+use avian2d::prelude::{AngularVelocity, LinearVelocity, Position, RigidBody, Rotation};
 use bevy::ecs::component::Mutable;
 use bevy::ecs::query::{QueryData, QueryFilter};
 use bevy::log::info;
@@ -17,7 +17,7 @@ use derivative::Derivative;
 use crate::objects::laser::LaserRays;
 use crate::palette::{PaletteConfig, PaletteList};
 use crate::tools::ToolEnum;
-use crate::{UsedMouseButton, demo, egui_systems};
+use crate::{UsedMouseButton, egui_systems};
 
 use self::images::GuiIcons;
 use self::windows::menu::MenuWindow;
@@ -78,31 +78,15 @@ pub fn ui_example(
     selected: Query<Entity, With<Selected>>,
     toolbox_state: Res<ToolboxState>,
     pointer_state: Res<PointerToolState>,
-    mut is_initialized: Local<bool>,
     cameras: Query<&mut Transform, With<MainCamera>>,
     mc: Query<Entity, With<MainCamera>>,
     _palette_config: ResMut<PaletteConfig>,
     _assets: Res<Assets<PaletteList>>,
     laser: Query<&LaserRays>,
-    mut cmds: Commands,
     mouse: Res<MousePosWorld>,
     mouse_sc: Res<MousePos>,
     diag: Res<DiagnosticsStore>,
 ) {
-    if !*is_initialized {
-        /*palette_config.current_palette = *assets
-        .get(&palette_config.palettes)
-        .unwrap()
-        .0
-        .get("Optics")
-        .unwrap();*/
-
-        cmds.entity(scene_state.scene).with_children(|parent| {
-            demo::newton_cradle::init(parent);
-        });
-        *is_initialized = true;
-    }
-
     egui::Window::new("Debug").show_translucent(
         egui_ctx.ctx_mut().expect("primary egui context"),
         |ui| {
@@ -773,9 +757,14 @@ impl FromWorld for SceneState {
             .id();
         let sky = world
             .spawn((
+                crate::objects::body::PhysicsBody,
                 RigidBody::Static,
                 Position::default(),
+                Rotation::default(),
+                LinearVelocity::ZERO,
+                AngularVelocity::ZERO,
                 Transform::default(),
+                GlobalTransform::default(),
                 ChildOf(scene),
             ))
             .id();

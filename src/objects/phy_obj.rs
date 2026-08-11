@@ -20,6 +20,9 @@ pub struct CircleVisual(pub f32);
 #[derive(Component)]
 pub struct FreeformObject;
 
+#[derive(Component, Copy, Clone, Debug)]
+pub struct PhysicalGeometry;
+
 #[derive(Component, Copy, Clone, Debug, Default, PartialEq, Eq)]
 pub enum FrictionModel {
     #[default]
@@ -57,42 +60,44 @@ impl Default for PhysicalProperties {
 }
 
 #[derive(Bundle)]
-pub struct PhysicalObject {
-    rigid_body: RigidBody,
-    //velocity: Velocity,
+struct PhysicalGeometryBundle {
+    marker: PhysicalGeometry,
     collider: Collider,
     density: ColliderDensity,
     properties: PhysicalProperties,
     shape: ShapeBundle,
-    //read_props: ReadMassProperties,
     color: ColorComponent,
     color_upd: UpdateFrom<ColorComponent>,
     fill_stroke: FillStroke,
-    sleeping: SleepingDisabled,
-    pos: Position,
-    rotation: Rotation,
     circle_visual: CircleVisual,
     attraction: Attraction,
 }
 
+pub struct PhysicalObject {
+    geometry: PhysicalGeometryBundle,
+    position: Vec2,
+    rotation: Rotation,
+    z: f32,
+}
+
 impl PhysicalObject {
-    pub fn make(collider: Collider, shape: ShapeBundle, pos: Position) -> Self {
+    pub fn make(collider: Collider, shape: ShapeBundle, pos: Position, z: f32) -> Self {
         Self {
-            rigid_body: RigidBody::Dynamic,
-            //velocity: Velocity::default(),
-            collider,
-            density: ColliderDensity(2.0),
-            properties: PhysicalProperties::default(),
-            shape,
-            //read_props: ReadMassProperties::default(),
-            color: ColorComponent(Hsva::new(0.0, 1.0, 1.0, 1.0)),
-            color_upd: UpdateFrom::This,
-            fill_stroke: FillStroke::default(),
-            sleeping: SleepingDisabled, // todo: better
-            pos,
+            geometry: PhysicalGeometryBundle {
+                marker: PhysicalGeometry,
+                collider,
+                density: ColliderDensity(2.0),
+                properties: PhysicalProperties::default(),
+                shape,
+                color: ColorComponent(Hsva::new(0.0, 1.0, 1.0, 1.0)),
+                color_upd: UpdateFrom::This,
+                fill_stroke: FillStroke::default(),
+                circle_visual: CircleVisual(0.0),
+                attraction: Attraction::default(),
+            },
+            position: pos.0,
             rotation: Rotation::default(),
-            circle_visual: CircleVisual(0.0),
-            attraction: Attraction::default(),
+            z,
         }
     }
 
@@ -109,8 +114,9 @@ impl PhysicalObject {
                 Visibility::Inherited,
             ),
             Position(pos.xy()),
+            pos.z,
         );
-        object.circle_visual = CircleVisual(radius);
+        object.geometry.circle_visual = CircleVisual(radius);
         object
     }
 
@@ -135,6 +141,7 @@ impl PhysicalObject {
                 Visibility::Inherited,
             ),
             Position(pos.xy() + size / 2.0),
+            pos.z,
         )
     }
 
@@ -157,9 +164,35 @@ impl PhysicalObject {
                 Visibility::Inherited,
             ),
             Position(pos.xy()),
+            pos.z,
         );
         object.rotation = Rotation::radians(angle);
         Some(object)
+    }
+
+    pub fn spawn(self, commands: &mut Commands, scene: Entity) -> Entity {
+        self.spawn_with_body(commands, scene).1
+    }
+
+    pub fn spawn_with_body(self, commands: &mut Commands, scene: Entity) -> (Entity, Entity) {
+        let body = super::body::spawn(
+            commands,
+            scene,
+            self.position,
+            self.rotation,
+            RigidBody::Dynamic,
+        );
+        let geometry = commands.spawn(self.geometry).id();
+        super::body::attach(
+            commands,
+            geometry,
+            body,
+            scene,
+            self.position,
+            self.rotation,
+            self.z,
+        );
+        (body, geometry)
     }
 }
 
@@ -235,9 +268,12 @@ mod tests {
     fn physical_objects_default_to_two_kilograms_per_square_meter() {
         let object = PhysicalObject::ball(1.0, Vec3::ZERO);
 
-        assert_eq!(object.density, ColliderDensity(2.0));
-        assert_eq!(object.fill_stroke.stroke.width_px, 1.0);
-        assert_eq!(object.fill_stroke.stroke.alignment, StrokeAlignment::Inward);
+        assert_eq!(object.geometry.density, ColliderDensity(2.0));
+        assert_eq!(object.geometry.fill_stroke.stroke.width_px, 1.0);
+        assert_eq!(
+            object.geometry.fill_stroke.stroke.alignment,
+            StrokeAlignment::Inward
+        );
     }
 
     #[test]

@@ -6,9 +6,11 @@ use ::thyme::{
     PropertyId, ResolvedProperty, Runtime, Symbol, Value, parse::Number,
 };
 use avian2d::prelude::{
-    AngularVelocity, Collider, ColliderDensity, CollisionLayers, Gravity, LinearVelocity, Physics,
-    PhysicsTime, Position, Restitution, RigidBody, Rotation,
+    AngularVelocity, Collider, ColliderDensity, CollisionLayers, Gravity, Physics, PhysicsTime,
+    Position, Restitution, Rotation,
 };
+#[cfg(test)]
+use avian2d::prelude::{LinearVelocity, RigidBody};
 use bevy::{
     app::AppExit,
     ecs::world::World,
@@ -19,6 +21,7 @@ use bevy_egui::egui::ecolor::Hsva;
 
 use super::Console;
 use crate::{
+    SceneState,
     config::AppConfig,
     grid::GridSettings,
     lyon_compat::Shape,
@@ -28,10 +31,12 @@ use crate::{
         ColorComponent, MotorComponent,
         air::AirSettings,
         attraction::{Attraction, AttractionFalloff},
-        axle::JointGeometry,
+        axle::{FixObject, JointGeometry},
+        body,
         laser::LaserSettings,
         phy_obj::{
-            CircleVisual, FreeformObject, RefractiveIndex, set_box_geometry, set_circle_geometry,
+            CircleVisual, FreeformObject, PhysicalGeometry, RefractiveIndex, set_box_geometry,
+            set_circle_geometry,
         },
         spring::{SpringEndHandle, SpringObject},
         thruster::ThrusterSettings,
@@ -470,6 +475,14 @@ fn set_world_rotation(
     name: &str,
 ) -> Result<(), HostError> {
     let angle = number(value, name)?;
+    if world.get::<PhysicalGeometry>(entity).is_some() {
+        let pos = world
+            .get::<Position>(entity)
+            .ok_or_else(|| object_error(name))?
+            .0;
+        body::set_pose(world, entity, pos, Rotation::radians(angle));
+        return Ok(());
+    }
     let attachment = world.get::<AttachmentKind>(entity).is_some();
     if let Some(mut rotation) = world.get_mut::<Rotation>(entity) {
         *rotation = Rotation::radians(angle);
@@ -498,7 +511,7 @@ fn set_world_rotation(
 }
 
 fn has_area(world: &World, entity: Entity) -> bool {
-    world.get::<RigidBody>(entity).is_some() && world.get::<Collider>(entity).is_some()
+    world.get::<PhysicalGeometry>(entity).is_some()
 }
 
 fn get_area(world: &World, entity: Entity) -> Result<Value, HostError> {
@@ -641,6 +654,11 @@ fn get_pos(world: &World, entity: Entity) -> Result<Value, HostError> {
 
 fn set_pos(world: &mut World, entity: Entity, value: &Value) -> Result<(), HostError> {
     let pos = Vec2::from_array(float_list(value, "pos")?);
+    if world.get::<PhysicalGeometry>(entity).is_some() {
+        let rotation = world.get::<Rotation>(entity).copied().unwrap_or_default();
+        body::set_pose(world, entity, pos, rotation);
+        return Ok(());
+    }
     if let Some(mut position) = world.get_mut::<Position>(entity) {
         position.0 = pos;
     }
@@ -672,6 +690,7 @@ fn has_size(world: &World, entity: Entity) -> bool {
         || world.get::<SpringObject>(entity).is_some()
         || world.get::<SpringEndHandle>(entity).is_some()
         || world.get::<MotorComponent>(entity).is_some()
+        || world.get::<FixObject>(entity).is_some()
 }
 
 fn get_size(world: &World, entity: Entity) -> Result<Value, HostError> {
@@ -721,18 +740,49 @@ fn set_size(world: &mut World, entity: Entity, value: &Value) -> Result<(), Host
 }
 
 fn get_vel(world: &World, entity: Entity) -> Result<Value, HostError> {
-    let vel = world
-        .get::<LinearVelocity>(entity)
-        .ok_or_else(|| object_error("vel"))?;
-    Ok(floats(vel.0.to_array()))
+    Ok(floats(
+        body::point_velocity(world, entity)
+            .ok_or_else(|| object_error("vel"))?
+            .to_array(),
+    ))
 }
 
 fn set_vel(world: &mut World, entity: Entity, value: &Value) -> Result<(), HostError> {
-    world
-        .get_mut::<LinearVelocity>(entity)
-        .ok_or_else(|| object_error("vel"))?
-        .0 = Vec2::from_array(float_list(value, "vel")?);
+    let velocity = Vec2::from_array(float_list(value, "vel")?);
+    if !body::set_point_velocity(world, entity, velocity) {
+        return Err(object_error("vel"));
+    }
     Ok(())
+}
+
+fn get_angvel(world: &World, entity: Entity) -> Result<Value, HostError> {
+    let body = body::entity(world, entity).ok_or_else(|| object_error("angvel"))?;
+    Ok(Value::from(
+        world
+            .get::<AngularVelocity>(body)
+            .ok_or_else(|| object_error("angvel"))?
+            .0,
+    ))
+}
+
+fn set_angvel(world: &mut World, entity: Entity, value: &Value) -> Result<(), HostError> {
+    let value = number(value, "angvel")?;
+    let body = body::entity(world, entity).ok_or_else(|| object_error("angvel"))?;
+    world
+        .get_mut::<AngularVelocity>(body)
+        .ok_or_else(|| object_error("angvel"))?
+        .0 = value;
+    Ok(())
+}
+
+fn get_body(world: &World, entity: Entity) -> Result<Value, HostError> {
+    let body = body::entity(world, entity).ok_or_else(|| object_error("body"))?;
+    let sky = world.resource::<crate::ui::SceneState>().sky;
+    Ok(Value::from(if body == sky {
+        0
+    } else {
+        body.index_u32() as i32
+    }))
 }
 
 fn get_z_order(world: &World, entity: Entity) -> Result<Value, HostError> {
@@ -914,16 +964,18 @@ fn set_joint_pos(
     Ok(())
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, PartialEq, Eq)]
 enum LoadId {
     Entity,
     Geometry,
+    Body,
 }
 
 fn load_id(member: &NativeMember) -> Option<LoadId> {
     match member.name() {
         "entityID" => Some(LoadId::Entity),
         "geomID" => Some(LoadId::Geometry),
+        "body" => Some(LoadId::Body),
         _ => None,
     }
 }
@@ -1174,11 +1226,7 @@ fn real_entity(world: &World, id: i32) -> Option<Entity> {
 }
 
 fn is_geometry(world: &World, entity: Entity) -> bool {
-    world.get::<RigidBody>(entity).is_some()
-        && world.get::<Collider>(entity).is_some()
-        && world.get::<Position>(entity).is_some()
-        && world.get::<Rotation>(entity).is_some()
-        && world.get::<Transform>(entity).is_some()
+    world.get::<PhysicalGeometry>(entity).is_some()
 }
 
 native_class!(
@@ -1265,12 +1313,12 @@ native_class!(
     [
         scene_property!(
             "angle",
-            |world: &World, entity| world.get::<RigidBody>(entity).is_some()
+            |world: &World, entity| world.get::<PhysicalGeometry>(entity).is_some()
                 && world.get::<Rotation>(entity).is_some(),
             get_world_rotation,
             |world, entity, value| set_world_rotation(world, entity, value, "angle")
         ),
-        scene_component_value!("angvel", AngularVelocity, 0, float),
+        scene_property!("angvel", is_geometry, get_angvel, set_angvel),
         scene_property!("area", has_area, get_area),
         scene_component_value!("attraction", Attraction, strength, float),
         scene_component_property!(
@@ -1281,7 +1329,7 @@ native_class!(
         ),
         scene_property!(
             "collideSet",
-            |world: &World, entity| world.get::<RigidBody>(entity).is_some()
+            |world: &World, entity| world.get::<PhysicalGeometry>(entity).is_some()
                 && world.get::<CollisionLayers>(entity).is_some(),
             get_collision_set,
             set_collision_set
@@ -1293,6 +1341,7 @@ native_class!(
         scene_component_value!("density", ColliderDensity, 0, float),
         scene_property!("entityID", |_, _| true, get_entity_id),
         scene_property!("geomID", has_area, get_entity_id),
+        scene_property!("body", is_geometry, get_body),
         scene_component_value!("fadeDist", LaserSettings, fade_distance, float),
         scene_component_value!("force", ThrusterSettings, force, float),
         scene_property!(
@@ -1355,7 +1404,7 @@ native_class!(
             get_polygon_surfaces,
             set_polygon_surfaces
         ),
-        scene_component_property!("vel", LinearVelocity, get_vel, set_vel),
+        scene_property!("vel", is_geometry, get_vel, set_vel),
         scene_component_property!("vecs", PendingPolygon, get_polygon_vecs, set_polygon_vecs),
         scene_component_property!("zOrder", Transform, get_z_order, set_z_order),
     ]
@@ -1396,6 +1445,7 @@ struct NativeInstance {
     entity: Option<Entity>,
     load_entity_id: Option<i32>,
     load_geom_id: Option<i32>,
+    load_body_id: Option<i32>,
     #[allow(dead_code)]
     object: Object,
 }
@@ -1520,6 +1570,7 @@ impl NativeRegistry {
                 entity,
                 load_entity_id: None,
                 load_geom_id: None,
+                load_body_id: None,
                 object: object.clone(),
             },
         );
@@ -1562,6 +1613,7 @@ impl NativeRegistry {
         for instance in self.instances.values_mut() {
             instance.load_entity_id = None;
             instance.load_geom_id = None;
+            instance.load_body_id = None;
         }
     }
 
@@ -1571,15 +1623,21 @@ impl NativeRegistry {
         kind: LoadId,
         id: i32,
     ) -> Result<(), HostError> {
+        if kind == LoadId::Body {
+            self.instance_mut(object)?.load_body_id = Some(id);
+            return Ok(());
+        }
         let instance = self.instance_mut(object)?;
         let entity = instance.entity.ok_or_else(|| object_error("ID"))?;
         let old = match kind {
             LoadId::Entity => instance.load_entity_id.replace(id),
             LoadId::Geometry => instance.load_geom_id.replace(id),
+            LoadId::Body => unreachable!(),
         };
         let ids = match kind {
             LoadId::Entity => &mut self.load_entities,
             LoadId::Geometry => &mut self.load_geometries,
+            LoadId::Body => unreachable!(),
         };
         if let Some(old) = old
             && ids.get(&old) == Some(&entity)
@@ -1595,9 +1653,38 @@ impl NativeRegistry {
         match kind {
             LoadId::Entity => &self.load_entities,
             LoadId::Geometry => &self.load_geometries,
+            LoadId::Body => return None,
         }
         .get(&id)
         .copied()
+    }
+
+    fn create_load_body_welds(&self, world: &mut World) {
+        let mut groups: HashMap<i32, Vec<Entity>> = HashMap::new();
+        for instance in self.instances.values() {
+            if let (Some(entity), Some(body)) = (instance.entity, instance.load_body_id)
+                && is_geometry(world, entity)
+            {
+                groups.entry(body).or_default().push(entity);
+            }
+        }
+        let scene = world.resource::<SceneState>().scene;
+        for (body, geometries) in groups {
+            let Some((&first, rest)) = geometries.split_first() else {
+                continue;
+            };
+            let others: &[Entity] = if body == 0 { &geometries } else { rest };
+            for &geometry in others {
+                world.spawn((
+                    FixObject,
+                    JointGeometry {
+                        geoms: [Some(geometry), (body != 0).then_some(first)],
+                        positions: [Vec2::ZERO; 2],
+                    },
+                    ChildOf(scene),
+                ));
+            }
+        }
     }
 
     fn geometry(&self, world: &World, id: i32) -> Result<Option<Entity>, HostError> {
@@ -1668,6 +1755,7 @@ impl ScriptEngine {
     pub(crate) fn eval_scene(&mut self, world: &mut World, source: &str) -> Result<Value, String> {
         self.registry.begin_scene_load(Vec2::ZERO);
         let result = self.eval(world, source);
+        self.registry.create_load_body_welds(world);
         self.registry.end_scene_load();
         result
     }
@@ -1696,6 +1784,7 @@ impl ScriptEngine {
                 .into_iter()
                 .collect(),
         };
+        host.registry.create_load_body_welds(host.world);
         self.registry.end_scene_load();
         errors
     }
@@ -2162,6 +2251,7 @@ impl Host for WorldHost<'_> {
             let id = match kind {
                 LoadId::Entity => instance.load_entity_id,
                 LoadId::Geometry => instance.load_geom_id,
+                LoadId::Body => instance.load_body_id,
             };
             return Ok(id.map(Value::from).unwrap_or(Value::Undefined));
         }
@@ -2282,9 +2372,14 @@ mod tests {
         let scene = world.spawn_empty().id();
         let sky = world
             .spawn((
+                crate::objects::body::PhysicsBody,
                 RigidBody::Static,
                 Position::default(),
+                Rotation::default(),
+                LinearVelocity::ZERO,
+                AngularVelocity::ZERO,
                 Transform::default(),
+                GlobalTransform::default(),
                 ChildOf(scene),
             ))
             .id();
@@ -2708,6 +2803,40 @@ mod tests {
     }
 
     #[test]
+    fn scene_loading_restores_serialized_body_groups() {
+        let mut engine = ScriptEngine::default();
+        let mut world = scene_world();
+        world.init_resource::<body::WeldTopology>();
+
+        engine
+            .eval_scene(
+                &mut world,
+                "Scene.addBox { body = 0; pos = [3, 4] }; \
+                 Scene.addBox { body = 7; pos = [1, 2] }; \
+                 Scene.addBox { body = 7; pos = [5, 6] }",
+            )
+            .unwrap();
+        body::rebuild_welds(&mut world);
+
+        let mut geometries = world
+            .query_filtered::<(Entity, &Position), With<PhysicalGeometry>>()
+            .iter(&world)
+            .map(|(entity, pos)| (pos.0, body::entity(&world, entity).unwrap()))
+            .collect::<Vec<_>>();
+        geometries.sort_by(|a, b| a.0.x.total_cmp(&b.0.x));
+        let sky = world.resource::<SceneState>().sky;
+        assert_eq!(geometries[0], (Vec2::new(1.0, 2.0), geometries[2].1));
+        assert_eq!(geometries[1], (Vec2::new(3.0, 4.0), sky));
+        assert_eq!(geometries[2].0, Vec2::new(5.0, 6.0));
+        assert_ne!(geometries[0].1, sky);
+
+        let error = engine
+            .eval(&mut world, "Scene.addBox { body = 0 }")
+            .unwrap_err();
+        assert!(error.contains("read-only"), "{error}");
+    }
+
+    #[test]
     fn scene_open_replaces_state_and_continues_after_statement_errors() {
         let mut world = scene_world();
         world.init_resource::<super::super::scene::PendingScene>();
@@ -3026,7 +3155,13 @@ mod tests {
             .and_then(|links| links.joint)
             .and_then(|joint| world.get::<avian2d::prelude::RevoluteJoint>(joint))
             .unwrap();
-        assert_eq!((joint.body1, joint.body2), (other, body));
+        assert_eq!(
+            (joint.body1, joint.body2),
+            (
+                body::entity(&world, other).unwrap(),
+                body::entity(&world, body).unwrap()
+            )
+        );
 
         let properties = engine.selection_properties(&mut world, &[hinge]);
         assert_eq!(
@@ -3044,7 +3179,7 @@ mod tests {
         let Value::Object(fix) = engine
             .eval(
                 &mut world,
-                &format!("Scene.addFixjoint {{ geom0 := {id} }}"),
+                &format!("Scene.addFixjoint {{ geom0 := {id}; size := 2 }}"),
             )
             .unwrap()
         else {
@@ -3061,12 +3196,21 @@ mod tests {
             [Vec2::ZERO, Vec2::new(10.0, 15.0)]
         );
         assert_eq!(world.get::<AttachmentKind>(fix), Some(&AttachmentKind::Fix));
-        let joint = world
-            .get::<crate::tools::add_object::AttachmentLinks>(fix)
-            .unwrap()
-            .joint
-            .unwrap();
-        assert!(world.get::<avian2d::prelude::FixedJoint>(joint).is_some());
+        assert_eq!(world.get::<Transform>(fix).unwrap().scale.truncate(), Vec2::splat(2.0));
+        assert_eq!(
+            world
+                .get::<crate::tools::add_object::AttachmentLinks>(fix)
+                .unwrap()
+                .joint,
+            None
+        );
+        assert_eq!(
+            world
+                .query::<&avian2d::prelude::FixedJoint>()
+                .iter(&world)
+                .count(),
+            0
+        );
     }
 
     #[test]
@@ -3144,43 +3288,23 @@ mod tests {
     #[test]
     fn scene_properties_filter_mix_and_apply_to_every_compatible_object() {
         let mut engine = ScriptEngine::default();
-        let mut world = world();
-        let first = world
-            .spawn((
-                RigidBody::Dynamic,
-                Collider::rectangle(2.0, 3.0),
-                ColliderDensity(2.0),
-                Position(Vec2::new(1.0, 2.0)),
-                Rotation::default(),
-                LinearVelocity(Vec2::ZERO),
-                AngularVelocity(0.0),
-                Transform::default(),
-                GlobalTransform::default(),
+        let mut world = scene_world();
+        let scene = world.resource::<crate::ui::SceneState>().scene;
+        let mut queue = bevy::ecs::world::CommandQueue::default();
+        let mut commands = bevy::prelude::Commands::new(&mut queue, &world);
+        let first = PhysicalObject::rect(Vec2::new(2.0, 3.0), Vec3::new(0.0, 0.5, 0.0))
+            .spawn(&mut commands, scene);
+        let second =
+            PhysicalObject::ball(1.0, Vec3::new(9.0, 2.0, 0.0)).spawn(&mut commands, scene);
+        queue.apply(&mut world);
+        for entity in [first, second] {
+            world.entity_mut(entity).insert((
                 CollisionLayers::from_bits(3, 3),
                 Restitution::new(0.5),
                 RefractiveIndex(1.5),
                 ColorComponent(Hsva::new(0.5, 0.6, 0.7, 0.8)),
-                Attraction::default(),
-            ))
-            .id();
-        let second = world
-            .spawn((
-                RigidBody::Dynamic,
-                Collider::circle(1.0),
-                ColliderDensity(2.0),
-                Position(Vec2::new(9.0, 2.0)),
-                Rotation::default(),
-                LinearVelocity(Vec2::ZERO),
-                AngularVelocity(0.0),
-                Transform::default(),
-                GlobalTransform::default(),
-                CollisionLayers::from_bits(3, 3),
-                Restitution::new(0.5),
-                RefractiveIndex(1.5),
-                ColorComponent(Hsva::new(0.5, 0.6, 0.7, 0.8)),
-                Attraction::default(),
-            ))
-            .id();
+            ));
+        }
 
         let properties = engine.selection_properties(&mut world, &[first, second]);
         assert_eq!(
@@ -3204,6 +3328,18 @@ mod tests {
         );
         assert!(properties.iter().any(|p| p.name == "angle"));
         assert!(!properties.iter().any(|p| p.name == "rotation"));
+        let body_property = properties.iter().find(|p| p.name == "body").unwrap();
+        assert!(body_property.read_only);
+        assert_eq!(body_property.value, "?");
+        assert_eq!(
+            engine
+                .selection_properties(&mut world, &[first])
+                .into_iter()
+                .find(|p| p.name == "body")
+                .unwrap()
+                .value,
+            body::entity(&world, first).unwrap().index_u32().to_string(),
+        );
 
         engine
             .set_selection_property(&mut world, &[first, second], "pos", "[3, 4]")
@@ -3222,7 +3358,8 @@ mod tests {
         engine
             .set_selection_property(&mut world, &[first, second], "color", "[1, 0, 0, 1]")
             .unwrap();
-        assert_eq!(world.get::<AngularVelocity>(first).unwrap().0, 2.0);
+        let body = body::entity(&world, first).unwrap();
+        assert_eq!(world.get::<AngularVelocity>(body).unwrap().0, 2.0);
         assert_eq!(
             world.get::<Attraction>(second).unwrap().falloff,
             AttractionFalloff::Linear
@@ -3280,11 +3417,14 @@ mod tests {
     #[test]
     fn boxes_and_circles_expose_their_geometry() {
         let mut engine = ScriptEngine::default();
-        let mut world = world();
-        let rectangle = world
-            .spawn(PhysicalObject::rect(Vec2::new(2.0, 3.0), Vec3::ZERO))
-            .id();
-        let circle = world.spawn(PhysicalObject::ball(1.5, Vec3::ZERO)).id();
+        let mut world = scene_world();
+        let scene = world.resource::<crate::ui::SceneState>().scene;
+        let mut queue = bevy::ecs::world::CommandQueue::default();
+        let mut commands = bevy::prelude::Commands::new(&mut queue, &world);
+        let rectangle =
+            PhysicalObject::rect(Vec2::new(2.0, 3.0), Vec3::ZERO).spawn(&mut commands, scene);
+        let circle = PhysicalObject::ball(1.5, Vec3::ZERO).spawn(&mut commands, scene);
+        queue.apply(&mut world);
 
         let rectangle_props = engine.selection_properties(&mut world, &[rectangle]);
         assert_eq!(

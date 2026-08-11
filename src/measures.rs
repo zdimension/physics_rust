@@ -111,29 +111,41 @@ pub struct MomentumValue {
 
 #[derive(QueryData)]
 pub struct AggregateMeasureData {
-    pub rigid_body: Option<&'static RigidBody>,
+    pub body: Option<&'static ColliderOf>,
     pub position: Option<&'static Position>,
     pub rotation: Option<&'static Rotation>,
     pub mass: Option<&'static ColliderMassProperties>,
-    pub linear: Option<&'static LinearVelocity>,
-    pub angular: Option<&'static AngularVelocity>,
     pub spring: Option<&'static SpringObject>,
     pub plane: Option<&'static PlaneObject>,
+}
+
+#[derive(Clone, Copy)]
+struct MassSample {
+    mass: f32,
+    inertia: f32,
+    center: Vec2,
+    motion: Option<(Vec2, f32)>,
 }
 
 pub fn aggregate_measures(
     targets: impl IntoIterator<Item = Entity>,
     query: &Query<AggregateMeasureData>,
     body_positions: &Query<(&Position, &Rotation)>,
+    bodies: &Query<(
+        &Position,
+        &Rotation,
+        &ComputedCenterOfMass,
+        &LinearVelocity,
+        &AngularVelocity,
+    )>,
     gravity: Vec2,
 ) -> AggregateMeasures {
     let mut total_mass = 0.0;
-    let mut total_inertia = 0.0;
     let mut weighted_pos = Vec2::ZERO;
     let mut weighted_vel = Vec2::ZERO;
     let mut weighted_ang_vel = 0.0;
+    let mut intrinsic_inertia = 0.0;
     let mut linear_momentum = Vec2::ZERO;
-    let mut angular_momentum = 0.0;
     let mut kinetic_linear = 0.0;
     let mut kinetic_angular = 0.0;
     let mut gravity_energy = 0.0;
@@ -146,6 +158,7 @@ pub fn aggregate_measures(
     let mut has_spring = false;
     let mut plane_position_sum = Vec2::ZERO;
     let mut plane_count = 0usize;
+    let mut samples = Vec::new();
 
     for entity in targets {
         let Ok(item) = query.get(entity) else {
@@ -157,41 +170,43 @@ pub fn aggregate_measures(
                 plane_position_sum += position.0;
                 plane_count += 1;
             }
-        } else if let (Some(_), Some(mass), Some(position), Some(rotation)) =
-            (item.rigid_body, item.mass, item.position, item.rotation)
+        } else if let (Some(link), Some(mass), Some(position), Some(rotation)) =
+            (item.body, item.mass, item.position, item.rotation)
             && mass.mass > 0.0
         {
             has_mass = true;
             total_mass += mass.mass;
-            total_inertia += mass.angular_inertia;
             let center_offset = *rotation * mass.center_of_mass;
             let center = position.0 + center_offset;
             weighted_pos += center * mass.mass;
             gravity_energy += -mass.mass * gravity.dot(center);
             has_gravity = true;
 
-            if let Some(linear) = item.linear {
-                let velocity = if let Some(angular) = item.angular {
-                    linear.0 + Vec2::new(-center_offset.y, center_offset.x) * angular.0
-                } else {
-                    linear.0
-                };
+            let motion = if let Ok((body_pos, body_rotation, body_center, linear, angular)) =
+                bodies.get(link.body)
+            {
+                let body_center = body_pos.0 + *body_rotation * body_center.0;
+                let offset = center - body_center;
+                let velocity = linear.0 + Vec2::new(-offset.y, offset.x) * angular.0;
                 has_velocity = true;
                 weighted_vel += velocity * mass.mass;
                 linear_momentum += mass.mass * velocity;
-            }
-
-            if let Some(angular) = item.angular {
                 has_angular_velocity = true;
                 weighted_ang_vel += angular.0 * mass.angular_inertia;
-                angular_momentum += mass.angular_inertia * angular.0;
-            }
-
-            if let (Some(linear), Some(angular)) = (item.linear, item.angular) {
+                intrinsic_inertia += mass.angular_inertia;
                 has_kinetic = true;
-                kinetic_linear += 0.5 * mass.mass * linear.0.length_squared();
+                kinetic_linear += 0.5 * mass.mass * velocity.length_squared();
                 kinetic_angular += 0.5 * mass.angular_inertia * angular.0.powi(2);
-            }
+                Some((velocity, angular.0))
+            } else {
+                None
+            };
+            samples.push(MassSample {
+                mass: mass.mass,
+                inertia: mass.angular_inertia,
+                center,
+                motion,
+            });
         }
 
         if let Some(spring) = item.spring {
@@ -202,22 +217,37 @@ pub fn aggregate_measures(
         }
     }
 
+    let center = (has_mass && total_mass > 0.0).then(|| weighted_pos / total_mass);
+    let total_inertia = center.map(|center| {
+        samples
+            .iter()
+            .map(|sample| sample.inertia + sample.mass * sample.center.distance_squared(center))
+            .sum()
+    });
+    let angular_momentum = center.map(|center| {
+        samples
+            .iter()
+            .filter_map(|sample| {
+                let (velocity, angular) = sample.motion?;
+                Some(
+                    sample.inertia * angular
+                        + (sample.center - center).perp_dot(sample.mass * velocity),
+                )
+            })
+            .sum()
+    });
+
     AggregateMeasures {
         mass: has_mass.then_some(total_mass),
-        angular_inertia: has_mass.then_some(total_inertia),
-        position: if has_mass && total_mass > 0.0 {
-            Some(weighted_pos / total_mass)
-        } else if plane_count > 0 {
-            Some(plane_position_sum / plane_count as f32)
-        } else {
-            None
-        },
+        angular_inertia: total_inertia,
+        position: center
+            .or_else(|| (plane_count > 0).then_some(plane_position_sum / plane_count as f32)),
         velocity: (has_velocity && total_mass > 0.0).then_some(weighted_vel / total_mass),
-        angular_velocity: (has_angular_velocity && total_inertia > 0.0)
-            .then_some(weighted_ang_vel / total_inertia),
+        angular_velocity: (has_angular_velocity && intrinsic_inertia > 0.0)
+            .then_some(weighted_ang_vel / intrinsic_inertia),
         momentum: (has_velocity || has_angular_velocity).then_some(MomentumValue {
             linear: linear_momentum,
-            angular: angular_momentum,
+            angular: angular_momentum.unwrap_or_default(),
         }),
         kinetic_linear: has_kinetic.then_some(kinetic_linear),
         kinetic_angular: has_kinetic.then_some(kinetic_angular),
@@ -243,6 +273,49 @@ mod tests {
     use super::*;
     use bevy::ecs::system::SystemState;
 
+    fn aggregate(
+        world: &mut World,
+        targets: impl IntoIterator<Item = Entity>,
+    ) -> AggregateMeasures {
+        let mut state: SystemState<(
+            Query<AggregateMeasureData>,
+            Query<(&Position, &Rotation)>,
+            Query<(
+                &Position,
+                &Rotation,
+                &ComputedCenterOfMass,
+                &LinearVelocity,
+                &AngularVelocity,
+            )>,
+        )> = SystemState::new(world);
+        let (measures, positions, bodies) = state.get(world).unwrap();
+        aggregate_measures(targets, &measures, &positions, &bodies, Vec2::ZERO)
+    }
+
+    fn body(world: &mut World, position: Vec2, angular_velocity: f32) -> Entity {
+        world
+            .spawn((
+                RigidBody::Dynamic,
+                Position(position),
+                Rotation::default(),
+                ComputedCenterOfMass::default(),
+                LinearVelocity::ZERO,
+                AngularVelocity(angular_velocity),
+            ))
+            .id()
+    }
+
+    fn circle(world: &mut World, body: Entity, position: Vec2) -> Entity {
+        world
+            .spawn((
+                ColliderOf { body },
+                Position(position),
+                Rotation::default(),
+                ColliderMassProperties::from_shape(&Collider::circle(1.0), 1.0),
+            ))
+            .id()
+    }
+
     #[test]
     fn plane_exposes_position_but_not_mass_or_energy() {
         let mut world = World::new();
@@ -259,10 +332,7 @@ mod tests {
             ))
             .id();
 
-        let mut state: SystemState<(Query<AggregateMeasureData>, Query<(&Position, &Rotation)>)> =
-            SystemState::new(&mut world);
-        let (measure_query, positions) = state.get(&world).unwrap();
-        let aggregate = aggregate_measures([plane], &measure_query, &positions, Vec2::NEG_Y);
+        let aggregate = aggregate(&mut world, [plane]);
 
         assert_eq!(aggregate.position, Some(position));
         assert!(aggregate.mass.is_none());
@@ -270,6 +340,38 @@ mod tests {
         assert!(aggregate.velocity.is_none());
         assert!(aggregate.kinetic_total().is_none());
         assert!(aggregate.gravity_energy.is_none());
+    }
+
+    #[test]
+    fn aggregate_angular_measures_match_algodoo() {
+        let mut world = World::new();
+        let shared = body(&mut world, Vec2::ZERO, 1.0);
+        let welded = [
+            circle(&mut world, shared, -Vec2::X * 2.0),
+            circle(&mut world, shared, Vec2::X * 2.0),
+        ];
+        let welded = aggregate(&mut world, welded);
+        let pi = std::f32::consts::PI;
+        assert!((welded.angular_inertia.unwrap() - 9.0 * pi).abs() < 1.0e-4);
+        assert_eq!(welded.angular_velocity, Some(1.0));
+        assert!((welded.momentum.unwrap().angular - 9.0 * pi).abs() < 1.0e-4);
+        assert!((welded.kinetic_linear.unwrap() - 4.0 * pi).abs() < 1.0e-4);
+        assert!((welded.kinetic_angular.unwrap() - 0.5 * pi).abs() < 1.0e-4);
+
+        let separate_bodies = [
+            body(&mut world, -Vec2::X * 2.0, 1.0),
+            body(&mut world, Vec2::X * 2.0, 1.0),
+        ];
+        let separate = [
+            circle(&mut world, separate_bodies[0], -Vec2::X * 2.0),
+            circle(&mut world, separate_bodies[1], Vec2::X * 2.0),
+        ];
+        let separate = aggregate(&mut world, separate);
+        assert!((separate.angular_inertia.unwrap() - 9.0 * pi).abs() < 1.0e-4);
+        assert_eq!(separate.angular_velocity, Some(1.0));
+        assert!((separate.momentum.unwrap().angular - pi).abs() < 1.0e-4);
+        assert_eq!(separate.kinetic_linear, Some(0.0));
+        assert!((separate.kinetic_angular.unwrap() - 0.5 * pi).abs() < 1.0e-4);
     }
 }
 

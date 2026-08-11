@@ -485,13 +485,14 @@ pub struct UnfreezeEntityEvent {
 fn process_unfreeze_entity(
     mut events: MessageReader<UnfreezeEntityEvent>,
     mut commands: Commands,
-    planes: Query<(), With<objects::plane::PlaneObject>>,
+    bodies: Query<&ColliderOf>,
+    scene: Res<SceneState>,
 ) {
     for UnfreezeEntityEvent { entity } in events.read().copied() {
-        if planes.contains(entity) {
-            commands.entity(entity).insert(RigidBody::Static);
-        } else {
-            commands.entity(entity).insert(RigidBody::Dynamic);
+        if let Ok(body) = bodies.get(entity)
+            && body.body != scene.sky
+        {
+            commands.entity(body.body).insert(RigidBody::Dynamic);
         }
     }
 }
