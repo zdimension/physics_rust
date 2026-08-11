@@ -26,6 +26,7 @@ use bevy::ecs::world::CommandQueue;
 use bevy::log::info;
 use bevy::math::{Vec2, Vec3};
 use bevy::prelude::*;
+use bevy_egui::egui::ecolor::Hsva;
 
 const VIRTUAL_LAYER: u32 = 1 << 31;
 
@@ -59,7 +60,7 @@ pub enum AddObjectEvent {
     Plane {
         point: Vec2,
         outward_normal: Vec2,
-        color: bevy_egui::egui::ecolor::Hsva,
+        color: Hsva,
     },
     Box {
         pos: Vec2,
@@ -141,7 +142,19 @@ enum LaserPlacement {
     Sky { pos: Vec2 },
 }
 
-fn random_color(world: &mut World) -> bevy_egui::egui::ecolor::Hsva {
+#[derive(Copy, Clone)]
+struct AttachmentSpawnContext<'a> {
+    images: &'a AppIcons,
+    color: Hsva,
+    sky_color: Color,
+    camera_scale: f32,
+    camera_rotation: Quat,
+    z: f32,
+    scene: Entity,
+    sky: Entity,
+}
+
+fn random_color(world: &mut World) -> Hsva {
     let palette = world.resource::<PaletteConfig>().current_palette;
     palette.get_color_hsva(
         &mut *world
@@ -253,29 +266,22 @@ fn spawn_joint_visual(
         .single(world)
         .unwrap();
     let z = world.resource_mut::<DepthSorter>().next();
+    let scene = world.resource::<SceneState>();
+    let context = AttachmentSpawnContext {
+        images: &images,
+        color,
+        sky_color: palette.sky_color,
+        camera_scale: camera.scale.x,
+        camera_rotation: camera.rotation,
+        z,
+        scene: scene.scene,
+        sky: scene.sky,
+    };
     let mut queue = CommandQueue::default();
     let commands = &mut Commands::new(&mut queue, world);
     let visual = match kind {
-        AttachmentKind::Axle => spawn_axle_visual(
-            commands,
-            placement,
-            &images,
-            color,
-            palette.sky_color,
-            camera.scale.x,
-            camera.rotation,
-            z,
-        ),
-        AttachmentKind::Fix => spawn_fix_visual(
-            commands,
-            placement,
-            &images,
-            color,
-            palette.sky_color,
-            camera.scale.x,
-            camera.rotation,
-            z,
-        ),
+        AttachmentKind::Axle => spawn_axle_visual(commands, placement, context),
+        AttachmentKind::Fix => spawn_fix_visual(commands, placement, context),
         _ => unreachable!(),
     };
     queue.apply(world);
@@ -443,6 +449,16 @@ pub fn process_add_object(
     let camera = cameras.single().unwrap();
     let camera_scale = camera.scale.x;
     let camera_rotation = camera.rotation;
+    let attachment_context = |z, color| AttachmentSpawnContext {
+        images: &images,
+        color,
+        sky_color: palette.sky_color,
+        camera_scale,
+        camera_rotation,
+        z,
+        scene: scene_state.scene,
+        sky: scene_state.sky,
+    };
 
     for ev in events.read() {
         use AddObjectEvent::*;
@@ -499,14 +515,10 @@ pub fn process_add_object(
                 spawn_axle_attachment(
                     &mut commands,
                     placement,
-                    &images,
-                    palette.get_color_hsva_opaque(&mut *rng.single_mut().unwrap()),
-                    palette.sky_color,
-                    camera_scale,
-                    camera_rotation,
-                    z.next(),
-                    scene_state.scene,
-                    scene_state.sky,
+                    attachment_context(
+                        z.next(),
+                        palette.get_color_hsva_opaque(&mut *rng.single_mut().unwrap()),
+                    ),
                 );
             }
             Plane {
@@ -558,14 +570,10 @@ pub fn process_add_object(
                 spawn_fix_attachment(
                     &mut commands,
                     placement,
-                    &images,
-                    palette.get_color_hsva_opaque(&mut *rng.single_mut().unwrap()),
-                    palette.sky_color,
-                    camera_scale,
-                    camera_rotation,
-                    z.next(),
-                    scene_state.scene,
-                    scene_state.sky,
+                    attachment_context(
+                        z.next(),
+                        palette.get_color_hsva_opaque(&mut *rng.single_mut().unwrap()),
+                    ),
                 );
             }
             Axle(ref ev) => {
@@ -586,14 +594,10 @@ pub fn process_add_object(
                 spawn_axle_attachment(
                     &mut commands,
                     placement,
-                    &images,
-                    palette.get_color_hsva_opaque(&mut *rng.single_mut().unwrap()),
-                    palette.sky_color,
-                    camera_scale,
-                    camera_rotation,
-                    z.next(),
-                    scene_state.scene,
-                    scene_state.sky,
+                    attachment_context(
+                        z.next(),
+                        palette.get_color_hsva_opaque(&mut *rng.single_mut().unwrap()),
+                    ),
                 );
             }
             Laser(pos) => {
@@ -601,12 +605,10 @@ pub fn process_add_object(
                 spawn_laser_attachment(
                     &mut commands,
                     placement,
-                    &images,
-                    palette.get_color_hsva_opaque(&mut *rng.single_mut().unwrap()),
-                    camera_scale,
-                    camera_rotation,
-                    &mut z,
-                    scene_state.scene,
+                    attachment_context(
+                        z.next(),
+                        palette.get_color_hsva_opaque(&mut *rng.single_mut().unwrap()),
+                    ),
                 );
             }
             Thruster(pos) => {
@@ -616,10 +618,7 @@ pub fn process_add_object(
                 spawn_thruster_attachment(
                     &mut commands,
                     placement,
-                    &images,
-                    camera_scale,
-                    camera_rotation,
-                    &mut z,
+                    attachment_context(z.next(), Hsva::new(0.0, 0.0, 1.0, 1.0)),
                     false,
                 );
             }
@@ -630,11 +629,10 @@ pub fn process_add_object(
                 spawn_tracer_attachment(
                     &mut commands,
                     placement,
-                    &images,
-                    palette.get_color_hsva_opaque(&mut *rng.single_mut().unwrap()),
-                    camera_scale,
-                    camera_rotation,
-                    &mut z,
+                    attachment_context(
+                        z.next(),
+                        palette.get_color_hsva_opaque(&mut *rng.single_mut().unwrap()),
+                    ),
                     false,
                 );
             }
@@ -645,10 +643,7 @@ pub fn process_add_object(
                 spawn_thruster_attachment(
                     &mut commands,
                     placement,
-                    &images,
-                    camera_scale,
-                    camera_rotation,
-                    &mut z,
+                    attachment_context(z.next(), Hsva::new(0.0, 0.0, 1.0, 1.0)),
                     true,
                 );
             }
@@ -665,11 +660,7 @@ pub fn process_add_object(
                 spawn_tracer_attachment(
                     &mut commands,
                     placement,
-                    &images,
-                    color,
-                    camera_scale,
-                    camera_rotation,
-                    &mut z,
+                    attachment_context(z.next(), color),
                     true,
                 );
             }
@@ -1039,14 +1030,9 @@ fn clear_attachment_links(commands: &mut Commands, links: Option<AttachmentLinks
 fn spawn_fix_visual(
     commands: &mut Commands,
     placement: AttachmentPlacement,
-    images: &AppIcons,
-    color: bevy_egui::egui::ecolor::Hsva,
-    sky_color: Color,
-    camera_scale: f32,
-    camera_rotation: Quat,
-    z: f32,
+    context: AttachmentSpawnContext,
 ) -> Entity {
-    let scale = camera_scale * DEFAULT_OBJ_SIZE;
+    let scale = context.camera_scale * DEFAULT_OBJ_SIZE;
     commands
         .spawn((
             ShapeBundle::new(
@@ -1054,7 +1040,12 @@ fn spawn_fix_visual(
                     radius: 0.5 * 1.1,
                     ..Default::default()
                 }),
-                screen_aligned_attachment_transform(placement, scale, z, camera_rotation),
+                screen_aligned_attachment_transform(
+                    placement,
+                    scale,
+                    context.z,
+                    context.camera_rotation,
+                ),
                 Visibility::Inherited,
             ),
             crate::make_stroke(Color::srgba(0.0, 0.0, 0.0, 0.0), BORDER_WIDTH_PX),
@@ -1064,13 +1055,13 @@ fn spawn_fix_visual(
             Sensor,
             AttachmentKind::Fix,
             FixObject,
-            ColorComponent(color).update_from_this(),
+            ColorComponent(context.color).update_from_this(),
             ChildOf(placement.body1.entity),
         ))
         .with_children(|builder| {
             builder.spawn((
                 Sprite {
-                    image: images.fixjoint_outer.clone(),
+                    image: context.images.fixjoint_outer.clone(),
                     ..Default::default()
                 },
                 Transform::from_scale(Vec3::new(1.0 / 256.0, 1.0 / 256.0, 1.0)),
@@ -1079,8 +1070,8 @@ fn spawn_fix_visual(
             let mut inner = builder.spawn((
                 AttachmentSupportColor,
                 Sprite {
-                    image: images.fixjoint_inner.clone(),
-                    color: sky_color,
+                    image: context.images.fixjoint_inner.clone(),
+                    color: context.sky_color,
                     ..Default::default()
                 },
                 Transform::from_scale(Vec3::new(1.0 / 256.0, 1.0 / 256.0, 1.0)),
@@ -1095,25 +1086,9 @@ fn spawn_fix_visual(
 fn spawn_fix_attachment(
     commands: &mut Commands,
     placement: AttachmentPlacement,
-    images: &AppIcons,
-    color: bevy_egui::egui::ecolor::Hsva,
-    sky_color: Color,
-    camera_scale: f32,
-    camera_rotation: Quat,
-    z: f32,
-    _scene: Entity,
-    _sky: Entity,
+    context: AttachmentSpawnContext,
 ) -> Entity {
-    let visual = spawn_fix_visual(
-        commands,
-        placement,
-        images,
-        color,
-        sky_color,
-        camera_scale,
-        camera_rotation,
-        z,
-    );
+    let visual = spawn_fix_visual(commands, placement, context);
     commands
         .entity(visual)
         .insert((joint_geometry(placement), AttachmentLinks::default()));
@@ -1123,14 +1098,9 @@ fn spawn_fix_attachment(
 fn spawn_axle_visual(
     commands: &mut Commands,
     placement: AttachmentPlacement,
-    images: &AppIcons,
-    color: bevy_egui::egui::ecolor::Hsva,
-    sky_color: Color,
-    camera_scale: f32,
-    camera_rotation: Quat,
-    z: f32,
+    context: AttachmentSpawnContext,
 ) -> Entity {
-    let scale = camera_scale * DEFAULT_OBJ_SIZE;
+    let scale = context.camera_scale * DEFAULT_OBJ_SIZE;
     const IMAGE_SCALE: f32 = 1.0 / 256.0;
     const IMAGE_SCALE_VEC: Vec3 = Vec3::new(IMAGE_SCALE, IMAGE_SCALE, 1.0);
 
@@ -1141,7 +1111,12 @@ fn spawn_axle_visual(
                     radius: hinge_selection_radius(false),
                     ..Default::default()
                 }),
-                screen_aligned_attachment_transform(placement, scale, z, camera_rotation),
+                screen_aligned_attachment_transform(
+                    placement,
+                    scale,
+                    context.z,
+                    context.camera_rotation,
+                ),
                 Visibility::Inherited,
             ),
             crate::make_stroke(Color::srgba(0.0, 0.0, 0.0, 0.0), BORDER_WIDTH_PX),
@@ -1151,7 +1126,7 @@ fn spawn_axle_visual(
             Sensor,
             AttachmentKind::Axle,
             AxleVisual,
-            ColorComponent(color).update_from_this(),
+            ColorComponent(context.color).update_from_this(),
             MotorComponent::default(),
             ChildOf(placement.body1.entity),
         ))
@@ -1159,7 +1134,7 @@ fn spawn_axle_visual(
             builder.spawn((
                 HingeMotorRing,
                 Sprite {
-                    image: images.hinge_motor.clone(),
+                    image: context.images.hinge_motor.clone(),
                     custom_size: Some(Vec2::splat(HINGE_MOTOR_VISUAL_DIAMETER)),
                     ..Default::default()
                 },
@@ -1170,7 +1145,7 @@ fn spawn_axle_visual(
             builder.spawn((
                 HingeMotorDirection { reversed: true },
                 Sprite {
-                    image: images.hinge_motor_ccw.clone(),
+                    image: context.images.hinge_motor_ccw.clone(),
                     custom_size: Some(Vec2::splat(HINGE_MOTOR_VISUAL_DIAMETER)),
                     ..Default::default()
                 },
@@ -1180,7 +1155,7 @@ fn spawn_axle_visual(
             builder.spawn((
                 HingeMotorDirection { reversed: false },
                 Sprite {
-                    image: images.hinge_motor_cw.clone(),
+                    image: context.images.hinge_motor_cw.clone(),
                     custom_size: Some(Vec2::splat(HINGE_MOTOR_VISUAL_DIAMETER)),
                     ..Default::default()
                 },
@@ -1190,7 +1165,7 @@ fn spawn_axle_visual(
             builder.spawn((
                 AxleBodyColor,
                 Sprite {
-                    image: images.hinge_balls.clone(),
+                    image: context.images.hinge_balls.clone(),
                     ..Default::default()
                 },
                 Transform::from_scale(IMAGE_SCALE_VEC),
@@ -1198,7 +1173,7 @@ fn spawn_axle_visual(
             ));
             builder.spawn((
                 Sprite {
-                    image: images.hinge_background.clone(),
+                    image: context.images.hinge_background.clone(),
                     ..Default::default()
                 },
                 Transform::from_scale(IMAGE_SCALE_VEC),
@@ -1207,8 +1182,8 @@ fn spawn_axle_visual(
             let mut inner = builder.spawn((
                 AttachmentSupportColor,
                 Sprite {
-                    image: images.hinge_inner.clone(),
-                    color: sky_color,
+                    image: context.images.hinge_inner.clone(),
+                    color: context.sky_color,
                     ..Default::default()
                 },
                 Transform::from_scale(IMAGE_SCALE_VEC),
@@ -1223,26 +1198,10 @@ fn spawn_axle_visual(
 fn spawn_axle_attachment(
     commands: &mut Commands,
     placement: AttachmentPlacement,
-    images: &AppIcons,
-    color: bevy_egui::egui::ecolor::Hsva,
-    sky_color: Color,
-    camera_scale: f32,
-    camera_rotation: Quat,
-    z: f32,
-    scene: Entity,
-    sky: Entity,
+    context: AttachmentSpawnContext,
 ) -> Entity {
-    let visual = spawn_axle_visual(
-        commands,
-        placement,
-        images,
-        color,
-        sky_color,
-        camera_scale,
-        camera_rotation,
-        z,
-    );
-    let links = spawn_axle_joint(commands, visual, placement, scene, sky);
+    let visual = spawn_axle_visual(commands, placement, context);
+    let links = spawn_axle_joint(commands, visual, placement, context.scene, context.sky);
     commands
         .entity(visual)
         .insert((joint_geometry(placement), links));
@@ -1252,22 +1211,17 @@ fn spawn_axle_attachment(
 fn spawn_laser_attachment(
     commands: &mut Commands,
     placement: LaserPlacement,
-    images: &AppIcons,
-    color: bevy_egui::egui::ecolor::Hsva,
-    camera_scale: f32,
-    camera_rotation: Quat,
-    z: &mut DepthSorter,
-    scene: Entity,
+    context: AttachmentSpawnContext,
 ) -> Entity {
-    let scale = camera_scale * DEFAULT_OBJ_SIZE;
+    let scale = context.camera_scale * DEFAULT_OBJ_SIZE;
     let (transform, parent) = match placement {
         LaserPlacement::Body(placement) => (
-            screen_aligned_attachment_pose(placement, z.next(), camera_rotation),
+            screen_aligned_attachment_pose(placement, context.z, context.camera_rotation),
             placement.body1.entity,
         ),
         LaserPlacement::Sky { pos } => (
-            screen_aligned_sky_attachment_pose(pos, z.next(), camera_rotation),
-            scene,
+            screen_aligned_sky_attachment_pose(pos, context.z, context.camera_rotation),
+            context.scene,
         ),
     };
     commands
@@ -1278,7 +1232,7 @@ fn spawn_laser_attachment(
                 size: scale,
                 fade_distance: 300.0,
             },
-            ColorComponent(color).update_from_this(),
+            ColorComponent(context.color).update_from_this(),
             Collider::rectangle(scale * 0.5, scale * 0.25),
             VIRTUAL_LAYER_OBJ,
             Sensor,
@@ -1289,7 +1243,7 @@ fn spawn_laser_attachment(
         .with_child((
             LaserVisual,
             Sprite {
-                image: images.laserpen.clone(),
+                image: context.images.laserpen.clone(),
                 ..Default::default()
             },
             Transform::from_scale(Vec3::new(scale / 256.0, scale / 256.0, 1.0)),
@@ -1301,25 +1255,21 @@ fn spawn_laser_attachment(
 fn spawn_thruster_attachment(
     commands: &mut Commands,
     placement: AttachmentPlacement,
-    images: &AppIcons,
-    camera_scale: f32,
-    camera_rotation: Quat,
-    z: &mut DepthSorter,
+    context: AttachmentSpawnContext,
     align_with_body: bool,
 ) -> Entity {
-    let scale = camera_scale * DEFAULT_OBJ_SIZE * 2.0;
+    let scale = context.camera_scale * DEFAULT_OBJ_SIZE * 2.0;
     let sprite_scale = Vec3::new(scale / 256.0, scale / 256.0, 1.0);
     commands
         .spawn((
             if align_with_body {
-                attachment_pose(placement, z.next())
+                attachment_pose(placement, context.z)
             } else {
-                screen_aligned_attachment_pose(placement, z.next(), camera_rotation)
+                screen_aligned_attachment_pose(placement, context.z, context.camera_rotation)
             },
             Visibility::Inherited,
             ThrusterSettings::default(),
-            ColorComponent(bevy_egui::egui::ecolor::Hsva::new(0.0, 0.0, 1.0, 1.0))
-                .update_from_this(),
+            ColorComponent(context.color).update_from_this(),
             Collider::rectangle(scale, scale * 0.5),
             VIRTUAL_LAYER_OBJ,
             Sensor,
@@ -1331,7 +1281,7 @@ fn spawn_thruster_attachment(
             builder.spawn((
                 ThrusterInner,
                 Sprite {
-                    image: images.thruster_inner.clone(),
+                    image: context.images.thruster_inner.clone(),
                     ..Default::default()
                 },
                 Transform::from_scale(sprite_scale),
@@ -1339,14 +1289,14 @@ fn spawn_thruster_attachment(
             ));
             builder.spawn((
                 Sprite {
-                    image: images.thruster_thrust.clone(),
+                    image: context.images.thruster_thrust.clone(),
                     ..Default::default()
                 },
                 Transform::from_translation(Vec3::Z * 0.01).with_scale(sprite_scale),
             ));
             builder.spawn((
                 Sprite {
-                    image: images.thruster_outer.clone(),
+                    image: context.images.thruster_outer.clone(),
                     ..Default::default()
                 },
                 Transform::from_translation(Vec3::Z * 0.02).with_scale(sprite_scale),
@@ -1359,14 +1309,10 @@ fn spawn_thruster_attachment(
 fn spawn_tracer_attachment(
     commands: &mut Commands,
     placement: AttachmentPlacement,
-    images: &AppIcons,
-    color: bevy_egui::egui::ecolor::Hsva,
-    camera_scale: f32,
-    camera_rotation: Quat,
-    z: &mut DepthSorter,
+    context: AttachmentSpawnContext,
     center_on_body: bool,
 ) -> Entity {
-    let scale = camera_scale * DEFAULT_OBJ_SIZE;
+    let scale = context.camera_scale * DEFAULT_OBJ_SIZE;
     commands
         .spawn((
             ShapeBundle::new(
@@ -1375,9 +1321,9 @@ fn spawn_tracer_attachment(
                     ..Default::default()
                 }),
                 if center_on_body {
-                    attachment_pose(placement, z.next())
+                    attachment_pose(placement, context.z)
                 } else {
-                    screen_aligned_attachment_pose(placement, z.next(), camera_rotation)
+                    screen_aligned_attachment_pose(placement, context.z, context.camera_rotation)
                 },
                 Visibility::Inherited,
             ),
@@ -1387,7 +1333,7 @@ fn spawn_tracer_attachment(
                 diameter: scale,
                 ..Default::default()
             },
-            ColorComponent(color).update_from_this(),
+            ColorComponent(context.color).update_from_this(),
             Collider::circle(scale * 0.5),
             VIRTUAL_LAYER_OBJ,
             Sensor,
@@ -1399,7 +1345,7 @@ fn spawn_tracer_attachment(
         .with_child((
             TracerVisual,
             Sprite {
-                image: images.tracer.clone(),
+                image: context.images.tracer.clone(),
                 custom_size: Some(Vec2::splat(scale)),
                 ..Default::default()
             },

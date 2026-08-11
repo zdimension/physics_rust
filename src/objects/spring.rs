@@ -1,7 +1,4 @@
-use super::{
-    body::{velocity_at_point, world_point},
-    phy_obj::PhysicalGeometry,
-};
+use super::{body::world_point, phy_obj::PhysicalGeometry};
 use avian2d::prelude::*;
 use bevy::math::{Vec2, Vec3};
 use bevy::prelude::*;
