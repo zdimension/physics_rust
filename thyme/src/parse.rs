@@ -373,23 +373,39 @@ pub enum Expr {
 pub struct PrettyPrinter<W> {
     out: W,
     indent: usize,
+    line_start: bool,
 }
 
 impl<W: Write> PrettyPrinter<W> {
     pub fn new(out: W) -> Self {
-        Self { out, indent: 0 }
+        Self {
+            out,
+            indent: 0,
+            line_start: true,
+        }
     }
 
     fn write(&mut self, s: &str) -> fmt::Result {
-        self.out.write_str(s)
+        for chunk in s.split_inclusive('\n') {
+            if self.line_start && chunk != "\n" {
+                write!(self.out, "{:width$}", "", width = self.indent * 4)?;
+            }
+            self.out.write_str(chunk)?;
+            self.line_start = chunk.ends_with('\n');
+        }
+        Ok(())
     }
 
     fn write_char(&mut self, c: char) -> fmt::Result {
-        self.out.write_char(c)
+        self.write(c.encode_utf8(&mut [0; 4]))
     }
 
-    fn line(&mut self, s: &str) -> fmt::Result {
-        writeln!(self.out, "{:indent$}{s}", "", indent = self.indent * 4)
+    fn write_display(&mut self, value: impl Display) -> fmt::Result {
+        if self.line_start {
+            write!(self.out, "{:width$}", "", width = self.indent * 4)?;
+            self.line_start = false;
+        }
+        write!(self.out, "{value}")
     }
 
     fn indented(&mut self, f: impl FnOnce(&mut Self) -> fmt::Result) -> fmt::Result {
@@ -417,8 +433,8 @@ impl Expr {
             }
             Expr::Value(lit) => match lit {
                 Literal::Null => printer.write("null"),
-                Literal::Bool(b) => write!(printer.out, "{}", b),
-                Literal::Number(n) => write!(printer.out, "{}", n),
+                Literal::Bool(b) => printer.write_display(b),
+                Literal::Number(n) => printer.write_display(n),
                 Literal::Str(s) => {
                     printer.write_char('"')?;
                     for c in s.chars() {
@@ -523,7 +539,7 @@ impl Expr {
             }
             Expr::Func(func_def) => func_def.pretty(printer),
             Expr::Seq(stmts) => {
-                printer.write("{ ")?;
+                printer.write_char('{')?;
                 if stmts.len() > 1 {
                     printer.write("\n")?;
                     printer.indented(|printer| {
@@ -535,6 +551,7 @@ impl Expr {
                     })?;
                     printer.write("}")?;
                 } else if stmts.len() == 1 {
+                    printer.write_char(' ')?;
                     stmts[0].0.pretty(printer)?;
                     printer.write(" }")?;
                 } else {
@@ -1009,6 +1026,18 @@ mod tests {
         };
         assert_symbol(foo, "foo");
         assert_eq!(arguments.len(), 1);
+    }
+
+    #[test]
+    fn pretty_printer_indents_nested_blocks() {
+        let ast = parse_source(
+            "outer -> { one = 1; inner -> { two = 2; three = 3 }; four = 4 }",
+        );
+        assert_eq!(
+            single_expr(&ast).pretty_print(),
+            "outer -> {\n    one = 1;\n    inner -> {\n        two = 2;\n        three = 3;\n    };\n    four = 4;\n}"
+        );
+        assert_eq!(parse_source("1; true").0.pretty_print(), "{\n    1;\n    true;\n}");
     }
 
     #[test]
