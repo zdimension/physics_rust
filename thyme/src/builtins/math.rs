@@ -7,6 +7,8 @@ macro_rules! unary_builtins {
         const MEMBERS: &[BuiltinSpec] = &[
             BuiltinSpec::new("toBool", 1, to_bool),
             BuiltinSpec::new("atan2", 2, atan2),
+            BuiltinSpec::new("e", 0, e),
+            BuiltinSpec::new("pi", 0, pi),
             $(BuiltinSpec::new(stringify!($name), 1, $name),)*
             BuiltinSpec::new("HSL2RGB", 1, hsl2rgb),
             BuiltinSpec::new("HSV2RGB", 1, hsv2rgb),
@@ -26,6 +28,14 @@ unary_builtins! {
 }
 
 pub(super) const NAMESPACE: BuiltinNamespace = BuiltinNamespace::new("math", MEMBERS);
+
+fn e(_: &mut Evaluator<'_, '_>, _: &[Value], _: Span) -> Result<Value, String> {
+    Ok(std::f32::consts::E.into())
+}
+
+fn pi(_: &mut Evaluator<'_, '_>, _: &[Value], _: Span) -> Result<Value, String> {
+    Ok(std::f32::consts::PI.into())
+}
 
 fn float_unary(
     evaluator: &mut Evaluator<'_, '_>,

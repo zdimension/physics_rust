@@ -1019,6 +1019,8 @@ mod tests {
             "string.str2list := 123",
             "set.insert = 123",
             "math.toBool := 123",
+            "math.e = 123",
+            "math.pi := 123",
         ] {
             let error = eval_source_error(&mut evaluator, &environment, source);
             assert!(error.contains("Cannot set read-only"), "{source}: {error}");
@@ -1043,6 +1045,14 @@ mod tests {
         assert_eq!(
             eval_source(&mut evaluator, &environment, "string.length(\"ok\")"),
             Value::Number(Number::Int(2))
+        );
+        assert_eq!(
+            eval_source(&mut evaluator, &environment, "math.e"),
+            Value::Number(Number::Float(std::f32::consts::E))
+        );
+        assert_eq!(
+            eval_source(&mut evaluator, &environment, "math.PI"),
+            Value::Number(Number::Float(std::f32::consts::PI))
         );
         assert_eq!(
             eval_source(
