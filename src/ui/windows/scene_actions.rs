@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::{path::PathBuf, time::SystemTime};
 
 use crate::palette::{PaletteConfig, PaletteList};
 use crate::{ egui_systems};
@@ -29,6 +29,14 @@ struct OpenSceneWindow {
     filter: String,
     current_path: PathBuf,
     file_sort: FileSort,
+    folders: Vec<(String, PathBuf)>,
+    files: Vec<SceneFile>,
+}
+
+struct SceneFile {
+    name: String,
+    path: PathBuf,
+    modified: SystemTime,
 }
 
 impl Default for OpenSceneWindow {
@@ -37,6 +45,52 @@ impl Default for OpenSceneWindow {
             filter: String::new(),
             current_path: PathBuf::from("scenes"),
             file_sort: FileSort::LatestFirst,
+            folders: Vec::new(),
+            files: Vec::new(),
+        }
+    }
+}
+
+impl OpenSceneWindow {
+    fn open(&mut self, path: PathBuf) {
+        self.current_path = path;
+        self.refresh();
+    }
+
+    fn refresh(&mut self) {
+        self.folders.clear();
+        self.files.clear();
+        let Ok(entries) = std::fs::read_dir(&self.current_path) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let Ok(kind) = entry.file_type() else { continue };
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if kind.is_dir() {
+                self.folders.push((name, path));
+            } else if kind.is_file()
+                && path
+                    .extension()
+                    .is_some_and(|ext| ext == "phz" || ext == "phn")
+            {
+                self.files.push(SceneFile {
+                    name,
+                    path,
+                    modified: entry
+                        .metadata()
+                        .and_then(|metadata| metadata.modified())
+                        .unwrap_or(SystemTime::UNIX_EPOCH),
+                });
+            }
+        }
+        self.sort();
+    }
+
+    fn sort(&mut self) {
+        match self.file_sort {
+            FileSort::ByName => self.files.sort_by(|a, b| a.name.cmp(&b.name)),
+            FileSort::LatestFirst => self.files.sort_by_key(|file| std::cmp::Reverse(file.modified)),
         }
     }
 }
@@ -64,6 +118,9 @@ pub fn draw_scene_actions(
                     (gui_icons.open, SceneWindows::Open),
                 ] {
                     if ui.add(IconButton::new(icon, 32.0).selected(*open_window == Some(window))).clicked() {
+                        if window == SceneWindows::Open {
+                            open_state.refresh();
+                        }
                         *open_window = Some(window);
                     }
                 }
@@ -127,11 +184,12 @@ pub fn draw_scene_actions(
                                 }
                             }
                             if let Some(i) = new_path {
-                                open_state.current_path = open_state
+                                let path = open_state
                                     .current_path
                                     .components()
                                     .take(i + 1)
                                     .collect();
+                                open_state.open(path);
                             }
                             if ui.add(IconButton::new(gui_icons.open, 16.0)).clicked() {
                                 // todo: folder choose dialog
@@ -143,9 +201,11 @@ pub fn draw_scene_actions(
                         ui.horizontal(|ui| {
                             if image_radio(ui, &gui_icons, open_state.file_sort == FileSort::ByName, "Sort by name") {
                                 open_state.file_sort = FileSort::ByName;
+                                open_state.sort();
                             }
                             if image_radio(ui, &gui_icons, open_state.file_sort == FileSort::LatestFirst, "Latest first") {
                                 open_state.file_sort = FileSort::LatestFirst;
+                                open_state.sort();
                             }
                         });
                         // scroll area containing:
@@ -156,43 +216,21 @@ pub fn draw_scene_actions(
                                 ui.horizontal(|ui| {
                                     ui.vertical(|ui| {
                                         // folders
-                                        for entry in std::fs::read_dir(&open_state.current_path).unwrap() {
-                                            let entry = entry.unwrap();
-                                            if entry.file_type().unwrap().is_dir() {
-                                                if ui.button(entry.file_name().to_string_lossy()).clicked() {
-                                                    open_state.current_path.push(entry.file_name());
-                                                }
-                                            }
+                                        let next = open_state.folders.iter().find_map(|(name, path)| {
+                                            ui.button(name).clicked().then(|| path.clone())
+                                        });
+                                        if let Some(path) = next {
+                                            open_state.open(path);
                                         }
                                     });
                                     ui.vertical(|ui| {
                                         // files
-                                        let mut entries: Vec<_> = std::fs::read_dir(&open_state.current_path)
-                                            .unwrap()
-                                            .filter_map(|entry| {
-                                                let entry = entry.ok()?;
-                                                if entry.file_type().ok()?.is_file() {
-                                                    Some((entry.path(), entry))
-                                                } else {
-                                                    None
-                                                }
-                                            })
-                                            .filter(|(path, _)| {
-                                                path.extension()
-                                                    .map(|ext| ext == "phz" || ext == "phn")
-                                                    .unwrap_or(false)
-                                            })
-                                            .collect();
-                                        match open_state.file_sort {
-                                            FileSort::ByName => entries.sort_by_key(|(_, e)| e.file_name()),
-                                            FileSort::LatestFirst => entries.sort_by_key(|(_, e)| std::cmp::Reverse(e.metadata().and_then(|m| m.modified()).unwrap_or(std::time::SystemTime::UNIX_EPOCH))),
-                                        }
-                                        for (path, entry) in entries {
-                                            let file_name = entry.file_name();
-                                            if !open_state.filter.is_empty() && !file_name.to_string_lossy().contains(&open_state.filter) {
+                                        for file in &open_state.files {
+                                            if !open_state.filter.is_empty() && !file.name.contains(&open_state.filter) {
                                                 continue;
                                             }
-                                            if ui.button(file_name.to_string_lossy()).clicked() {
+                                            if ui.button(&file.name).clicked() {
+                                                let path = file.path.clone();
                                                 commands.queue(move |world: &mut World| {
                                                     crate::script::thyme::scene::queue_path(world, path, false)
                                                 });
