@@ -1,4 +1,4 @@
-use std::io::{Cursor, Read};
+use std::{io::{Cursor, Read}, path::Path};
 
 use ::thyme::parse::{Expr, Spanned, parse_thyme, read_auto_encoding};
 use avian2d::prelude::{Gravity, Physics, PhysicsTime, Position, Rotation};
@@ -51,7 +51,7 @@ pub(crate) fn queue_import_bytes(
     }));
 }
 
-fn read_path(path: &str) -> Result<Vec<u8>, String> {
+fn read_path(path: impl AsRef<Path>) -> Result<Vec<u8>, String> {
     #[cfg(target_arch = "wasm32")]
     return Err(format!(
         "cannot open {path}: filesystem paths are unavailable"
@@ -59,20 +59,21 @@ fn read_path(path: &str) -> Result<Vec<u8>, String> {
 
     #[cfg(not(target_arch = "wasm32"))]
     {
-        std::fs::read(path).map_err(|error| format!("cannot open {path}: {error}"))
+        std::fs::read(path.as_ref()).map_err(|error| format!("cannot open {}: {error}", path.as_ref().display()))
     }
 }
 
-pub(crate) fn queue_path(world: &mut World, path: &str, import: bool) -> Result<(), String> {
+pub(crate) fn queue_path(world: &mut World, path: impl AsRef<Path>, import: bool) -> Result<(), String> {
+    let name = path.as_ref().file_name().map(|name| name.to_string_lossy().to_string()).unwrap_or_else(|| "scene".to_string());
     let bytes = read_path(path)?;
     if import {
         let origin = {
             let mouse = world.resource::<crate::mouse_tracking::MousePosWorld>();
             Vec2::new(mouse.x, mouse.y)
         };
-        queue_import_bytes(world, path, bytes, origin);
+        queue_import_bytes(world, name, bytes, origin);
     } else {
-        queue_bytes(world, path, bytes);
+        queue_bytes(world, name, bytes);
     }
     Ok(())
 }

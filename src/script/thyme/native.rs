@@ -1156,7 +1156,7 @@ fn queue_scene(world: &mut World, arguments: &[Value], import: bool) -> Result<V
     let Value::Str(path) = &arguments[0] else {
         return Err(type_error("scene path", "string"));
     };
-    super::scene::queue_path(world, path, import)
+    super::scene::queue_path(world, path.as_ref(), import)
         .map_err(|error| HostError::new(HostErrorKind::Other, error))?;
     Ok(Value::Void)
 }
