@@ -243,22 +243,7 @@ macro_rules! native_builder_method {
         NativeMember::Method {
             name: $name,
             arity: 1,
-            call: |host, _, arguments| {
-                let Value::Function(builder) = &arguments[0] else {
-                    return Err(type_error($name, "zero-argument function"));
-                };
-                if builder.arity() != 0 {
-                    return Err(type_error($name, "zero-argument function"));
-                }
-                let entity = $spawn(host.world);
-                let id = host.registry.ensure_entity(entity);
-                let object = host.registry.instance(id)?.object.clone();
-                let runtime = host.runtime;
-                runtime
-                    .call_initializer(host, builder, &[], object.clone())
-                    .map_err(|error| HostError::new(HostErrorKind::Intrinsic, error))?;
-                Ok(Value::Object(object))
-            },
+            call: |host, _, arguments| build_native(host, arguments, $name, $spawn, |_, _| Ok(())),
         }
     };
 }
@@ -1586,6 +1571,16 @@ impl NativeRegistry {
         id
     }
 
+    fn unregister_entity(&mut self, runtime: &Runtime, entity: Entity) {
+        let Some(id) = self.entities.remove(&entity) else {
+            return;
+        };
+        self.instances.remove(&id);
+        self.load_entities.retain(|_, mapped| *mapped != entity);
+        self.load_geometries.retain(|_, mapped| *mapped != entity);
+        runtime.unbind_object(id);
+    }
+
     fn instance(&self, id: NativeObjectId) -> Result<&NativeInstance, HostError> {
         self.instances
             .get(&id)
@@ -2006,9 +2001,8 @@ impl ScriptEngine {
             })
             .collect::<Vec<_>>();
         for (entity, object) in removed {
-            self.registry.entities.remove(&entity);
-            self.registry.instances.remove(&object);
-            self.runtime.unbind_object(object);
+            debug_assert_eq!(self.registry.entities.get(&entity), Some(&object));
+            self.registry.unregister_entity(&self.runtime, entity);
         }
         let mut objects = self.registry.globals.clone();
         let mut scene_objects = self
@@ -2070,11 +2064,12 @@ fn joint_local_pos(world: &World, geometry: Option<Entity>, pos: Vec2) -> Vec2 {
     })
 }
 
-fn add_joint(
+fn build_native(
     host: &mut WorldHost<'_>,
     arguments: &[Value],
     name: &str,
-    kind: AttachmentKind,
+    spawn: impl FnOnce(&mut World) -> Entity,
+    finish: impl FnOnce(&mut WorldHost<'_>, Entity) -> Result<(), HostError>,
 ) -> Result<Value, HostError> {
     let Value::Function(builder) = &arguments[0] else {
         return Err(type_error(name, "zero-argument function"));
@@ -2083,59 +2078,82 @@ fn add_joint(
         return Err(type_error(name, "zero-argument function"));
     }
 
-    let entity = spawn_pending_joint(host.world, kind);
-    host.world
-        .entity_mut(entity)
-        .insert(PendingJoint::default());
+    let entity = spawn(host.world);
     let id = host.registry.ensure_entity(entity);
-    let object = host.registry.instance(id)?.object.clone();
     let runtime = host.runtime;
     let result = (|| {
+        let object = host.registry.instance(id)?.object.clone();
         runtime
             .call_initializer(host, builder, &[], object.clone())
             .map_err(|error| HostError::new(HostErrorKind::Intrinsic, error))?;
-        let settings = *host.world.get::<PendingJoint>(entity).unwrap();
-        if settings.geoms == [0, 0] {
-            return Err(object_error(&format!("{name} geometry")));
-        }
-        let geoms = [
-            host.registry.geometry(host.world, settings.geoms[0])?,
-            host.registry.geometry(host.world, settings.geoms[1])?,
-        ];
-        let mut positions = settings.positions;
-        for (geom, position) in geoms.iter().zip(&mut positions) {
-            if geom.is_none()
-                && let Some(position) = position
-            {
-                *position += host.registry.load_origin;
-            }
-        }
-        if positions == [None, None] {
-            positions[if geoms[0].is_some() { 0 } else { 1 }] = Some(Vec2::ZERO);
-        }
-        let positions = match positions {
-            [Some(pos0), Some(pos1)] => [pos0, pos1],
-            [Some(pos0), None] => {
-                let world_pos = joint_world_pos(host.world, geoms[0], pos0);
-                [pos0, joint_local_pos(host.world, geoms[1], world_pos)]
-            }
-            [None, Some(pos1)] => {
-                let world_pos = joint_world_pos(host.world, geoms[1], pos1);
-                [joint_local_pos(host.world, geoms[0], world_pos), pos1]
-            }
-            [None, None] => unreachable!(),
-        };
-        configure_joint(host.world, entity, JointGeometry { geoms, positions });
-        host.world.entity_mut(entity).remove::<PendingJoint>();
+        finish(host, entity)?;
         Ok(Value::Object(object))
     })();
     if result.is_err() {
-        host.registry.entities.remove(&entity);
-        host.registry.instances.remove(&id);
-        runtime.unbind_object(id);
+        let body = body::entity(host.world, entity);
+        host.registry.unregister_entity(runtime, entity);
         host.world.despawn(entity);
+        if let Some(body) = body
+            && body != host.world.resource::<SceneState>().sky
+        {
+            host.world.despawn(body);
+        }
     }
     result
+}
+
+fn add_joint(
+    host: &mut WorldHost<'_>,
+    arguments: &[Value],
+    name: &str,
+    kind: AttachmentKind,
+) -> Result<Value, HostError> {
+    build_native(
+        host,
+        arguments,
+        name,
+        |world| {
+            let entity = spawn_pending_joint(world, kind);
+            world.entity_mut(entity).insert(PendingJoint::default());
+            entity
+        },
+        |host, entity| {
+            let settings = *host.world.get::<PendingJoint>(entity).unwrap();
+            if settings.geoms == [0, 0] {
+                return Err(object_error(&format!("{name} geometry")));
+            }
+            let geoms = [
+                host.registry.geometry(host.world, settings.geoms[0])?,
+                host.registry.geometry(host.world, settings.geoms[1])?,
+            ];
+            let mut positions = settings.positions;
+            for (geom, position) in geoms.iter().zip(&mut positions) {
+                if geom.is_none()
+                    && let Some(position) = position
+                {
+                    *position += host.registry.load_origin;
+                }
+            }
+            if positions == [None, None] {
+                positions[if geoms[0].is_some() { 0 } else { 1 }] = Some(Vec2::ZERO);
+            }
+            let positions = match positions {
+                [Some(pos0), Some(pos1)] => [pos0, pos1],
+                [Some(pos0), None] => {
+                    let world_pos = joint_world_pos(host.world, geoms[0], pos0);
+                    [pos0, joint_local_pos(host.world, geoms[1], world_pos)]
+                }
+                [None, Some(pos1)] => {
+                    let world_pos = joint_world_pos(host.world, geoms[1], pos1);
+                    [joint_local_pos(host.world, geoms[0], world_pos), pos1]
+                }
+                [None, None] => unreachable!(),
+            };
+            configure_joint(host.world, entity, JointGeometry { geoms, positions });
+            host.world.entity_mut(entity).remove::<PendingJoint>();
+            Ok(())
+        },
+    )
 }
 
 fn add_hinge(host: &mut WorldHost<'_>, arguments: &[Value]) -> Result<Value, HostError> {
@@ -2147,64 +2165,53 @@ fn add_fixjoint(host: &mut WorldHost<'_>, arguments: &[Value]) -> Result<Value, 
 }
 
 fn add_polygon(host: &mut WorldHost<'_>, arguments: &[Value]) -> Result<Value, HostError> {
-    let Value::Function(builder) = &arguments[0] else {
-        return Err(type_error("addPolygon", "zero-argument function"));
-    };
-    if builder.arity() != 0 {
-        return Err(type_error("addPolygon", "zero-argument function"));
-    }
+    build_native(
+        host,
+        arguments,
+        "addPolygon",
+        |world| {
+            let entity = spawn_default_box(world);
+            world
+                .entity_mut(entity)
+                .insert((FreeformObject, PendingPolygon::default()));
+            entity
+        },
+        |host, entity| {
+            let settings = host.world.get::<PendingPolygon>(entity).unwrap().clone();
+            let mut surfaces = settings
+                .surfaces
+                .or_else(|| settings.vecs.map(|vecs| vec![vecs]))
+                .ok_or_else(|| HostError::new(HostErrorKind::Intrinsic, "missing vertex data"))?;
+            if surfaces.is_empty() || surfaces.iter().any(|surface| surface.len() < 3) {
+                return Err(HostError::new(
+                    HostErrorKind::Intrinsic,
+                    "invalid vertex data",
+                ));
+            }
 
-    let entity = spawn_default_box(host.world);
-    host.world
-        .entity_mut(entity)
-        .insert((FreeformObject, PendingPolygon::default()));
-    let id = host.registry.ensure_entity(entity);
-    let object = host.registry.instance(id)?.object.clone();
-    let runtime = host.runtime;
-    let result = (|| {
-        runtime
-            .call_initializer(host, builder, &[], object.clone())
-            .map_err(|error| HostError::new(HostErrorKind::Intrinsic, error))?;
-        let settings = host.world.get::<PendingPolygon>(entity).unwrap().clone();
-        let mut surfaces = settings
-            .surfaces
-            .or_else(|| settings.vecs.map(|vecs| vec![vecs]))
-            .ok_or_else(|| HostError::new(HostErrorKind::Intrinsic, "missing vertex data"))?;
-        if surfaces.is_empty() || surfaces.iter().any(|surface| surface.len() < 3) {
-            return Err(HostError::new(
-                HostErrorKind::Intrinsic,
-                "invalid vertex data",
-            ));
-        }
-
-        let (min, max) = surfaces[0].iter().fold(
-            (Vec2::splat(f32::INFINITY), Vec2::splat(f32::NEG_INFINITY)),
-            |(min, max), &point| (min.min(point), max.max(point)),
-        );
-        let origin = min * 0.5 + max * 0.5;
-        for point in surfaces.iter_mut().flatten() {
-            *point -= origin;
-        }
-        let path = surfaces_path(&surfaces);
-        let geometry = tessellate_path(&path)
-            .ok_or_else(|| HostError::new(HostErrorKind::Intrinsic, "invalid vertex data"))?;
-        let mut query = host.world.query::<(&mut Collider, &mut Shape)>();
-        let (mut collider, mut shape) = query
-            .get_mut(host.world, entity)
-            .map_err(|_| object_error("polygon geometry"))?;
-        *collider = geometry.collider();
-        shape.path = path;
-        drop((collider, shape));
-        host.world.entity_mut(entity).remove::<PendingPolygon>();
-        Ok(Value::Object(object))
-    })();
-    if result.is_err() {
-        host.registry.entities.remove(&entity);
-        host.registry.instances.remove(&id);
-        runtime.unbind_object(id);
-        host.world.despawn(entity);
-    }
-    result
+            let (min, max) = surfaces[0].iter().fold(
+                (Vec2::splat(f32::INFINITY), Vec2::splat(f32::NEG_INFINITY)),
+                |(min, max), &point| (min.min(point), max.max(point)),
+            );
+            let origin = min * 0.5 + max * 0.5;
+            for point in surfaces.iter_mut().flatten() {
+                *point -= origin;
+            }
+            let path = surfaces_path(&surfaces);
+            let geometry = tessellate_path(&path)
+                .ok_or_else(|| HostError::new(HostErrorKind::Intrinsic, "invalid vertex data"))?;
+            {
+                let mut query = host.world.query::<(&mut Collider, &mut Shape)>();
+                let (mut collider, mut shape) = query
+                    .get_mut(host.world, entity)
+                    .map_err(|_| object_error("polygon geometry"))?;
+                *collider = geometry.collider();
+                shape.path = path;
+            }
+            host.world.entity_mut(entity).remove::<PendingPolygon>();
+            Ok(())
+        },
+    )
 }
 
 impl Host for WorldHost<'_> {
@@ -2644,6 +2651,40 @@ mod tests {
                 .eval(&mut world, "Scene.addBox { geomID = 123 }")
                 .is_err()
         );
+    }
+
+    #[test]
+    fn failed_native_builders_roll_back_entities_instances_and_bindings() {
+        let mut engine = ScriptEngine::default();
+        let mut world = scene_world();
+        let entities = world.iter_entities().count();
+        let instances = engine.registry.instances.len();
+
+        for source in [
+            "Scene.addBox { pos = { [1, 2] }; density = \"bad\" }",
+            "Scene.addCircle { pos = { [1, 2] }; density = \"bad\" }",
+            "Scene.addPolygon { pos = { [1, 2] }; density = \"bad\" }",
+            "Scene.addHinge { pos = { [1, 2] }; zOrder = \"bad\" }",
+            "Scene.addFixjoint { pos = { [1, 2] }; zOrder = \"bad\" }",
+        ] {
+            assert!(engine.eval(&mut world, source).is_err(), "{source}");
+            assert_eq!(world.iter_entities().count(), entities, "{source}");
+            assert_eq!(engine.registry.instances.len(), instances, "{source}");
+            assert!(engine.registry.entities.is_empty(), "{source}");
+            assert_eq!(engine.runtime.binding_count(), 0, "{source}");
+        }
+
+        engine.registry.begin_scene_load(Vec2::ZERO);
+        assert!(
+            engine
+                .eval(
+                    &mut world,
+                    "Scene.addBox { geomID = 42; density = \"bad\" }",
+                )
+                .is_err()
+        );
+        assert_eq!(engine.registry.load_entity(LoadId::Geometry, 42), None);
+        engine.registry.end_scene_load();
     }
 
     #[test]
