@@ -12,6 +12,7 @@ use crate::ui::{InitialPos, Subwindow, WindowExt, image_radio};
 
 egui_systems!(draw_scene_actions);
 
+#[derive(Copy, Clone, PartialEq, Eq)]
 enum SceneWindows {
     NewScene,
     Open,
@@ -57,14 +58,14 @@ pub fn draw_scene_actions(
         .auto_sized()
         .show_translucent(ctx, |ui| {
             ui.vertical(|ui| {
-                if ui.add(IconButton::new(gui_icons.new, 32.0)).clicked() {
-                    *open_window = Some(SceneWindows::NewScene);
-                }
-                if ui.add(IconButton::new(gui_icons.save, 32.0)).clicked() {
-                    *open_window = Some(SceneWindows::Save);
-                }
-                if ui.add(IconButton::new(gui_icons.open, 32.0)).clicked() {
-                    *open_window = Some(SceneWindows::Open);
+                for (icon, window) in [
+                    (gui_icons.new, SceneWindows::NewScene),
+                    (gui_icons.save, SceneWindows::Save),
+                    (gui_icons.open, SceneWindows::Open),
+                ] {
+                    if ui.add(IconButton::new(icon, 32.0).selected(*open_window == Some(window))).clicked() {
+                        *open_window = Some(window);
+                    }
                 }
             });
         }).expect("toolbar should always be open");
