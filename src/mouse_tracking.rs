@@ -65,16 +65,6 @@ struct CameraMousePos(Vec2);
 #[derive(Component, Default, PartialEq)]
 struct CameraMousePosWorld(Vec3);
 
-pub struct InitMouseTracking;
-
-impl EntityCommand for InitMouseTracking {
-    type Out = ();
-
-    fn apply(self, mut entity: EntityWorldMut) -> Self::Out {
-        entity.insert(CameraMousePos::default());
-    }
-}
-
 pub struct InitWorldTracking;
 
 impl EntityCommand for InitWorldTracking {

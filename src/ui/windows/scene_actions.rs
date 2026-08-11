@@ -22,7 +22,7 @@ use crate::ui::{WindowExt, image_radio};
 egui_systems!(draw_scene_actions);
 
 #[derive(Copy, Clone, PartialEq, Eq)]
-enum SceneWindows {
+pub(super) enum SceneWindows {
     NewScene,
     Open,
     Save,
@@ -34,7 +34,7 @@ enum FileSort {
     LatestFirst,
 }
 
-struct OpenSceneWindow {
+pub(super) struct OpenSceneWindow {
     filter: String,
     current_path: PathBuf,
     file_sort: FileSort,
@@ -204,7 +204,7 @@ fn icon_atom(icon: egui::TextureId, size: f32) -> Atom<'static> {
     egui::Image::new(SizedTexture::new(icon, [size; 2])).into()
 }
 
-pub fn draw_scene_actions(
+pub(super) fn draw_scene_actions(
     mut egui_ctx: EguiContexts,
     gui_icons: Res<GuiIcons>,
     mut commands: Commands,

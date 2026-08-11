@@ -5,26 +5,17 @@ use bevy_egui::egui::{
 
 pub struct TextButton {
     text: WidgetText,
-    selected: bool,
 }
 
 impl TextButton {
     pub fn new(text: impl Into<WidgetText>) -> Self {
-        Self {
-            text: text.into(),
-            selected: false,
-        }
-    }
-
-    pub fn selected(mut self, selected: bool) -> Self {
-        self.selected = selected;
-        self
+        Self { text: text.into() }
     }
 }
 
 impl Widget for TextButton {
     fn ui(self, ui: &mut Ui) -> Response {
-        let Self { text, selected } = self;
+        let Self { text } = self;
         let button_padding = ui.spacing().button_padding;
         let text_wrap_width = ui.available_width() - button_padding.x * 2.0;
 
@@ -54,17 +45,6 @@ impl Widget for TextButton {
                     bevy_egui::egui::StrokeKind::Outside,
                 );
             }
-            if selected {
-                let selection = ui.visuals().selection;
-                ui.painter().rect(
-                    rect.expand(visuals.expansion),
-                    visuals.corner_radius,
-                    selection.bg_fill,
-                    selection.stroke,
-                    bevy_egui::egui::StrokeKind::Outside,
-                );
-            }
-
             let text_pos = pos2(
                 rect.min.x + button_padding.x,
                 rect.center().y - text.size().y / 2.0,

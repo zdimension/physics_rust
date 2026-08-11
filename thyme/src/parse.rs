@@ -177,9 +177,6 @@ impl<'a> Display for Token<'a> {
             Token::Bool(b) => write!(f, "{}", b),
             Token::Null => write!(f, "null"),
             Token::LambdaArrow => write!(f, "=>"),
-            /*Token::Arrow => write!(f, "->"),
-            Token::Declare => write!(f, ":="),
-            Token::Assign => write!(f, "="),*/
             Token::BraceOpen => write!(f, "{{"),
             Token::BraceClose => write!(f, "}}"),
             Token::BracketOpen => write!(f, "["),

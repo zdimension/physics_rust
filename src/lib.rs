@@ -1,27 +1,23 @@
 #![deny(clippy::disallowed_methods)]
 
+use crate::config::AppConfig;
+use crate::lyon_compat::*;
+use crate::mouse_tracking::{MainCamera, MainCameraEntity, prelude::*};
+use crate::skin::SkinConfig;
+use avian2d::prelude::*;
 use bevy::anti_alias::smaa::{Smaa, SmaaPreset};
 use bevy::input::InputSystems;
 use bevy::math::Vec3Swizzles;
 use bevy::prelude::*;
 use bevy::window::{PresentMode, WindowPlugin};
-use std::ops::RangeInclusive;
-
-use crate::lyon_compat::*;
-use crate::mouse_tracking::{MainCamera, MainCameraEntity, prelude::*};
-use avian2d::prelude::*;
 use bevy_diagnostic::FrameTimeDiagnosticsPlugin;
 use bevy_egui::egui::epaint::{Hsva, Shadow};
 use bevy_egui::egui::style::Widgets;
-use bevy_egui::egui::{Color32, CornerRadius, Slider, Ui, emath};
+use bevy_egui::egui::{Color32, CornerRadius};
 use bevy_egui::{
     EguiContexts, EguiPlugin, EguiPostUpdateSet, EguiPreUpdateSet, EguiStartupSet,
     egui::{self},
 };
-//use bevy_inspector_egui::quick::WorldInspectorPlugin;
-//use bevy_prototype_lyon::prelude::{DrawMode, FillMode, ShapePlugin};
-use crate::config::AppConfig;
-use crate::skin::SkinConfig;
 use mouse::{button, wheel};
 use objects::laser::LaserRays;
 use objects::{ColorComponent, laser};
@@ -50,7 +46,6 @@ use crate::ui::RemoveTemporaryWindowsEvent;
 use crate::ui::images::{AppIcons, GuiIcons};
 
 mod config;
-mod demo;
 mod grid;
 mod lyon_compat;
 mod measures;
@@ -94,102 +89,6 @@ impl InvTransformPoint for GlobalTransform {
     }
 }
 
-/*#[derive(SystemParam)]
-struct CollideHooks<'w, 's> {
-    query: Query<'w, 's, CollideHookData<'static>>,
-}
-
-type CollideHookData<'a> = (&'a AxleObject, &'a MultibodyJoint);
-
-impl<'w, 's> BevyPhysicsHooks for CollideHooks<'w, 's> {
-    fn filter_contact_pair(&self, context: PairFilterContextView) -> Option<SolverFlags> {
-        fn check_axle_contains(
-            query: &Query<CollideHookData<'_>>,
-            first: Entity,
-            second: Entity,
-        ) -> bool {
-            let Ok((_, joint)) = query.get(first) else {
-                return false;
-            };
-
-            joint.ChildOf == second
-        }
-
-        let first = context.collider1();
-        let second = context.collider2();
-
-        let axle_between = check_axle_contains(&self.query, first, second)
-            || check_axle_contains(&self.query, second, first);
-
-        if axle_between {
-            None
-        } else {
-            Some(SolverFlags::COMPUTE_IMPULSES)
-        }
-    }
-}*/
-
-mod stages {
-    pub(crate) const MAIN: &str = "main";
-
-    pub(crate) const DESPAWN: &str = "despawn";
-}
-/*
-struct BevyAppExtHelper<'a, L: StageLabel + Copy> {
-    app: &'a mut App,
-    stage: L
-}
-
-impl<'a, L: StageLabel + Copy> BevyAppExtHelper<'a, L> {
-    fn add_system<Params>(&mut self, system: impl IntoSystemDescriptor<Params>) -> &mut Self {
-        self.app.add_system_to_stage(self.stage, system);
-        self
-    }
-
-    fn add_system_set(&mut self, system_set: SystemSet) -> &mut Self {
-        self.app.add_system_set_to_stage(self.stage, system_set);
-        self
-    }
-}
-
-trait BevyAppExt {
-    fn add_stage_after_with<S: Stage, L: StageLabel + Copy>(
-        &mut self,
-        target: impl StageLabel,
-        label: L,
-        stage: S,
-        content: for<'a> fn(BevyAppExtHelper<'a, L>)
-    ) -> &mut Self;
-}
-
-impl BevyAppExt for App {
-    fn add_stage_after_with<S: Stage, L: StageLabel + Copy>(
-        &mut self,
-        target: impl StageLabel,
-        label: L,
-        stage: S,
-        content: for<'a> fn(BevyAppExtHelper<'a, L>)
-    ) -> &mut Self {
-        self.add_stage_after(target, label, stage);
-        content(BevyAppExtHelper {
-            app: self,
-            stage: label
-        });
-        self
-    }
-}
-*/
-trait ToRot {
-    fn to_rot(&self) -> f32;
-}
-
-impl ToRot for Quat {
-    fn to_rot(&self) -> f32 {
-        let ang = self.to_euler(EulerRot::XYZ);
-        ang.2
-    }
-}
-
 pub fn app_main() {
     let mut app = App::new();
     app.insert_resource(ClearColor(Color::srgb(0.0, 0.0, 0.0)))
@@ -202,7 +101,6 @@ pub fn app_main() {
         }))
         .add_plugins(EguiPlugin::default())
         .add_plugins(PhysicsPlugins::default())
-        //.add_plugins(WorldInspectorPlugin::new())
         .init_asset::<PaletteList>()
         .init_asset_loader::<PaletteLoader>()
         .init_resource::<PaletteConfig>()
@@ -224,11 +122,6 @@ pub fn app_main() {
         .init_resource::<cursor::ToolCursorCache>()
         .init_resource::<wheel::SmoothZoom>()
         .insert_resource(SubstepCount(50))
-        /*.insert_resource(RapierConfiguration {
-            gravity: Vect::Y * -9.81,
-            physics_pipeline_active: false,
-            ..Default::default()
-        })*/
         .insert_resource(OverlayState::default())
         .insert_resource(cursor::EguiWantsFocus::default())
         .insert_resource({
@@ -236,14 +129,6 @@ pub fn app_main() {
             loop_.pause();
             loop_
         })
-        /*.add_plugins(RapierPhysicsPlugin::<CollideHooks>::pixels_per_meter(1.0))
-        .add_plugins(RapierDebugRenderPlugin {
-            style: DebugRenderStyle {
-                rigid_body_axes_length: 1.0,
-                ..Default::default()
-            },
-            ..Default::default()
-        })*/
         .add_plugins(MousePosPlugin)
         .add_plugins(ShapePlugin)
         .add_plugins(FrameTimeDiagnosticsPlugin::default())
@@ -268,12 +153,7 @@ pub fn app_main() {
         )
         .add_systems(
             Startup,
-            (
-                configure_visuals,
-                (setup_physics, setup_rng),
-                drag::init_drag,
-            )
-                .chain(),
+            (configure_visuals, setup_rng).chain(),
         )
         .add_systems(
             Update,
@@ -368,28 +248,14 @@ pub fn app_main() {
         selection_overlay::sync_selection_highlights.before(lyon_compat::BuildShapes),
     )
     .add_systems(Update, laser::draw_lasers)
-    .add_systems(Update, apply_custom_forces)
+    .add_systems(Update, despawn_finished_drags)
     .add_systems(
         PhysicsSchedule,
         drag::apply_drag_force.in_set(PhysicsStepSystems::BroadPhase),
     );
-    //.add_systems(PostUpdate, despawn_entities)
-    // ;
     objects::add_systems(&mut app);
-
-    // if build with feature "print-schedule"
-    #[cfg(feature = "print-schedule")]
-    {
-        //app.add_plugins(DefaultPlugins.build().disable::<bevy::log::LogPlugin>()); // disable LogPlugin so that you can pipe the output directly into `dot -Tsvg`
-        bevy_mod_debugdump::print_schedule_graph(&mut app, Update);
-        return;
-    }
     app.run();
 }
-
-#[derive(Debug, Hash, PartialEq, Eq, Clone, SystemSet)]
-//#[system_set(base)]
-pub struct AfterUpdate;
 
 fn setup_rng(mut commands: Commands) {
     commands.spawn((crate::rng::RngComponent::default(),));
@@ -397,30 +263,6 @@ fn setup_rng(mut commands: Commands) {
 
 #[derive(Component)]
 struct DrawObject;
-
-/*#[derive(Component)]
-pub enum Despawn {
-    Single,
-    Recursive,
-    Descendants,
-}
-
-fn despawn_entities(entities: Query<(Entity, &Despawn)>, mut commands: Commands) {
-    for (entity, despawn) in entities.iter() {
-        match despawn {
-            Despawn::Single => {
-                commands.entity(entity).despawn();
-            }
-            Despawn::Recursive => {
-                commands.entity(entity).despawn();
-            }
-            Despawn::Descendants => {
-                commands.entity(entity).despawn_children();
-                commands.entity(entity).remove::<Despawn>();
-            }
-        }
-    }
-}*/
 
 fn update_draw_modes(
     mut draws: Query<(
@@ -500,8 +342,6 @@ pub struct UiCamera;
 
 fn setup_graphics(mut commands: Commands) {
     info!("Setting up graphics");
-    // Add a camera so we can see the debug-render.
-    // note: camera's scale means meters per pixel
     let camera = commands
         .spawn((
             Camera2d,
@@ -596,8 +436,6 @@ fn make_inset_stroke(color: Color, thickness: f32) -> Stroke {
 
 const STROKE_TOLERANCE: f32 = 0.0001;
 
-fn setup_physics(_images: ResMut<Assets<Image>>) {}
-
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen(start)]
 fn wasm_main() {
@@ -620,14 +458,9 @@ impl From<UsedMouseButton> for MouseButton {
 }
 
 fn configure_visuals(mut egui_ctx: EguiContexts) -> Result {
-    //egui_set.sampler_descriptor = ImageSampler::linear();
     let ctx = egui_ctx.ctx_mut()?;
     let mut visuals = egui::Visuals {
         window_corner_radius: CornerRadius::same(3),
-        /*window_shadow: Shadow {
-            extrusion: 10.0,
-            color: Color32::from_black_alpha(96),
-        },*/
         window_shadow: Shadow::NONE,
         window_fill: Color32::from_rgb(134, 140, 147),
         panel_fill: Color32::from_rgb(134, 140, 147),
@@ -712,53 +545,21 @@ macro_rules! egui_systems {
         egui_systems!(@ [] [] [] $($x)*);
     };
 }
-#[derive(Component, Default)]
-pub struct CustomForce(Vec2);
-
 #[derive(Component)]
-pub struct CustomForceDespawn;
+struct FinishedDrag;
 
-pub fn apply_custom_forces(
-    forces: Query<Entity, With<CustomForceDespawn>>,
+fn despawn_finished_drags(
+    drags: Query<Entity, With<FinishedDrag>>,
     mut commands: Commands,
 ) {
-    for id in forces.iter() {
+    for id in drags.iter() {
         commands.entity(id).despawn();
-    }
-}
-
-enum UpdateStatus<T> {
-    Changed(T),
-    Unchanged,
-}
-
-fn add_slider<T: emath::Numeric>(
-    ui: &mut Ui,
-    current: T,
-    range: RangeInclusive<T>,
-    settings: impl FnOnce(Slider) -> Slider,
-) -> UpdateStatus<T> {
-    let mut val = current;
-    if ui.add(settings(Slider::new(&mut val, range))).changed() {
-        UpdateStatus::Changed(val)
-    } else {
-        UpdateStatus::Unchanged
     }
 }
 
 #[macro_export]
 macro_rules! update_changed {
     ($ui:expr, $target:expr, $range:expr, $settings:expr) => {
-        /*{
-            use egui::{Slider, Widget};
-            let mut current = $target;
-            fn update_slider<'a, T: Widget + 'a>(f: impl FnOnce(Slider<'a>) -> T, s: Slider<'a>) -> T {
-                f(s)
-            }
-            if $ui.add(update_slider($settings, Slider::new(&mut current, $range))).changed() {
-                $target = current;
-            }
-        }*/
         update_changed!($ui, || { $target } => |x| { $target = x; }, $range, $settings)
     };
     ($ui:expr, $getter:expr => $setter:expr, $range:expr, $settings:expr) => {

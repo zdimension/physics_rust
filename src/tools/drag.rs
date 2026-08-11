@@ -10,8 +10,6 @@ use bevy::prelude::*;
 
 #[derive(Copy, Clone, Debug)]
 pub struct DragState {
-    pub entity: Entity,
-    pub grab_local_point: Vec2,
     pub drag_entity: Entity,
 }
 
@@ -50,8 +48,6 @@ pub struct DragTarget {
     pub grab_local_point: Vec2,
     pub mouse_pos: Vec2,
 }
-
-pub fn init_drag() {}
 
 fn effective_stiffness(zoom: f32, strength: f32, mass: f32) -> f32 {
     (zoom / (0.77 * strength) + 1.0 / (845.0 * mass)).recip()

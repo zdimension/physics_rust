@@ -10,34 +10,34 @@ fn main() {
     impl Host for DummyHost {
         fn resolve_property(
             &mut self,
-            object: thyme::NativeObjectId,
-            name: &thyme::Symbol,
+            _object: thyme::NativeObjectId,
+            _name: &thyme::Symbol,
         ) -> Result<Option<thyme::ResolvedProperty>, thyme::HostError> {
             todo!()
         }
 
         fn get_property(
             &mut self,
-            object: thyme::NativeObjectId,
-            property: thyme::PropertyId,
+            _object: thyme::NativeObjectId,
+            _property: thyme::PropertyId,
         ) -> Result<thyme::Value, thyme::HostError> {
             todo!()
         }
 
         fn set_property(
             &mut self,
-            object: thyme::NativeObjectId,
-            property: thyme::PropertyId,
-            value: &thyme::Value,
+            _object: thyme::NativeObjectId,
+            _property: thyme::PropertyId,
+            _value: &thyme::Value,
         ) -> Result<(), thyme::HostError> {
             todo!()
         }
 
         fn call_intrinsic(
             &mut self,
-            receiver: Option<thyme::NativeObjectId>,
-            intrinsic: thyme::IntrinsicId,
-            arguments: &[thyme::Value],
+            _receiver: Option<thyme::NativeObjectId>,
+            _intrinsic: thyme::IntrinsicId,
+            _arguments: &[thyme::Value],
         ) -> Result<thyme::Value, thyme::HostError> {
             todo!()
         }

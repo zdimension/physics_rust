@@ -1331,22 +1331,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bff34eb29ff4b8a8688bc7299f14fb6b597461ca80fec03ed7d22939ab33e48f"
 
 [[package]]
-name = "bevy_mod_debugdump"
-version = "0.16.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b77cb1d6bf4ab9d63ee773478ac8f23e94a226c327fa0941965240786220ebdf"
-dependencies = [
- "bevy_app",
- "bevy_color",
- "bevy_ecs",
- "bevy_log",
- "bevy_platform",
- "bevy_utils",
- "disqualified",
- "lexopt",
-]
-
-[[package]]
 name = "bevy_pbr"
 version = "0.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4007,12 +3991,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "lexopt"
-version = "0.3.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "803ec87c9cfb29b9d2633f20cba1f488db3fd53f2158b1024cbefb47ba05d413"
-
-[[package]]
 name = "libc"
 version = "0.2.186"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5049,23 +5027,16 @@ dependencies = [
 name = "physics_rust"
 version = "0.1.0"
 dependencies = [
- "ariadne",
  "avian2d",
  "bevy",
  "bevy_diagnostic",
- "bevy_dylib",
  "bevy_egui",
- "bevy_mod_debugdump",
  "bevy_prototype_lyon",
- "chumsky",
  "console_error_panic_hook",
  "derivative",
  "egui_extras",
  "egui_plot",
- "encoding_rs",
  "itertools 0.15.0",
- "logos",
- "lyon_path",
  "num-traits",
  "paste",
  "ron",

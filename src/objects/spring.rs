@@ -40,7 +40,6 @@ pub struct SpringPreview;
 #[derive(Component, Copy, Clone, Debug)]
 pub struct SpringEndHandle {
     pub spring: Entity,
-    pub end: SpringEndIndex,
 }
 
 #[derive(Component, Copy, Clone, Debug)]
@@ -196,10 +195,7 @@ pub fn spawn_spring(
         for end in [SpringEndIndex::A, SpringEndIndex::B] {
             builder.spawn((
                 SpringEndpointVisual { end },
-                SpringEndHandle {
-                    spring: spring_entity,
-                    end,
-                },
+                SpringEndHandle { spring: spring_entity },
                 Sprite {
                     image: images.spring_attachment.clone(),
                     custom_size: Some(Vec2::ONE),

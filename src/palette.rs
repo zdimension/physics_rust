@@ -1,10 +1,10 @@
 use std::collections::HashMap;
 
 use bevy::asset::io::Reader;
-use bevy::asset::{AssetLoader, AsyncReadExt, LoadContext};
+use bevy::asset::{AssetLoader, LoadContext};
 use bevy::prelude::*;
 use bevy::reflect::TypePath;
-use bevy::tasks::{BoxedFuture, ConditionalSendFuture};
+use bevy::tasks::ConditionalSendFuture;
 use bevy_egui::egui::epaint::Hsva;
 
 use crate::rng::DelegatedRng;
@@ -98,10 +98,6 @@ impl ToRgba for Hsva {
 }
 
 impl HsvaRange {
-    pub fn rand(&self, rng: &mut impl DelegatedRng) -> Color {
-        self.rand_hsva(rng).to_rgba()
-    }
-
     pub fn rand_hsva(&self, rng: &mut impl DelegatedRng) -> Hsva {
         let hr = f32_between(rng, self.0.h, self.1.h);
         let sr = f32_between(rng, self.0.s, self.1.s).sqrt();
@@ -169,10 +165,6 @@ impl AssetLoader for PaletteLoader {
 }
 
 impl Palette {
-    fn get_color(&self, rng: &mut impl DelegatedRng) -> Color {
-        self.color_range.rand(rng)
-    }
-
     pub fn get_color_hsva(&self, rng: &mut impl DelegatedRng) -> Hsva {
         self.color_range.rand_hsva(rng)
     }

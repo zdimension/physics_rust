@@ -2,7 +2,6 @@ use crate::objects::spring::{SpringEndHandle, SpringObject};
 use crate::tools::add_object::AddObjectEvent;
 use crate::ui::{ContextMenuEvent, Selected, TemporaryWindow, WindowSelectionTarget};
 
-//use crate::Despawn;
 use crate::mouse_tracking::MousePos;
 use avian2d::prelude::*;
 use bevy::log::info;

@@ -9,6 +9,9 @@ use std::time::Duration;
 
 use pan::PanState;
 
+use crate::FinishedDrag;
+use crate::UnfreezeEntityEvent;
+use crate::UsedMouseButton;
 use crate::mouse::r#move::MouseLongOrMoved;
 use crate::mouse::select::{
     SelectEnclosedEvent, SelectUnderMouseEvent, SelectionConfig, SelectionMode,
@@ -20,6 +23,8 @@ use crate::script::thyme::PendingEvents;
 use crate::tools::add_object::{
     AddAxleEvent, AddObjectEvent, AttachmentKind, PlaceAttachmentEvent,
 };
+use crate::tools::drag::DragEvent;
+use crate::tools::gear::{GearOutline, GearSettings};
 use crate::tools::r#move::MoveEvent;
 use crate::tools::pan;
 use crate::tools::pan::PanEvent;
@@ -29,12 +34,6 @@ use crate::tools::rotate::{RotateEvent, rotation_delta};
 use crate::tools::zoom::ZoomEvent;
 use crate::ui::selection_overlay::{Overlay, OverlayState};
 use crate::ui::{PointerToolState, Selected, ToolboxState};
-//use crate::Despawn;
-use crate::CustomForceDespawn;
-use crate::UnfreezeEntityEvent;
-use crate::UsedMouseButton;
-use crate::tools::drag::DragEvent;
-use crate::tools::gear::{GearOutline, GearSettings};
 
 #[derive(SystemParam)]
 pub struct ToolInteractionState<'w, 's> {
@@ -184,7 +183,7 @@ pub fn left_release(
                 Drag(Some(state)) => {
                     commands
                         .entity(state.drag_entity)
-                        .insert(CustomForceDespawn);
+                        .insert(FinishedDrag);
                 }
                 _ => {}
             }
@@ -308,9 +307,7 @@ pub fn left_release(
                 Pan(Some(_)) => {
                     rebase_active_zoom = true;
                 }
-                Zoom(Some(_)) | Drag(Some(_)) => {
-                    //
-                }
+                Zoom(Some(_)) | Drag(Some(_)) => {}
                 _ => {
                     info!("selecting under mouse");
                     select_mouse.write(sel_ev);
@@ -359,12 +356,6 @@ pub fn left_pressed(
 
     use crate::tools::ToolEnum::*;
     use bevy::math::Vec3Swizzles;
-
-    enum HandleStatus {
-        Handled,
-        HandledAndStop,
-        NotHandled,
-    }
 
     let pos = mouse_pos.xy();
     let camera_scale = grid

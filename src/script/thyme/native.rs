@@ -2345,7 +2345,7 @@ mod tests {
     use super::*;
     use crate::mouse_tracking::MainCamera;
     use crate::objects::phy_obj::PhysicalObject;
-    use crate::objects::spring::{SpringEnd, SpringEndIndex};
+    use crate::objects::spring::SpringEnd;
     use avian2d::prelude::SimpleCollider;
     use bevy::prelude::With;
 
@@ -3702,10 +3702,7 @@ mod tests {
             .id();
         let handle = world
             .spawn((
-                SpringEndHandle {
-                    spring,
-                    end: SpringEndIndex::A,
-                },
+                SpringEndHandle { spring },
                 Transform::from_scale(Vec3::splat(0.3)),
             ))
             .id();

@@ -15,19 +15,6 @@ pub struct CollisionsWindow;
 
 const GROUP_COUNT: usize = 10;
 
-#[derive(Default)]
-pub struct CollisionLayer(pub u32);
-
-impl PhysicsLayer for CollisionLayer {
-    fn to_bits(&self) -> u32 {
-        self.0
-    }
-
-    fn all_bits() -> u32 {
-        u32::MAX
-    }
-}
-
 impl CollisionsWindow {
     pub fn show(
         mut wnds: Query<

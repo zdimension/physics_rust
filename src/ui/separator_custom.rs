@@ -15,12 +15,6 @@ impl Default for SeparatorCustom {
 }
 
 impl SeparatorCustom {
-    /// How much space we take up. The line is painted in the middle of this.
-    pub fn spacing(mut self, spacing: f32) -> Self {
-        self.spacing = spacing;
-        self
-    }
-
     /// Explicitly ask for a horizontal line.
     /// By default you will get a horizontal line in vertical layouts,
     /// and a vertical line in horizontal layouts.

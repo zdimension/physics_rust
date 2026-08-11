@@ -22,7 +22,7 @@ use crate::tools::zoom::ZoomState;
 use crate::ui::images::AppIcons;
 use crate::ui::selection_overlay::{Overlay, OverlayState, PlaneNormalIcon, RotationOriginIcon};
 use crate::ui::{PointerToolState, SceneState, Selected};
-use crate::{CustomForce, InvTransformPoint, UsedMouseButton};
+use crate::{InvTransformPoint, UsedMouseButton};
 use avian2d::prelude::*;
 use bevy::ecs::system::SystemParam;
 use bevy::math::{EulerRot, Vec2, Vec3, Vec3Swizzles};
@@ -79,16 +79,6 @@ pub fn mouse_long_or_moved(
         info!("long or moved!");
 
         let selected_entities = params.selected.iter().collect::<Vec<_>>();
-
-        /*let (ui_button, other_button) = match button {
-            UsedMouseButton::Left => (&pointer_state.mouse_left, &pointer_state.mouse_right),
-            UsedMouseButton::Right => (&pointer_state.mouse_right, &pointer_state.mouse_left)
-        };
-
-        if Some(button) == pointer_state.mouse_button.as_ref() && other_button.is_some() {
-            continue;
-        }*/
-        // todo: is this really needed?
 
         let scene = params.scene_state.scene;
         let ui_button = match button {
@@ -173,7 +163,6 @@ pub fn mouse_long_or_moved(
                         let drag_entity = commands
                             .spawn((
                                 DragObject,
-                                CustomForce::default(),
                                 DragTarget {
                                     entity: ent,
                                     grab_local_point,
@@ -182,11 +171,7 @@ pub fn mouse_long_or_moved(
                             ))
                             .insert(ChildOf(ent))
                             .id();
-                        *ui_button = Some(Drag(Some(DragState {
-                            entity: ent,
-                            grab_local_point,
-                            drag_entity,
-                        })));
+                        *ui_button = Some(Drag(Some(DragState { drag_entity })));
                     }
                     (Rotate(None), Some(under)) => {
                         let (global_transform, _, Some(_rot), _body) = query.get(under).unwrap()
@@ -349,10 +334,7 @@ pub fn mouse_long_or_moved(
                             color,
                         })));
                     }
-                    (tool, _) => {
-                        dbg!(tool);
-                        //todo!()
-                    }
+                    _ => {}
                 }
             }
         }
