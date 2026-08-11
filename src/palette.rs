@@ -107,6 +107,7 @@ impl HsvaRange {
         let sr = f32_between(rng, self.0.s, self.1.s).sqrt();
         let vr = f32_between(rng, self.0.v, self.1.v).cbrt();
         let ar = f32_between(rng, self.0.a, self.1.a);
+        println!("rand_hsva: hr={hr}, sr={sr}, vr={vr}, ar={ar}");
         Hsva::new(hr, sr, vr, ar)
     }
 }
@@ -132,7 +133,7 @@ impl Default for Palette {
             selection_color: Color::srgba(0.0, 0.0, 0.0, 0.0),
             color_range: HsvaRange(
                 Hsva::new(0.0, 0.0, 0.0, 1.0),
-                Hsva::new(359.9, 1.0, 1.0, 1.0),
+                Hsva::new(1.0, 1.0, 1.0, 1.0),
             ),
         }
     }
