@@ -1,7 +1,7 @@
 use std::{io::{Cursor, Read}, path::Path};
 
 use ::thyme::parse::{Expr, Spanned, parse_thyme, read_auto_encoding};
-use avian2d::prelude::{Gravity, Physics, PhysicsTime, Position, Rotation};
+use avian2d::prelude::{Physics, PhysicsTime, Position, Rotation};
 use bevy::prelude::{Children, Resource, Time, Transform, Vec2, World};
 
 use super::{Console, PendingEvents, ScriptEngine};
@@ -11,9 +11,9 @@ use crate::{
     grid::GridSettings,
     mouse::select::SelectionConfig,
     mouse_tracking::MainCamera,
-    objects::air::AirSettings,
+    objects::{air::AirSettings, gravity::GravitySetting},
     tools::{add_object::DepthSorter, drag::DragConfig, gear::GearSettings},
-    ui::{GravitySetting, PointerToolState, SceneState, selection_overlay::OverlayState},
+    ui::{PointerToolState, SceneState, selection_overlay::OverlayState},
 };
 
 struct SceneFile {
@@ -156,11 +156,7 @@ pub(crate) fn reset(world: &mut World) {
     }
 
     world.insert_resource(GridSettings::default());
-    let gravity = GravitySetting::default();
-    world.insert_resource(Gravity(
-        Vec2::from_angle(gravity.direction) * gravity.strength,
-    ));
-    world.insert_resource(gravity);
+    world.insert_resource(GravitySetting::default());
     world.insert_resource(AirSettings::default());
     world.insert_resource(DragConfig::default());
     world.insert_resource(GearSettings::default());

@@ -1,5 +1,4 @@
 use avian2d::prelude::*;
-use bevy::math::Vec2;
 use bevy::prelude::{Local, MessageWriter, Res, ResMut, Time};
 use bevy_egui::egui::{
     self, Align2, Color32, Mesh, Popup, PopupCloseBehavior, RectAlign, Sense, SetOpenCommand,
@@ -10,14 +9,12 @@ use bevy_egui::{EguiContexts, egui::PointerButton};
 use crate::tools::ToolIcons;
 use crate::grid::GridSettings;
 use crate::objects::air::AirSettings;
+use crate::objects::gravity::GravitySetting;
 use crate::ui::icon_button::IconButton;
 use crate::ui::images::GuiIcons;
 use crate::{egui_systems, update_changed};
 use crate::ui::separator_custom::SeparatorCustom;
-use crate::ui::{
-    GravitySetting, RemoveTemporaryWindowsEvent, ToolboxState, WindowExt, bool_checkbox,
-    image_radio,
-};
+use crate::ui::{RemoveTemporaryWindowsEvent, ToolboxState, WindowExt, bool_checkbox, image_radio};
 
 const DIRECTION_SELECTOR_SIZE: f32 = 48.0;
 const SIM_SPEED_HOVER_DELAY: f32 = 0.5;
@@ -40,10 +37,6 @@ fn long_hovered(
     } else {
         true
     }
-}
-
-fn gravity_vector(settings: &GravitySetting) -> Vec2 {
-    Vec2::from_angle(settings.direction) * settings.strength
 }
 
 fn direction_from_pointer(center: egui::Pos2, pointer: egui::Pos2) -> Option<f32> {
@@ -96,19 +89,13 @@ fn direction_selector(ui: &mut egui::Ui, icons: &GuiIcons, direction: &mut f32) 
     response
 }
 
-fn gravity_settings_ui(
-    ui: &mut egui::Ui,
-    icons: &GuiIcons,
-    settings: &mut GravitySetting,
-) -> bool {
-    let mut changed = ui
-        .add(
-            egui::Slider::new(&mut settings.strength, 0.0..=20.0)
-                .suffix(" m/s²")
-                .text("Strength:")
-                .custom(),
-        )
-        .changed();
+fn gravity_settings_ui(ui: &mut egui::Ui, icons: &GuiIcons, settings: &mut GravitySetting) {
+    ui.add(
+        egui::Slider::new(&mut settings.strength, 0.0..=20.0)
+            .suffix(" m/s²")
+            .text("Strength:")
+            .custom(),
+    );
 
     ui.horizontal(|ui| {
         let mut direction_degrees = settings.direction.to_degrees();
@@ -122,14 +109,9 @@ fn gravity_settings_ui(
             .changed()
         {
             settings.direction = direction_degrees.to_radians();
-            changed = true;
         }
-        if direction_selector(ui, icons, &mut settings.direction).changed() {
-            changed = true;
-        }
+        direction_selector(ui, icons, &mut settings.direction);
     });
-
-    changed
 }
 
 fn air_settings_ui(ui: &mut egui::Ui, icons: &GuiIcons, settings: &mut AirSettings) {
@@ -215,7 +197,6 @@ pub fn draw_bottom_toolbar(
     tool_icons: Res<ToolIcons>,
     gui_icons: Res<GuiIcons>,
     mut clear_tmp: MessageWriter<RemoveTemporaryWindowsEvent>,
-    mut gravity: ResMut<Gravity>,
     mut physics: ResMut<Time<Physics>>,
 ) {
     let ctx = egui_ctx.ctx_mut().expect("primary egui context");
@@ -274,11 +255,6 @@ pub fn draw_bottom_toolbar(
                 gravity_button_left = Some(gravity_btn.rect.left());
                 if gravity_btn.clicked() {
                     gravity_conf.enabled = !gravity_conf.enabled;
-                    if gravity_conf.enabled {
-                        gravity.0 = gravity_vector(&gravity_conf);
-                    } else {
-                        gravity.0 = Vec2::ZERO;
-                    }
                 }
 
                 if gravity_btn.secondary_clicked() {
@@ -360,11 +336,7 @@ pub fn draw_bottom_toolbar(
             .auto_sized()
             .open(&mut open)
             .show_translucent(ctx, |ui| {
-                if gravity_settings_ui(ui, &gui_icons, &mut gravity_conf)
-                    && gravity_conf.enabled
-                {
-                    gravity.0 = gravity_vector(&gravity_conf);
-                }
+                gravity_settings_ui(ui, &gui_icons, &mut gravity_conf);
             });
         *gravity_settings_open = open;
     }
@@ -407,13 +379,14 @@ egui_systems!(draw_bottom_toolbar);
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bevy::math::Vec2;
 
     #[test]
     fn downward_gravity_is_minus_ninety_degrees() {
         let settings = GravitySetting::default();
 
         assert!((settings.direction.to_degrees() + 90.0).abs() < f32::EPSILON);
-        assert!((gravity_vector(&settings) - Vec2::new(0.0, -9.81)).length() < 1.0e-5);
+        assert!((settings.vector() - Vec2::new(0.0, -9.81)).length() < 1.0e-5);
     }
 
     #[test]

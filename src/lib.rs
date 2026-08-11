@@ -215,7 +215,6 @@ pub fn app_main() {
         .init_resource::<ui::image_processing::ImagePreparationState>()
         .init_resource::<SkinConfig>()
         .init_resource::<AppConfig>()
-        .init_resource::<ui::GravitySetting>()
         .init_resource::<DragConfig>()
         .init_resource::<tools::gear::GearSettings>()
         .init_resource::<SelectionConfig>()
@@ -225,7 +224,6 @@ pub fn app_main() {
         .init_resource::<cursor::ToolCursorCache>()
         .init_resource::<wheel::SmoothZoom>()
         .insert_resource(SubstepCount(50))
-        .insert_resource(Gravity(Vec2::NEG_Y * 9.81))
         /*.insert_resource(RapierConfiguration {
             gravity: Vect::Y * -9.81,
             physics_pipeline_active: false,

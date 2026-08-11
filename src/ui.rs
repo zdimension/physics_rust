@@ -52,23 +52,6 @@ pub fn apply_ui_scale(mut egui_ctx: EguiContexts, app_config: Res<AppConfig>) {
     }
 }
 
-#[derive(Resource, Copy, Clone)]
-pub struct GravitySetting {
-    pub(crate) strength: f32,
-    pub(crate) direction: f32,
-    pub(crate) enabled: bool,
-}
-
-impl Default for GravitySetting {
-    fn default() -> Self {
-        Self {
-            strength: 9.81,
-            direction: -std::f32::consts::FRAC_PI_2,
-            enabled: true,
-        }
-    }
-}
-
 #[derive(Component)]
 pub struct Scene;
 

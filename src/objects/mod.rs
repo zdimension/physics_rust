@@ -15,6 +15,7 @@ pub(crate) mod air;
 pub(crate) mod attraction;
 pub(crate) mod axle;
 pub(crate) mod body;
+pub(crate) mod gravity;
 pub(crate) mod kind;
 pub(crate) mod laser;
 pub(crate) mod phy_obj;
@@ -76,6 +77,7 @@ pub fn add_systems(app: &mut App) {
         );
     air::add_systems(app);
     attraction::add_systems(app);
+    gravity::add_systems(app);
     spring::add_systems(app);
     thruster::add_systems(app);
     tracer::add_systems(app);

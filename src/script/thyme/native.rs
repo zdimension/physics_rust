@@ -6,8 +6,8 @@ use ::thyme::{
     PropertyId, ResolvedProperty, Runtime, Symbol, Value, parse::Number,
 };
 use avian2d::prelude::{
-    AngularVelocity, Collider, ColliderDensity, CollisionLayers, Gravity, Physics, PhysicsTime,
-    Position, Restitution, Rotation,
+    AngularVelocity, Collider, ColliderDensity, CollisionLayers, Physics, PhysicsTime, Position,
+    Restitution, Rotation,
 };
 #[cfg(test)]
 use avian2d::prelude::{LinearVelocity, RigidBody};
@@ -33,6 +33,7 @@ use crate::{
         attraction::{Attraction, AttractionFalloff},
         axle::{FixObject, JointGeometry},
         body,
+        gravity::GravitySetting,
         laser::LaserSettings,
         phy_obj::{
             CircleVisual, FreeformObject, PhysicalGeometry, RefractiveIndex, set_box_geometry,
@@ -53,7 +54,6 @@ use crate::{
         r#move::attachment_local_position,
         rotate::attachment_local_rotation,
     },
-    ui::GravitySetting,
 };
 
 type Getter = fn(&World, Option<Entity>) -> Result<Value, HostError>;
@@ -295,15 +295,6 @@ fn type_error(name: &str, expected: &str) -> HostError {
         HostErrorKind::InvalidType,
         format!("{name} expects {expected}"),
     )
-}
-
-fn sync_gravity(world: &mut World) {
-    let settings = *world.resource::<GravitySetting>();
-    world.resource_mut::<Gravity>().0 = if settings.enabled {
-        Vec2::from_angle(settings.direction) * settings.strength
-    } else {
-        Vec2::ZERO
-    };
 }
 
 fn scene_entity(entity: Option<Entity>) -> Result<Entity, HostError> {
@@ -1126,7 +1117,6 @@ native_class!(
             |world: &World, _| world.resource::<GravitySetting>().strength,
             |world: &mut World, _, strength: f32| {
                 world.resource_mut::<GravitySetting>().strength = strength;
-                sync_gravity(world);
                 Ok(())
             }
         ),
@@ -1136,7 +1126,6 @@ native_class!(
             |world: &World, _| world.resource::<GravitySetting>().enabled,
             |world: &mut World, _, enabled: bool| {
                 world.resource_mut::<GravitySetting>().enabled = enabled;
-                sync_gravity(world);
                 Ok(())
             }
         ),
@@ -1148,7 +1137,6 @@ native_class!(
             |world: &mut World, _, offset: f32| {
                 world.resource_mut::<GravitySetting>().direction =
                     offset - std::f32::consts::FRAC_PI_2;
-                sync_gravity(world);
                 Ok(())
             }
         ),
@@ -2361,7 +2349,6 @@ mod tests {
         world.insert_resource(AppConfig::default());
         world.insert_resource(Console::default());
         world.insert_resource(GravitySetting::default());
-        world.insert_resource(Gravity(Vec2::NEG_Y * 9.81));
         world.insert_resource(GridSettings::default());
         world.insert_resource(AirSettings::default());
         world.insert_resource(DragConfig::default());
@@ -3285,7 +3272,7 @@ mod tests {
     }
 
     #[test]
-    fn sim_properties_share_toolbar_and_physics_state() {
+    fn sim_properties_update_shared_settings() {
         let mut engine = ScriptEngine::default();
         let mut world = world();
 
@@ -3294,7 +3281,7 @@ mod tests {
 
         engine.eval(&mut world, "Sim.gravityStrength = 5").unwrap();
         assert_eq!(world.resource::<GravitySetting>().strength, 5.0);
-        assert!((world.resource::<Gravity>().0 - Vec2::NEG_Y * 5.0).length() < 1e-5);
+        assert!((world.resource::<GravitySetting>().vector() - Vec2::NEG_Y * 5.0).length() < 1e-5);
 
         engine
             .eval(
@@ -3302,13 +3289,13 @@ mod tests {
                 &format!("Sim.gravityAngleOffset = {}", std::f32::consts::FRAC_PI_2),
             )
             .unwrap();
-        assert!((world.resource::<Gravity>().0 - Vec2::X * 5.0).length() < 1e-5);
+        assert!((world.resource::<GravitySetting>().vector() - Vec2::X * 5.0).length() < 1e-5);
 
         engine
             .eval(&mut world, "Sim.gravitySwitch = false")
             .unwrap();
         engine.eval(&mut world, "Sim.gravityStrength = 7").unwrap();
-        assert_eq!(world.resource::<Gravity>().0, Vec2::ZERO);
+        assert_eq!(world.resource::<GravitySetting>().vector(), Vec2::ZERO);
         assert_eq!(world.resource::<GravitySetting>().strength, 7.0);
     }
 
