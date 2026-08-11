@@ -629,6 +629,8 @@ impl<'runtime, 'host> Evaluator<'runtime, 'host> {
                     .collect::<Result<Gc<[_]>, _>>()?;
                 Ok(Value::List(List(new_list)))
             }
+            (list @ Value::List(_), right) => self.apply_unary(|left| handler(left, right.clone()), list),
+            (left, list @ Value::List(_)) => self.apply_unary(|right| handler(left.clone(), right), list),
             (left, right) => handler(left, right),
         }
     }
@@ -854,6 +856,32 @@ mod tests {
     ) -> Result<Value, String> {
         assert!(evaluator.runtime.global("alloc").is_some());
         Ok(arguments[0].clone())
+    }
+
+    #[test]
+    fn binary_operators_broadcast_scalars_over_lists() {
+        let runtime = Runtime::new();
+        let mut host = TestHost { calls: 0 };
+        let environment = empty_environment();
+        let mut evaluator = Evaluator {
+            runtime: &runtime,
+            host: &mut host,
+        };
+
+        for (source, expected) in [
+            ("[1, 2, 3] + 10", "[11, 12, 13]"),
+            ("10 - [1, 2, 3]", "[9, 8, 7]"),
+            ("[1, [2, 3]] * 2", "[2, [4, 6]]"),
+            ("2 > [1, 2, 3]", "[true, false, false]"),
+            ("[\"a\", \"b\"] + \"!\"", "[\"a!\", \"b!\"]"),
+            ("(1 .. 4) ^ 2", "[1.0, 4.0, 9.0, 16.0]"),
+        ] {
+            assert_eq!(
+                eval_source(&mut evaluator, &environment, source),
+                eval_source(&mut evaluator, &environment, expected),
+                "{source}"
+            );
+        }
     }
 
     #[test]
