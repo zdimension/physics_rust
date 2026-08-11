@@ -5,7 +5,7 @@ use bevy_egui::{EguiContexts, EguiPrimaryContextPass, egui};
 use egui_extras::syntax_highlighting::{CodeTheme, highlight};
 
 use crate::{
-    script::thyme::{ScriptEngine, evaluate_bindings},
+    script::thyme::{evaluate_bindings, with_script_engine},
     ui::{InitialPos, Subwindow, WindowSelectionTarget, window_target_entities, window_title},
 };
 
@@ -200,26 +200,24 @@ fn sync_script_windows(world: &mut World) {
             })
             .collect::<Vec<_>>()
     };
-    let Some(mut engine) = world.remove_non_send::<ScriptEngine>() else {
-        return;
-    };
-    for (window, entities, pending) in snapshots {
-        let results = pending
-            .into_iter()
-            .map(|edit| {
-                let result = engine.set_selection_property(
-                    world,
-                    &entities,
-                    edit.name,
-                    edit.source.trim(),
-                );
-                (edit.name, result)
-            })
-            .collect();
-        let properties = engine.selection_properties(world, &entities);
-        if let Some(mut state) = world.get_mut::<ScriptWindow>(window) {
-            state.sync(properties, results);
+    with_script_engine(world, |engine, world| {
+        for (window, entities, pending) in snapshots {
+            let results = pending
+                .into_iter()
+                .map(|edit| {
+                    let result = engine.set_selection_property(
+                        world,
+                        &entities,
+                        edit.name,
+                        edit.source.trim(),
+                    );
+                    (edit.name, result)
+                })
+                .collect();
+            let properties = engine.selection_properties(world, &entities);
+            if let Some(mut state) = world.get_mut::<ScriptWindow>(window) {
+                state.sync(properties, results);
+            }
         }
-    }
-    world.insert_non_send(engine);
+    });
 }

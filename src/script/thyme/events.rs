@@ -8,7 +8,7 @@ use bevy::{
     prelude::{Entity, MessageReader, ResMut, Resource, Time, World},
 };
 
-use super::{Console, ScriptEngine};
+use super::{Console, with_script_engine};
 
 enum InputEvent {
     Click {
@@ -47,24 +47,25 @@ pub(crate) fn dispatch(world: &mut World) {
     if world.resource::<Time<Physics>>().is_paused() {
         return;
     }
-    let mut engine = world
-        .remove_non_send::<ScriptEngine>()
-        .expect("Thyme engine");
-    let mut errors = Vec::new();
-    for event in events {
-        match event {
-            InputEvent::Click { entity, pos } if world.get_entity(entity).is_ok() => {
-                errors.extend(engine.dispatch_click(world, entity, pos));
+    let errors = with_script_engine(world, |engine, world| {
+        let mut errors = Vec::new();
+        for event in events {
+            match event {
+                InputEvent::Click { entity, pos } if world.get_entity(entity).is_ok() => {
+                    errors.extend(engine.dispatch_click(world, entity, pos));
+                }
+                InputEvent::Key {
+                    pressed,
+                    code,
+                    character,
+                } => {
+                    errors.extend(engine.dispatch_key(world, pressed, &code, character.as_deref()))
+                }
+                _ => {}
             }
-            InputEvent::Key {
-                pressed,
-                code,
-                character,
-            } => errors.extend(engine.dispatch_key(world, pressed, &code, character.as_deref())),
-            _ => {}
         }
-    }
-    world.insert_non_send(engine);
+        errors
+    });
     for error in errors {
         world
             .resource_mut::<Console>()
@@ -207,6 +208,7 @@ fn key_code(input: &KeyboardInput) -> String {
 
 #[cfg(test)]
 mod tests {
+    use super::super::ScriptEngine;
     use super::*;
     use avian2d::prelude::Position;
     use bevy::input::keyboard::Key;

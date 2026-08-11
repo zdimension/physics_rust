@@ -9,6 +9,18 @@ pub(crate) mod scene;
 pub(crate) use events::PendingEvents;
 pub(crate) use native::{SceneProperty, ScriptEngine};
 
+pub(crate) fn with_script_engine<T>(
+    world: &mut World,
+    f: impl FnOnce(&mut ScriptEngine, &mut World) -> T,
+) -> T {
+    let mut engine = world
+        .remove_non_send::<ScriptEngine>()
+        .expect("Thyme engine");
+    let result = f(&mut engine, world);
+    world.insert_non_send(engine);
+    result
+}
+
 #[derive(Default, Resource)]
 pub(crate) struct Console {
     pub(crate) open: bool,
@@ -96,16 +108,11 @@ mod tests {
 pub(crate) fn execute_console(world: &mut World) {
     let source = world.resource_mut::<Console>().pending.pop_front();
     let Some(source) = source else { return };
-    let mut engine = world
-        .remove_non_send::<ScriptEngine>()
-        .expect("Thyme engine");
-
     world
         .resource_mut::<Console>()
         .push_line(format_args!("> {}", source.trim()));
 
-    let result = engine.eval(world, source.trim());
-    world.insert_non_send(engine);
+    let result = with_script_engine(world, |engine, world| engine.eval(world, source.trim()));
 
     let console = &mut *world.resource_mut::<Console>();
     match result {
@@ -119,11 +126,7 @@ pub(crate) fn execute_console(world: &mut World) {
 }
 
 pub(crate) fn evaluate_bindings(world: &mut World) {
-    let mut engine = world
-        .remove_non_send::<ScriptEngine>()
-        .expect("Thyme engine");
-    let errors = engine.evaluate_bindings(world);
-    world.insert_non_send(engine);
+    let errors = with_script_engine(world, ScriptEngine::evaluate_bindings);
     for error in errors {
         world
             .resource_mut::<Console>()

@@ -4,7 +4,7 @@ use ::thyme::parse::{Expr, Spanned, parse_thyme, read_auto_encoding};
 use avian2d::prelude::{Physics, PhysicsTime, Position, Rotation};
 use bevy::prelude::{Children, Resource, Time, Transform, Vec2, World};
 
-use super::{Console, PendingEvents, ScriptEngine};
+use super::{Console, PendingEvents, ScriptEngine, with_script_engine};
 use crate::{
     default_camera_transform,
     grid::GridSettings,
@@ -182,9 +182,9 @@ pub(crate) fn load_pending(world: &mut World) {
     if file.origin.is_none() {
         reset(world);
     }
-    let mut engine = world.remove_non_send::<ScriptEngine>().unwrap();
-    let errors = engine.eval_scene_statements(world, &program.0, file.origin.unwrap_or_default());
-    world.insert_non_send(engine);
+    let errors = with_script_engine(world, |engine, world| {
+        engine.eval_scene_statements(world, &program.0, file.origin.unwrap_or_default())
+    });
     for error in errors {
         world
             .resource_mut::<Console>()
