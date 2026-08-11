@@ -809,6 +809,11 @@ impl Runtime {
             .cloned()
     }
 
+    /// Returns an unordered snapshot of native objects that currently have bindings.
+    pub fn objects_with_bindings(&self) -> Vec<NativeObjectId> {
+        self.native_bindings.borrow().keys().copied().collect()
+    }
+
     /// Returns a stable snapshot of one object's bindings for this frame.
     ///
     /// The host chooses when to call this method and therefore controls object order. The order of
@@ -1075,6 +1080,7 @@ mod tests {
         let second = Function::intrinsic(IntrinsicId::from_raw(2), "second", 0);
 
         assert!(runtime.bind_property(object, property, first).is_none());
+        assert_eq!(runtime.objects_with_bindings(), [object]);
         let replaced = runtime.bind_property(object, property, second).unwrap();
         assert_eq!(replaced.intrinsic_id(), Some(IntrinsicId::from_raw(1)));
         assert_eq!(runtime.binding_count(), 1);
@@ -1108,6 +1114,7 @@ mod tests {
             )
             .unwrap();
         assert_eq!(runtime.binding_count(), 0);
+        assert!(runtime.objects_with_bindings().is_empty());
         let (_, _, value) = host.set.unwrap();
         assert!(matches!(value, Value::Number(Number::Float(4.0))));
     }

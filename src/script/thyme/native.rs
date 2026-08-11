@@ -1992,28 +1992,30 @@ impl ScriptEngine {
         let removed = self
             .registry
             .entities
-            .iter()
-            .filter_map(|(&entity, &object)| {
-                world
-                    .get_entity(entity)
-                    .is_err()
-                    .then_some((entity, object))
-            })
+            .keys()
+            .copied()
+            .filter(|&entity| world.get_entity(entity).is_err())
             .collect::<Vec<_>>();
-        for (entity, object) in removed {
-            debug_assert_eq!(self.registry.entities.get(&entity), Some(&object));
+        for entity in removed {
             self.registry.unregister_entity(&self.runtime, entity);
         }
-        let mut objects = self.registry.globals.clone();
-        let mut scene_objects = self
+
+        let bound = self.runtime.objects_with_bindings();
+        let mut objects = self
             .registry
-            .entities
+            .globals
             .iter()
-            .map(|(&entity, &object)| {
+            .copied()
+            .filter(|object| bound.contains(object))
+            .collect::<Vec<_>>();
+        let mut scene_objects = bound
+            .into_iter()
+            .filter_map(|object| {
+                let entity = self.registry.instance(object).ok()?.entity?;
                 let z = world
                     .get::<GlobalTransform>(entity)
                     .map_or(0.0, |transform| transform.translation().z);
-                (z, object)
+                Some((z, object))
             })
             .collect::<Vec<_>>();
         scene_objects.sort_by(|a, b| a.0.total_cmp(&b.0));
@@ -3324,6 +3326,37 @@ mod tests {
         assert_eq!(errors.len(), 1);
         assert!(errors[0].contains("GUI.scale"));
         assert_eq!(engine.runtime.binding_count(), 0);
+    }
+
+    #[test]
+    fn render_bindings_only_visit_bound_objects_in_z_order() {
+        let mut engine = ScriptEngine::default();
+        let mut world = scene_world();
+
+        engine
+            .eval(
+                &mut world,
+                "back = Scene.addBox { zOrder = 10 }; \
+                 front = Scene.addBox { zOrder = -10 }; \
+                 unused = Scene.addBox {}; \
+                 back.pos = { Console.print(\"back\"); [0, 0] }; \
+                 front.pos = { Console.print(\"front\"); [0, 0] }",
+            )
+            .unwrap();
+        let transforms = world
+            .query_filtered::<(Entity, &Transform), With<PhysicalGeometry>>()
+            .iter(&world)
+            .map(|(entity, transform)| (entity, *transform))
+            .collect::<Vec<_>>();
+        for (entity, transform) in transforms {
+            world
+                .entity_mut(entity)
+                .insert(GlobalTransform::from(transform));
+        }
+
+        assert_eq!(engine.runtime.objects_with_bindings().len(), 2);
+        assert!(engine.evaluate_bindings(&mut world).is_empty());
+        assert_eq!(world.resource::<Console>().output, "front\nback");
     }
 
     #[test]
