@@ -148,14 +148,14 @@ pub struct Object(Gc<ClassObject>);
 impl Object {
     pub fn new() -> Self {
         Self(Gc::new(ClassObject {
-            fields: RefCell::new(HashMap::new()),
+            fields: Slots::default(),
             native: None,
         }))
     }
 
     pub fn native(id: NativeObjectId) -> Self {
         Self(Gc::new(ClassObject {
-            fields: RefCell::new(HashMap::new()),
+            fields: Slots::default(),
             native: Some(id),
         }))
     }
@@ -169,44 +169,23 @@ impl Object {
     }
 
     pub(crate) fn field_symbol(&self, name: &Symbol) -> Option<Value> {
-        self.0
-            .fields
-            .borrow()
-            .get(name)
-            .map(|slot| slot.value.clone())
+        self.0.fields.get(name)
     }
 
     pub fn set_field(&self, name: impl Into<Symbol>, value: Value) -> Option<Value> {
-        let name = name.into();
-        let mut fields = self.0.fields.borrow_mut();
-        if let Some(slot) = fields.get_mut(&name) {
-            return Some(std::mem::replace(&mut slot.value, value));
-        }
-        fields.insert(name, ValueSlot::writable(value));
-        None
+        self.0.fields.set(name, value)
     }
 
     pub fn remove_field(&self, name: &str) -> Option<Value> {
-        self.0
-            .fields
-            .borrow_mut()
-            .remove(&Symbol::new(name))
-            .map(|slot| slot.value)
+        self.0.fields.remove(&Symbol::new(name))
     }
 
     pub fn define_read_only_field(&self, name: impl Into<Symbol>, value: Value) {
-        self.0
-            .fields
-            .borrow_mut()
-            .insert(name.into(), ValueSlot::read_only(value));
+        self.0.fields.define_read_only(name, value);
     }
 
     pub(crate) fn field_is_read_only(&self, name: &Symbol) -> bool {
-        self.0
-            .fields
-            .borrow()
-            .get(name)
-            .is_some_and(|slot| slot.read_only)
+        self.0.fields.is_read_only(name)
     }
 }
 
@@ -325,38 +304,6 @@ pub enum Value {
     Function(Function),
 }
 
-impl Value {
-    /*fn thyme_display(&self) -> Cow<'_, str> {
-        match self {
-            Self::Null => "null".into(),
-            Self::Void => "void".into(),
-            Self::Undefined => "undefined".into(),
-            Self::Bool(value) => value.to_string().into(),
-            Self::Number(n) => n.thyme_display(),
-            Self::Str(value) => value.as_ref().into(),
-            Self::List(list) => {
-                let mut result = String::from("[");
-                for (i, value) in list.0.iter().enumerate() {
-                    if i != 0 {
-                        result.push_str(", ");
-                    }
-                    result.push_str(&value.thyme_display());
-                }
-                result.push(']');
-                result.into()
-            }
-            Self::Object(object) => match object.native_id() {
-                Some(id) => format!("native({})", id.into_raw()).into(),
-                None => "object".into(),
-            },
-            Self::Function(function) => match &*function.0 {
-                FunctionValue::Intrinsic(intrinsic) => format!("intrinsic function with {} arguments (id {})", function.arity(), intrinsic.id.into_raw()).into(),
-                FunctionValue::User(def) => def.definition.to_string().into(),
-            },
-        }
-    }*/
-}
-
 impl Display for Value {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -445,8 +392,54 @@ impl Debug for Value {
 
 #[derive(Trace)]
 struct ClassObject {
-    fields: RefCell<HashMap<Symbol, ValueSlot>>,
+    fields: Slots,
     native: Option<NativeObjectId>,
+}
+
+#[derive(Default, Trace)]
+struct Slots(RefCell<HashMap<Symbol, ValueSlot>>);
+
+impl Slots {
+    fn new(values: HashMap<Symbol, Value>) -> Self {
+        Self(RefCell::new(
+            values
+                .into_iter()
+                .map(|(name, value)| (name, ValueSlot::writable(value)))
+                .collect(),
+        ))
+    }
+
+    fn get(&self, name: &Symbol) -> Option<Value> {
+        self.0.borrow().get(name).map(|slot| slot.value.clone())
+    }
+
+    fn contains(&self, name: &Symbol) -> bool {
+        self.0.borrow().contains_key(name)
+    }
+
+    fn is_read_only(&self, name: &Symbol) -> bool {
+        self.0.borrow().get(name).is_some_and(|slot| slot.read_only)
+    }
+
+    fn set(&self, name: impl Into<Symbol>, value: Value) -> Option<Value> {
+        let name = name.into();
+        let mut slots = self.0.borrow_mut();
+        if let Some(slot) = slots.get_mut(&name) {
+            return Some(std::mem::replace(&mut slot.value, value));
+        }
+        slots.insert(name, ValueSlot::writable(value));
+        None
+    }
+
+    fn remove(&self, name: &Symbol) -> Option<Value> {
+        self.0.borrow_mut().remove(name).map(|slot| slot.value)
+    }
+
+    fn define_read_only(&self, name: impl Into<Symbol>, value: Value) {
+        self.0
+            .borrow_mut()
+            .insert(name.into(), ValueSlot::read_only(value));
+    }
 }
 
 #[derive(Trace)]
@@ -474,7 +467,7 @@ impl ValueSlot {
 #[derive(Trace)]
 pub struct Environment {
     parent: Option<Gc<Environment>>,
-    bindings: RefCell<HashMap<Symbol, ValueSlot>>,
+    bindings: Slots,
     receiver: Option<Object>,
     initialize_receiver: bool,
 }
@@ -483,7 +476,7 @@ impl Environment {
     pub fn new_root() -> Self {
         let environment = Self {
             parent: None,
-            bindings: RefCell::new(HashMap::new()),
+            bindings: Slots::default(),
             receiver: None,
             initialize_receiver: false,
         };
@@ -499,33 +492,22 @@ impl Environment {
     ) -> Self {
         Self {
             parent: Some(parent),
-            bindings: RefCell::new(
-                bindings
-                    .into_iter()
-                    .map(|(name, value)| (name, ValueSlot::writable(value)))
-                    .collect(),
-            ),
+            bindings: Slots::new(bindings),
             receiver,
             initialize_receiver,
         }
     }
 
     pub(crate) fn local(&self, name: &Symbol) -> Option<Value> {
-        self.bindings
-            .borrow()
-            .get(name)
-            .map(|slot| slot.value.clone())
+        self.bindings.get(name)
     }
 
     pub(crate) fn contains_local(&self, name: &Symbol) -> bool {
-        self.bindings.borrow().contains_key(name)
+        self.bindings.contains(name)
     }
 
     pub(crate) fn local_is_read_only(&self, name: &Symbol) -> bool {
-        self.bindings
-            .borrow()
-            .get(name)
-            .is_some_and(|slot| slot.read_only)
+        self.bindings.is_read_only(name)
     }
 
     pub(crate) fn parent(&self) -> Option<Gc<Environment>> {
@@ -542,19 +524,11 @@ impl Environment {
 
     /// Creates or replaces the binding for a name in this environment.
     pub fn declare(&self, name: impl Into<Symbol>, value: Value) -> Option<Value> {
-        let name = name.into();
-        let mut bindings = self.bindings.borrow_mut();
-        if let Some(slot) = bindings.get_mut(&name) {
-            return Some(std::mem::replace(&mut slot.value, value));
-        }
-        bindings.insert(name, ValueSlot::writable(value));
-        None
+        self.bindings.set(name, value)
     }
 
     pub(crate) fn define_read_only(&self, name: impl Into<Symbol>, value: Value) {
-        self.bindings
-            .borrow_mut()
-            .insert(name.into(), ValueSlot::read_only(value));
+        self.bindings.define_read_only(name, value);
     }
 }
 
