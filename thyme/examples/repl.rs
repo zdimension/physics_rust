@@ -1,5 +1,4 @@
-use dumpster::unsync::Gc;
-use thyme::{Host, Runtime, eval::Evaluator};
+use thyme::{Host, Runtime};
 
 fn main() {
     use std::io::Write;
@@ -45,13 +44,6 @@ fn main() {
 
     let mut host = DummyHost;
 
-    let mut evaluator = Evaluator {
-        runtime: &runtime,
-        host: &mut host,
-    };
-
-    let env = Gc::new(thyme::Environment::new_root());
-
     let mut input = String::new();
     loop {
         print!("> ");
@@ -64,7 +56,7 @@ fn main() {
         }
 
         match thyme::parse::parse_thyme(trimmed).into_result() {
-            Ok((expr, _)) => match evaluator.eval_expr(&expr, &env) {
+            Ok((expr, _)) => match runtime.eval_expr(&mut host, &expr) {
                 Ok(out) => println!("{out}"),
                 Err(err) => println!("- ERROR - {err}"),
             },

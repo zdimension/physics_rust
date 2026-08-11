@@ -11,6 +11,7 @@ use crate::{
 pub struct Evaluator<'runtime, 'host> {
     pub runtime: &'runtime Runtime,
     pub host: &'host mut dyn Host,
+    env: Gc<Environment>,
 }
 
 enum ResolvedMember {
@@ -36,6 +37,22 @@ impl ResolvedMember {
 }
 
 impl<'runtime, 'host> Evaluator<'runtime, 'host> {
+    pub fn root(runtime: &'runtime Runtime, host: &'host mut dyn Host) -> Self {
+        Self::new(runtime, host, runtime.globals.clone())
+    }
+
+    pub fn new(
+        runtime: &'runtime Runtime,
+        host: &'host mut dyn Host,
+        env: Gc<Environment>,
+    ) -> Self {
+        Self { runtime, host, env }
+    }
+
+    fn child<'eval>(&'eval mut self, env: Gc<Environment>) -> Evaluator<'runtime, 'eval> {
+        Evaluator::new(self.runtime, &mut *self.host, env)
+    }
+
     /// if the value is a zero-parameter function, call it and return the result, otherwise return the value as-is
     fn collapse(&mut self, value: Value) -> Result<Value, String> {
         if let Value::Function(function) = &value {
@@ -44,6 +61,25 @@ impl<'runtime, 'host> Evaluator<'runtime, 'host> {
             }
         }
         Ok(value)
+    }
+
+    pub(crate) fn eval_source(&mut self, source: &str) -> Result<Value, String> {
+        let (expression, _) =
+            crate::parse::parse_thyme(source)
+                .into_result()
+                .map_err(|errors| {
+                    errors
+                        .into_iter()
+                        .map(|error| error.to_string())
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                })?;
+        self.eval_expr(&expression)
+    }
+
+    pub(crate) fn eval_global_source(&mut self, source: &str) -> Result<Value, String> {
+        let globals = self.runtime.globals.clone();
+        self.child(globals).eval_source(source)
     }
 
     fn span_suffix(span: Option<Span>) -> String {
@@ -221,25 +257,26 @@ impl<'runtime, 'host> Evaluator<'runtime, 'host> {
         Ok(())
     }
 
-    pub fn eval_expr(&mut self, expr: &Expr, env: &Gc<Environment>) -> Result<Value, String> {
+    pub fn eval_expr(&mut self, expr: &Expr) -> Result<Value, String> {
+        let env = self.env.clone();
         Ok(match expr {
             Expr::Error => return Err("Cannot evaluate an error expression".to_string()),
-            Expr::Parenthesized(inner) => self.eval_expr(&inner.0, env)?,
+            Expr::Parenthesized(inner) => self.eval_expr(&inner.0)?,
             Expr::Value(Literal::Null) => Value::Null,
             Expr::Value(Literal::Bool(b)) => Value::Bool(*b),
             Expr::Value(Literal::Number(num)) => Value::Number(*num),
             Expr::Value(Literal::Str(s)) => Value::Str(s.clone()),
             Expr::List(list) => Value::List(List(
                 list.iter()
-                    .map(|(expr, _)| self.eval_expr(expr, env))
+                    .map(|(expr, _)| self.eval_expr(expr))
                     .collect::<Result<Gc<[_]>, _>>()?,
             )),
-            Expr::Symbol(sym) => match self.read_symbol(env, sym)? {
+            Expr::Symbol(sym) => match self.read_symbol(&env, sym)? {
                 Some(value) => self.collapse(value)?,
                 None => Value::Undefined,
             },
             Expr::Member(object, (member, member_span)) => {
-                let object_value = self.eval_expr(&object.0, env)?;
+                let object_value = self.eval_expr(&object.0)?;
                 let Value::Object(object) = object_value else {
                     return Err(format!(
                         "Cannot access member {member} of non-object value {object_value} at \
@@ -255,10 +292,10 @@ impl<'runtime, 'host> Evaluator<'runtime, 'host> {
                 self.collapse(value)?
             }
             Expr::Call(function_expr, (argument_exprs, call_span)) => {
-                let function_value = self.eval_expr(&function_expr.0, env)?;
+                let function_value = self.eval_expr(&function_expr.0)?;
                 let arguments = argument_exprs
                     .iter()
-                    .map(|(argument, _)| self.eval_expr(argument, env))
+                    .map(|(argument, _)| self.eval_expr(argument))
                     .collect::<Result<Vec<_>, _>>()?;
                 match function_value {
                     Value::Function(function) => {
@@ -304,34 +341,34 @@ impl<'runtime, 'host> Evaluator<'runtime, 'host> {
                 }
             }
             Expr::Ternary(cond, then_expr, else_expr) => {
-                let cond_value = self.eval_expr(&cond.0, env)?;
+                let cond_value = self.eval_expr(&cond.0)?;
                 let Value::Bool(cond_bool) = cond_value else {
                     return Err(format!(
                         "Cannot use non-boolean value {cond_value} as a condition"
                     ));
                 };
                 let res = if cond_bool {
-                    self.eval_expr(&then_expr.0, env)?
+                    self.eval_expr(&then_expr.0)?
                 } else {
-                    self.eval_expr(&else_expr.0, env)?
+                    self.eval_expr(&else_expr.0)?
                 };
                 self.collapse(res)?
             }
             Expr::Func(definition) => {
                 Value::Function(Function(Gc::new(FunctionValue::User(UserFunction {
                     definition: definition.clone(),
-                    env: env.clone(),
+                    env,
                 }))))
             }
             Expr::Seq(expressions) => {
                 let mut result = Value::Void;
                 for expression in expressions {
-                    result = self.eval_expr(&expression.0, env)?;
+                    result = self.eval_expr(&expression.0)?;
                 }
                 result
             }
             Expr::Unary(op, expr) => {
-                let value = self.eval_expr(&expr.0, env)?;
+                let value = self.eval_expr(&expr.0)?;
                 self.apply_unary(
                     |value| match op {
                         UnaryOp::Neg => match value {
@@ -356,13 +393,13 @@ impl<'runtime, 'host> Evaluator<'runtime, 'host> {
                 )?
             }
             Expr::Assignment(target, kind, right) => {
-                let right_value = self.eval_expr(&right.0, env)?;
+                let right_value = self.eval_expr(&right.0)?;
                 match target {
                     AssignmentTarget::Name((name, span)) => {
-                        self.assign_symbol(env, name, *kind, right_value.clone(), *span)?
+                        self.assign_symbol(&env, name, *kind, right_value.clone(), *span)?
                     }
                     AssignmentTarget::Member(object_expr, (member, member_span)) => {
-                        let object_value = self.eval_expr(&object_expr.0, env)?;
+                        let object_value = self.eval_expr(&object_expr.0)?;
                         let Value::Object(object) = object_value else {
                             return Err(format!(
                                 "Cannot assign to member {member} of non-object value \
@@ -376,7 +413,7 @@ impl<'runtime, 'host> Evaluator<'runtime, 'host> {
                 right_value
             }
             Expr::With(object_expr, body) => {
-                let object_value = self.eval_expr(&object_expr.0, env)?;
+                let object_value = self.eval_expr(&object_expr.0)?;
                 let Value::Object(object) = object_value else {
                     return Err(format!(
                         "Cannot use '->' with non-object value {object_value} at {:?}",
@@ -384,17 +421,17 @@ impl<'runtime, 'host> Evaluator<'runtime, 'host> {
                     ));
                 };
                 let with_environment = Gc::new(Environment::child(
-                    env.clone(),
+                    env,
                     HashMap::new(),
                     Some(object.clone()),
                     false,
                 ));
-                self.eval_expr(&body.0, &with_environment)?;
+                self.child(with_environment).eval_expr(&body.0)?;
                 Value::Object(object)
             }
             Expr::Binary(left, op, right) => {
-                let right_value = self.eval_expr(&right.0, env)?;
-                let left_value = self.eval_expr(&left.0, env)?;
+                let right_value = self.eval_expr(&right.0)?;
+                let left_value = self.eval_expr(&left.0)?;
                 let left_value = self.collapse(left_value)?;
                 let right_value = self.collapse(right_value)?;
 
@@ -629,8 +666,12 @@ impl<'runtime, 'host> Evaluator<'runtime, 'host> {
                     .collect::<Result<Gc<[_]>, _>>()?;
                 Ok(Value::List(List(new_list)))
             }
-            (list @ Value::List(_), right) => self.apply_unary(|left| handler(left, right.clone()), list),
-            (left, list @ Value::List(_)) => self.apply_unary(|right| handler(left.clone(), right), list),
+            (list @ Value::List(_), right) => {
+                self.apply_unary(|left| handler(left, right.clone()), list)
+            }
+            (left, list @ Value::List(_)) => {
+                self.apply_unary(|right| handler(left.clone(), right), list)
+            }
             (left, right) => handler(left, right),
         }
     }
@@ -709,7 +750,7 @@ impl<'runtime, 'host> Evaluator<'runtime, 'host> {
                     initialize_receiver,
                 ));
 
-                self.eval_expr(&definition.body.0, &call_environment)
+                self.child(call_environment).eval_expr(&definition.body.0)
             }
         }
     }
@@ -834,7 +875,8 @@ mod tests {
             .into_result()
             .unwrap_or_else(|errors| panic!("parse errors for {source:?}: {errors:#?}"));
         evaluator
-            .eval_expr(&expression, environment)
+            .child(environment.clone())
+            .eval_expr(&expression)
             .unwrap_or_else(|error| panic!("evaluation error for {source:?}: {error}"))
     }
 
@@ -846,7 +888,10 @@ mod tests {
         let (expression, _) = crate::parse::parse_thyme(source)
             .into_result()
             .unwrap_or_else(|errors| panic!("parse errors for {source:?}: {errors:#?}"));
-        evaluator.eval_expr(&expression, environment).unwrap_err()
+        evaluator
+            .child(environment.clone())
+            .eval_expr(&expression)
+            .unwrap_err()
     }
 
     fn echo_builtin(
@@ -863,10 +908,7 @@ mod tests {
         let runtime = Runtime::new();
         let mut host = TestHost { calls: 0 };
         let environment = empty_environment();
-        let mut evaluator = Evaluator {
-            runtime: &runtime,
-            host: &mut host,
-        };
+        let mut evaluator = Evaluator::root(&runtime, &mut host);
 
         for (source, expected) in [
             ("[1, 2, 3] + 10", "[11, 12, 13]"),
@@ -888,10 +930,7 @@ mod tests {
     fn generic_builtin_descriptors_dispatch_without_the_host() {
         let runtime = Runtime::new();
         let mut host = TestHost { calls: 0 };
-        let mut evaluator = Evaluator {
-            runtime: &runtime,
-            host: &mut host,
-        };
+        let mut evaluator = Evaluator::root(&runtime, &mut host);
         let function = Function::builtin("test.echo", 1, echo_builtin);
         let span: Span = (4..9).into();
 
@@ -917,10 +956,7 @@ mod tests {
         let runtime = Runtime::new();
         let mut host = TestHost { calls: 0 };
         let environment = empty_environment();
-        let mut evaluator = Evaluator {
-            runtime: &runtime,
-            host: &mut host,
-        };
+        let mut evaluator = Evaluator::root(&runtime, &mut host);
 
         let Value::Object(first) = eval_source(&mut evaluator, &environment, "alloc") else {
             panic!("alloc did not return an object");
@@ -940,10 +976,7 @@ mod tests {
         let runtime = Runtime::new();
         let mut host = TestHost { calls: 0 };
         let environment = empty_environment();
-        let mut evaluator = Evaluator {
-            runtime: &runtime,
-            host: &mut host,
-        };
+        let mut evaluator = Evaluator::root(&runtime, &mut host);
 
         assert_eq!(
             eval_source(&mut evaluator, &environment, "string.length(\"é🙂\")"),
@@ -980,10 +1013,7 @@ mod tests {
         let runtime = Runtime::new();
         let mut host = TestHost { calls: 0 };
         let environment = empty_environment();
-        let mut evaluator = Evaluator {
-            runtime: &runtime,
-            host: &mut host,
-        };
+        let mut evaluator = Evaluator::root(&runtime, &mut host);
 
         let error = eval_source_error(&mut evaluator, &environment, "string.length(12)");
         assert!(error.contains("expected string or list"), "{error}");
@@ -1006,10 +1036,7 @@ mod tests {
         let runtime = Runtime::new();
         let mut host = TestHost { calls: 0 };
         let environment = empty_environment();
-        let mut evaluator = Evaluator {
-            runtime: &runtime,
-            host: &mut host,
-        };
+        let mut evaluator = Evaluator::root(&runtime, &mut host);
 
         for source in [
             "alloc = 123",
@@ -1075,10 +1102,7 @@ mod tests {
             "Echo",
             Value::Function(Function::intrinsic(IntrinsicId::from_raw(6), "Echo", 1)),
         );
-        let mut evaluator = Evaluator {
-            runtime: &runtime,
-            host: &mut host,
-        };
+        let mut evaluator = Evaluator::root(&runtime, &mut host);
 
         assert_eq!(
             eval_source(&mut evaluator, &environment, "a = 5; A = 6; a"),
@@ -1113,10 +1137,7 @@ mod tests {
         let runtime = Runtime::new();
         let mut host = TestHost { calls: 0 };
         let environment = empty_environment();
-        let mut evaluator = Evaluator {
-            runtime: &runtime,
-            host: &mut host,
-        };
+        let mut evaluator = Evaluator::root(&runtime, &mut host);
 
         assert_eq!(
             eval_source(
@@ -1165,10 +1186,7 @@ mod tests {
         let runtime = Runtime::new();
         let mut host = TestHost { calls: 0 };
         let environment = empty_environment();
-        let mut evaluator = Evaluator {
-            runtime: &runtime,
-            host: &mut host,
-        };
+        let mut evaluator = Evaluator::root(&runtime, &mut host);
 
         assert_eq!(
             eval_source(
@@ -1198,10 +1216,7 @@ mod tests {
         let runtime = Runtime::new();
         let mut host = TestHost { calls: 0 };
         let environment = empty_environment();
-        let mut evaluator = Evaluator {
-            runtime: &runtime,
-            host: &mut host,
-        };
+        let mut evaluator = Evaluator::root(&runtime, &mut host);
 
         for (name, expected) in [
             ("acos", 1.0_f32.acos()),
@@ -1245,10 +1260,7 @@ mod tests {
         let runtime = Runtime::new();
         let mut host = TestHost { calls: 0 };
         let environment = empty_environment();
-        let mut evaluator = Evaluator {
-            runtime: &runtime,
-            host: &mut host,
-        };
+        let mut evaluator = Evaluator::root(&runtime, &mut host);
 
         for (source, expected) in [
             ("math.HSL2RGB([0, 1, 0.5])", [1.0, 0.0, 0.0]),
@@ -1282,10 +1294,7 @@ mod tests {
     fn intrinsic_calls_check_arity_and_dispatch_to_the_host() {
         let runtime = Runtime::new();
         let mut host = TestHost { calls: 0 };
-        let mut evaluator = Evaluator {
-            runtime: &runtime,
-            host: &mut host,
-        };
+        let mut evaluator = Evaluator::root(&runtime, &mut host);
         let function = Function::intrinsic(IntrinsicId::from_raw(4), "identity", 1);
         let span: Span = (3..8).into();
 
@@ -1344,10 +1353,7 @@ mod tests {
         let runtime = Runtime::new();
         let object = NativeObjectId::from_raw(42);
         let mut host = ReceiverHost(object);
-        let mut evaluator = Evaluator {
-            runtime: &runtime,
-            host: &mut host,
-        };
+        let mut evaluator = Evaluator::root(&runtime, &mut host);
         assert_eq!(
             evaluator
                 .call_function(
@@ -1385,10 +1391,7 @@ mod tests {
                 0,
             )),
         );
-        let mut evaluator = Evaluator {
-            runtime: &runtime,
-            host: &mut host,
-        };
+        let mut evaluator = Evaluator::root(&runtime, &mut host);
 
         assert_eq!(
             eval_source(&mut evaluator, &environment, "host_value"),
@@ -1411,10 +1414,7 @@ mod tests {
             },
             env: empty_environment(),
         })));
-        let mut evaluator = Evaluator {
-            runtime: &runtime,
-            host: &mut host,
-        };
+        let mut evaluator = Evaluator::root(&runtime, &mut host);
 
         let result = evaluator
             .call_function(&function, &[Value::Bool(true)], span)
@@ -1460,17 +1460,17 @@ mod tests {
             None,
             false,
         ));
-        let mut evaluator = Evaluator {
-            runtime: &runtime,
-            host: &mut host,
-        };
+        let mut evaluator = Evaluator::root(&runtime, &mut host);
 
         let native = Expr::Member(
             Box::new((Expr::Symbol(Symbol::from("object")), span)),
             (Symbol::from("native"), span),
         );
         assert!(matches!(
-            evaluator.eval_expr(&native, &environment).unwrap(),
+            evaluator
+                .child(environment.clone())
+                .eval_expr(&native)
+                .unwrap(),
             Value::Bool(true)
         ));
 
@@ -1479,7 +1479,10 @@ mod tests {
             (Symbol::from("dynamic"), span),
         );
         assert!(matches!(
-            evaluator.eval_expr(&dynamic, &environment).unwrap(),
+            evaluator
+                .child(environment.clone())
+                .eval_expr(&dynamic)
+                .unwrap(),
             Value::Bool(false)
         ));
 
@@ -1503,10 +1506,7 @@ mod tests {
         environment.declare("x", Value::Number(Number::Int(99)));
         environment.declare("y", Value::Number(Number::Int(100)));
         environment.declare("global_value", Value::Number(Number::Int(11)));
-        let mut evaluator = Evaluator {
-            runtime: &runtime,
-            host: &mut host,
-        };
+        let mut evaluator = Evaluator::root(&runtime, &mut host);
 
         eval_source(
             &mut evaluator,
@@ -1548,10 +1548,7 @@ mod tests {
         let environment = empty_environment();
         let object = Object::new();
         environment.declare("o", Value::Object(object.clone()));
-        let mut evaluator = Evaluator {
-            runtime: &runtime,
-            host: &mut host,
-        };
+        let mut evaluator = Evaluator::root(&runtime, &mut host);
 
         eval_source(&mut evaluator, &environment, "o -> { foobar = 1 }");
         assert_eq!(object.field("foobar"), None);
@@ -1575,10 +1572,7 @@ mod tests {
         let environment = empty_environment();
         let object = Object::native(NativeObjectId::from_raw(10));
         environment.declare("object", Value::Object(object.clone()));
-        let mut evaluator = Evaluator {
-            runtime: &runtime,
-            host: &mut host,
-        };
+        let mut evaluator = Evaluator::root(&runtime, &mut host);
 
         eval_source(
             &mut evaluator,

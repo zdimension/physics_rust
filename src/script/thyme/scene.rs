@@ -1,4 +1,8 @@
-use std::{io::{Cursor, Read}, path::Path};
+use std::{
+    borrow::Cow,
+    io::{Cursor, Read},
+    path::Path,
+};
 
 use ::thyme::parse::{Expr, Spanned, parse_thyme, read_auto_encoding};
 use avian2d::prelude::{Physics, PhysicsTime, Position, Rotation};
@@ -58,12 +62,21 @@ fn read_path(path: impl AsRef<Path>) -> Result<Vec<u8>, String> {
 
     #[cfg(not(target_arch = "wasm32"))]
     {
-        std::fs::read(path.as_ref()).map_err(|error| format!("cannot open {}: {error}", path.as_ref().display()))
+        std::fs::read(path.as_ref())
+            .map_err(|error| format!("cannot open {}: {error}", path.as_ref().display()))
     }
 }
 
-pub(crate) fn queue_path(world: &mut World, path: impl AsRef<Path>, import: bool) -> Result<(), String> {
-    let name = path.as_ref().file_name().map(|name| name.to_string_lossy().to_string()).unwrap_or_else(|| "scene".to_string());
+pub(crate) fn queue_path(
+    world: &mut World,
+    path: impl AsRef<Path>,
+    import: bool,
+) -> Result<(), String> {
+    let name = path
+        .as_ref()
+        .file_name()
+        .map(|name| name.to_string_lossy().to_string())
+        .unwrap_or_else(|| "scene".to_string());
     let bytes = read_path(path)?;
     if import {
         let origin = {
@@ -87,8 +100,8 @@ fn is_zip(bytes: &[u8]) -> bool {
         .any(|magic| bytes.starts_with(*magic))
 }
 
-fn parse_scene(bytes: Vec<u8>) -> Result<Spanned<Expr>, String> {
-    let bytes = if is_zip(&bytes) {
+fn source_bytes(bytes: &[u8]) -> Result<Cow<'_, [u8]>, String> {
+    if is_zip(bytes) {
         let mut archive =
             zip::ZipArchive::new(Cursor::new(bytes)).map_err(|error| error.to_string())?;
         let mut file = archive
@@ -97,10 +110,20 @@ fn parse_scene(bytes: Vec<u8>) -> Result<Spanned<Expr>, String> {
         let mut source = Vec::with_capacity(file.size() as usize);
         file.read_to_end(&mut source)
             .map_err(|error| error.to_string())?;
-        source
+        Ok(Cow::Owned(source))
     } else {
-        bytes
-    };
+        Ok(Cow::Borrowed(bytes))
+    }
+}
+
+pub(super) fn read_source(path: &str) -> Result<String, String> {
+    let bytes = read_path(path)?;
+    let bytes = source_bytes(&bytes)?;
+    Ok(read_auto_encoding(&bytes).into_owned())
+}
+
+fn parse_scene(bytes: Vec<u8>) -> Result<Spanned<Expr>, String> {
+    let bytes = source_bytes(&bytes)?;
     let source = read_auto_encoding(&bytes);
     parse_thyme(&source).into_result().map_err(|errors| {
         errors

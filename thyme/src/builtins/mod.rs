@@ -7,6 +7,7 @@ use crate::{Environment, Function, Object, Value, eval::Evaluator, parse::Span};
 mod core;
 mod math;
 mod rand;
+mod reflection;
 mod set;
 mod string;
 
@@ -86,6 +87,7 @@ const NAMESPACES: &[BuiltinNamespace] = &[
     set::NAMESPACE,
     math::NAMESPACE,
     rand::NAMESPACE,
+    reflection::NAMESPACE,
 ];
 
 pub(crate) fn install(environment: &Environment) {

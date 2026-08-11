@@ -2209,6 +2209,10 @@ fn add_polygon(host: &mut WorldHost<'_>, arguments: &[Value]) -> Result<Value, H
 }
 
 impl Host for WorldHost<'_> {
+    fn read_source(&mut self, path: &str) -> Result<String, HostError> {
+        super::scene::read_source(path).map_err(|error| HostError::new(HostErrorKind::Other, error))
+    }
+
     fn resolve_property(
         &mut self,
         object: NativeObjectId,
@@ -2425,6 +2429,23 @@ mod tests {
     }
 
     #[test]
+    fn reflection_executes_files_in_the_global_scope() {
+        let mut world = world();
+        let mut engine = ScriptEngine::default();
+        let path = format!("target/reflection-{}.phn", std::process::id());
+        std::fs::write(&path, b"\xef\xbb\xbfreflected := 4; reflected + 1").unwrap();
+
+        assert_eq!(
+            engine
+                .eval(&mut world, &format!("Reflection.ExecuteFile(\"{path}\")"),)
+                .unwrap(),
+            Value::from(5)
+        );
+        assert_eq!(engine.runtime.global("reflected"), Some(Value::from(4)));
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
     fn gui_properties_accept_ints_for_floats_and_protect_globals() {
         let mut engine = ScriptEngine::default();
         let mut world = world();
@@ -2547,7 +2568,10 @@ mod tests {
         assert_eq!(transform.translation.truncate(), Vec2::new(3.0, 4.0));
         assert_eq!(transform.scale.truncate(), Vec2::splat(0.005));
         assert!((transform.rotation.to_euler(EulerRot::XYZ).2 - 0.5).abs() < 1.0e-6);
-        assert_eq!(world.get::<Transform>(decoy).unwrap().translation, Vec3::splat(9.0));
+        assert_eq!(
+            world.get::<Transform>(decoy).unwrap().translation,
+            Vec3::splat(9.0)
+        );
         let drag = world.resource::<DragConfig>();
         assert!(drag.drag_center_of_mass);
         assert_eq!(drag.max_force, 12.0);
@@ -3239,7 +3263,10 @@ mod tests {
             [Vec2::ZERO, Vec2::new(10.0, 15.0)]
         );
         assert_eq!(world.get::<AttachmentKind>(fix), Some(&AttachmentKind::Fix));
-        assert_eq!(world.get::<Transform>(fix).unwrap().scale.truncate(), Vec2::splat(2.0));
+        assert_eq!(
+            world.get::<Transform>(fix).unwrap().scale.truncate(),
+            Vec2::splat(2.0)
+        );
         assert_eq!(
             world
                 .get::<crate::tools::add_object::AttachmentLinks>(fix)

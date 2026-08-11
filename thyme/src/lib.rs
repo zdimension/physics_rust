@@ -639,6 +639,13 @@ impl ResolvedProperty {
 /// This trait is intentionally neither `Send` nor `Sync`: a Thyme runtime is confined to one
 /// thread, and the host may query a thread-local game world.
 pub trait Host {
+    fn read_source(&mut self, _path: &str) -> Result<String, HostError> {
+        Err(HostError::new(
+            HostErrorKind::Other,
+            "file access is unavailable",
+        ))
+    }
+
     fn resolve_property(
         &mut self,
         object: NativeObjectId,
@@ -704,23 +711,12 @@ impl Runtime {
     }
 
     pub fn eval(&self, host: &mut dyn Host, source: &str) -> Result<Value, String> {
-        let (expression, _) = parse::parse_thyme(source).into_result().map_err(|errors| {
-            errors
-                .into_iter()
-                .map(|error| error.to_string())
-                .collect::<Vec<_>>()
-                .join("\n")
-        })?;
-        self.eval_expr(host, &expression)
+        eval::Evaluator::root(self, host).eval_source(source)
     }
 
     /// Evaluates an already-parsed expression in this runtime's global environment.
     pub fn eval_expr(&self, host: &mut dyn Host, expression: &Expr) -> Result<Value, String> {
-        eval::Evaluator {
-            runtime: self,
-            host,
-        }
-        .eval_expr(expression, &self.globals)
+        eval::Evaluator::root(self, host).eval_expr(expression)
     }
 
     pub fn call_function(
@@ -729,11 +725,11 @@ impl Runtime {
         function: &Function,
         arguments: &[Value],
     ) -> Result<Value, String> {
-        eval::Evaluator {
-            runtime: self,
-            host,
-        }
-        .call_function(function, arguments, (0..0).into())
+        eval::Evaluator::root(self, host).call_function(
+            function,
+            arguments,
+            (0..0).into(),
+        )
     }
 
     /// Calls a function as an object initializer.
@@ -744,10 +740,7 @@ impl Runtime {
         arguments: &[Value],
         receiver: Object,
     ) -> Result<Value, String> {
-        eval::Evaluator {
-            runtime: self,
-            host,
-        }
+        eval::Evaluator::root(self, host)
         .call_function_with_receiver(
             function,
             arguments,
@@ -868,10 +861,7 @@ impl Runtime {
     ) -> Vec<BindingError> {
         let mut errors = Vec::new();
         for (property, function) in self.property_bindings_for(object) {
-            let result = eval::Evaluator {
-                runtime: self,
-                host,
-            }
+            let result = eval::Evaluator::root(self, host)
             .call_function(&function, &[], (0..0).into())
             .and_then(|value| {
                 host.set_property(object, property, &value)
@@ -939,6 +929,12 @@ mod tests {
     }
 
     impl Host for FakeHost {
+        fn read_source(&mut self, path: &str) -> Result<String, HostError> {
+            (path == "test.phn")
+                .then(|| "fileValue := 11; fileValue + 1".to_owned())
+                .ok_or_else(|| HostError::new(HostErrorKind::Other, "missing file"))
+        }
+
         fn resolve_property(
             &mut self,
             _object: NativeObjectId,
@@ -977,6 +973,55 @@ mod tests {
                 .cloned()
                 .unwrap_or(Value::Number(Number::Float(2.0))))
         }
+    }
+
+    #[test]
+    fn eval_uses_current_scope_and_geval_uses_global_scope() {
+        let runtime = Runtime::new();
+        let mut host = FakeHost { set: None };
+
+        assert_eq!(
+            runtime
+                .eval(&mut host, "f = { y := 5; eval(\"x := 4; x + 1\") + y }; f",)
+                .unwrap(),
+            Value::Number(Number::Int(10))
+        );
+        assert_eq!(runtime.global("x"), None);
+        assert_eq!(runtime.global("y"), None);
+
+        assert_eq!(
+            runtime
+                .eval(&mut host, "f = { geval(\"z := 5; z + 1\") }; f")
+                .unwrap(),
+            Value::Number(Number::Int(6))
+        );
+        assert_eq!(runtime.global("z"), Some(Value::Number(Number::Int(5))));
+    }
+
+    #[test]
+    fn reflection_executes_code_and_files_globally() {
+        let runtime = Runtime::new();
+        let mut host = FakeHost { set: None };
+
+        assert_eq!(
+            runtime
+                .eval(
+                    &mut host,
+                    "Reflection.ExecuteCode(\"codeValue := 7; codeValue + 1\")",
+                )
+                .unwrap(),
+            Value::Number(Number::Int(8))
+        );
+        assert_eq!(
+            runtime
+                .eval(&mut host, "Reflection.ExecuteFile(\"test.phn\")")
+                .unwrap(),
+            Value::Number(Number::Int(12))
+        );
+        assert_eq!(
+            runtime.global("fileValue"),
+            Some(Value::Number(Number::Int(11)))
+        );
     }
 
     #[test]
