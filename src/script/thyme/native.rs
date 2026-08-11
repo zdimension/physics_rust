@@ -534,7 +534,10 @@ fn get_color_hsva(world: &World, entity: Entity) -> Result<Value, HostError> {
 }
 
 fn set_color_hsva(world: &mut World, entity: Entity, value: &Value) -> Result<(), HostError> {
-    let [h, s, v, a] = float_list(value, "colorHSVA")?;
+    let [h, s, v, a] = float_list(value, "colorHSVA").or_else(|_| {
+        let [h, s, v] = float_list(value, "colorHSVA")?;
+        Ok([h, s, v, 1.0])
+    })?;
     world
         .entity_mut(entity)
         .insert(ColorComponent(Hsva::new(h / 360.0, s, v, a)));
@@ -552,7 +555,10 @@ fn get_color(world: &World, entity: Entity) -> Result<Value, HostError> {
 }
 
 fn set_color(world: &mut World, entity: Entity, value: &Value) -> Result<(), HostError> {
-    let vals = float_list(value, "color")?;
+    let vals = float_list(value, "color").or_else(|_| {
+        let [r, g, b] = float_list(value, "color")?;
+        Ok([r, g, b, 1.0])
+    })?;
     world
         .entity_mut(entity)
         .insert(ColorComponent(Hsva::from_srgba_unmultiplied(
