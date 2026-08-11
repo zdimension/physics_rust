@@ -8,7 +8,7 @@ use bevy::window::{PresentMode, WindowPlugin};
 use std::ops::RangeInclusive;
 
 use crate::lyon_compat::*;
-use crate::mouse_tracking::{MainCamera, prelude::*};
+use crate::mouse_tracking::{MainCamera, MainCameraEntity, prelude::*};
 use avian2d::prelude::*;
 use bevy_diagnostic::FrameTimeDiagnosticsPlugin;
 use bevy_egui::egui::epaint::{Hsva, Shadow};
@@ -502,7 +502,7 @@ fn setup_graphics(mut commands: Commands) {
     info!("Setting up graphics");
     // Add a camera so we can see the debug-render.
     // note: camera's scale means meters per pixel
-    commands
+    let camera = commands
         .spawn((
             Camera2d,
             MainCamera,
@@ -519,9 +519,9 @@ fn setup_graphics(mut commands: Commands) {
             },
         ))
         .queue(InitWorldTracking)
-        .queue(|id: EntityWorldMut| {
-            info!("Added main camera with {:?}", id.id());
-        });
+        .id();
+    commands.insert_resource(MainCameraEntity(camera));
+    info!("Added main camera with {camera:?}");
 
     commands.spawn((
         ToolCursor,

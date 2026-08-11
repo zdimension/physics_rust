@@ -88,6 +88,9 @@ impl EntityCommand for InitWorldTracking {
 #[derive(Component)]
 pub struct MainCamera;
 
+#[derive(Resource, Copy, Clone)]
+pub(crate) struct MainCameraEntity(pub(crate) Entity);
+
 fn update_mouse_positions(
     windows: Query<&Window, With<PrimaryWindow>>,
     mut mouse_positions: ParamSet<(

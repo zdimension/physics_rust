@@ -26,7 +26,7 @@ use crate::{
     grid::GridSettings,
     lyon_compat::Shape,
     mouse::select::SelectionConfig,
-    mouse_tracking::{MainCamera, MousePosWorld},
+    mouse_tracking::{MainCameraEntity, MousePosWorld},
     objects::{
         ColorComponent, MotorComponent,
         air::AirSettings,
@@ -344,9 +344,9 @@ fn color_value(color: Color) -> Value {
 
 fn main_camera(world: &World) -> Result<Entity, HostError> {
     world
-        .iter_entities()
-        .find(|entity| entity.contains::<MainCamera>())
-        .map(|entity| entity.id())
+        .get_resource::<MainCameraEntity>()
+        .map(|camera| camera.0)
+        .filter(|&camera| world.get_entity(camera).is_ok())
         .ok_or_else(|| object_error("Camera"))
 }
 
@@ -2339,6 +2339,7 @@ impl Host for WorldHost<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::mouse_tracking::MainCamera;
     use crate::objects::phy_obj::PhysicalObject;
     use crate::objects::spring::{SpringEnd, SpringEndIndex};
     use avian2d::prelude::SimpleCollider;
@@ -2359,7 +2360,8 @@ mod tests {
         physics.pause();
         world.insert_resource(physics);
         world.insert_resource(Time::<()>::default());
-        world.spawn((MainCamera, Transform::default()));
+        let camera = world.spawn((MainCamera, Transform::default())).id();
+        world.insert_resource(MainCameraEntity(camera));
         world
     }
 
@@ -2522,6 +2524,9 @@ mod tests {
     fn camera_and_tool_properties_share_their_live_state() {
         let mut engine = ScriptEngine::default();
         let mut world = world();
+        let decoy = world
+            .spawn((MainCamera, Transform::from_xyz(9.0, 9.0, 9.0)))
+            .id();
 
         engine
             .eval(
@@ -2533,14 +2538,12 @@ mod tests {
                  Tools.GearTool.thickness = 0.8",
             )
             .unwrap();
-        let camera = world
-            .iter_entities()
-            .find(|entity| entity.contains::<MainCamera>())
-            .unwrap();
-        let transform = camera.get::<Transform>().unwrap();
+        let camera = world.resource::<MainCameraEntity>().0;
+        let transform = world.get::<Transform>(camera).unwrap();
         assert_eq!(transform.translation.truncate(), Vec2::new(3.0, 4.0));
         assert_eq!(transform.scale.truncate(), Vec2::splat(0.005));
         assert!((transform.rotation.to_euler(EulerRot::XYZ).2 - 0.5).abs() < 1.0e-6);
+        assert_eq!(world.get::<Transform>(decoy).unwrap().translation, Vec3::splat(9.0));
         let drag = world.resource::<DragConfig>();
         assert!(drag.drag_center_of_mass);
         assert_eq!(drag.max_force, 12.0);

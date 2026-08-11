@@ -9,7 +9,7 @@ use crate::{
     default_camera_transform,
     grid::GridSettings,
     mouse::select::SelectionConfig,
-    mouse_tracking::MainCamera,
+    mouse_tracking::MainCameraEntity,
     objects::{air::AirSettings, gravity::GravitySetting},
     tools::{add_object::DepthSorter, drag::DragConfig, gear::GearSettings},
     ui::{PointerToolState, SceneState, selection_overlay::OverlayState},
@@ -136,13 +136,8 @@ pub(crate) fn reset(world: &mut World) {
     *world.get_mut::<Position>(sky).unwrap() = Position::default();
     *world.get_mut::<Rotation>(sky).unwrap() = Rotation::default();
     *world.get_mut::<Transform>(sky).unwrap() = Transform::default();
-    let camera = world
-        .iter_entities()
-        .find(|entity| entity.contains::<MainCamera>())
-        .map(|entity| entity.id());
-    if let Some(camera) = camera {
-        *world.get_mut::<Transform>(camera).unwrap() = default_camera_transform();
-    }
+    let camera = world.resource::<MainCameraEntity>().0;
+    *world.get_mut::<Transform>(camera).unwrap() = default_camera_transform();
 
     world.insert_resource(GridSettings::default());
     world.insert_resource(GravitySetting::default());
@@ -168,11 +163,7 @@ pub(crate) fn load_pending(world: &mut World) {
         Pending::New => {
             reset(world);
             crate::tools::add_object::spawn_default_plane(world, Vec2::ZERO);
-            let camera = world
-                .iter_entities()
-                .find(|entity| entity.contains::<MainCamera>())
-                .map(|entity| entity.id())
-                .unwrap();
+            let camera = world.resource::<MainCameraEntity>().0;
             world.get_mut::<Transform>(camera).unwrap().translation.y = 2.0;
             return;
         }
