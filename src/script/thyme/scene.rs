@@ -6,7 +6,6 @@ use bevy::prelude::{Children, Resource, Time, Transform, Vec2, World};
 
 use super::{Console, PendingEvents, ScriptEngine};
 use crate::{
-    config::AppConfig,
     default_camera_transform,
     grid::GridSettings,
     mouse::select::SelectionConfig,
@@ -143,16 +142,6 @@ pub(crate) fn reset(world: &mut World) {
         .map(|entity| entity.id());
     if let Some(camera) = camera {
         *world.get_mut::<Transform>(camera).unwrap() = default_camera_transform();
-    }
-
-    {
-        let defaults = AppConfig::default();
-        let mut app = world.resource_mut::<AppConfig>();
-        app.laser_width = defaults.laser_width;
-        app.angle_color = defaults.angle_color;
-        app.polytool_preview_color = defaults.polytool_preview_color;
-        app.enable_script_menu = defaults.enable_script_menu;
-        app.draw_scale_indicator = defaults.draw_scale_indicator;
     }
 
     world.insert_resource(GridSettings::default());

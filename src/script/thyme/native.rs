@@ -2891,14 +2891,18 @@ mod tests {
             .unwrap();
         world.resource_mut::<Console>().output = "before".into();
 
-        {
-            let mut app = world.resource_mut::<AppConfig>();
-            app.ui_scale = 1.7;
-            app.zoom_speed = 2.0;
-            app.tool_cursor = false;
-            app.kinetic_panning = false;
-            app.laser_width = 9.0;
-        }
+        let preferences = AppConfig {
+            ui_scale: 1.7,
+            zoom_speed: 2.0,
+            tool_cursor: false,
+            kinetic_panning: false,
+            laser_width: 9.0,
+            angle_color: Color::srgb(0.1, 0.2, 0.3),
+            polytool_preview_color: Color::srgb(0.4, 0.5, 0.6),
+            enable_script_menu: false,
+            draw_scale_indicator: false,
+        };
+        *world.resource_mut::<AppConfig>() = preferences;
         world.resource_mut::<GridSettings>().axes = 7;
         world.resource_mut::<DragConfig>().strength = 12.0;
 
@@ -2928,16 +2932,18 @@ mod tests {
                 .starts_with("before\nERROR loading")
         );
         let app = world.resource::<AppConfig>();
+        assert_eq!(app.ui_scale, preferences.ui_scale);
+        assert_eq!(app.zoom_speed, preferences.zoom_speed);
+        assert_eq!(app.tool_cursor, preferences.tool_cursor);
+        assert_eq!(app.kinetic_panning, preferences.kinetic_panning);
+        assert_eq!(app.laser_width, preferences.laser_width);
+        assert_eq!(app.angle_color, preferences.angle_color);
         assert_eq!(
-            (
-                app.ui_scale,
-                app.zoom_speed,
-                app.tool_cursor,
-                app.kinetic_panning
-            ),
-            (1.7, 2.0, false, false)
+            app.polytool_preview_color,
+            preferences.polytool_preview_color
         );
-        assert_eq!(app.laser_width, AppConfig::default().laser_width);
+        assert_eq!(app.enable_script_menu, preferences.enable_script_menu);
+        assert_eq!(app.draw_scale_indicator, preferences.draw_scale_indicator);
         assert_eq!(
             world.resource::<GridSettings>().axes,
             GridSettings::default().axes
