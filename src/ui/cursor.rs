@@ -14,6 +14,8 @@ use bevy::ui::Node;
 use bevy::window::{CursorIcon, CustomCursor, CustomCursorImage, PrimaryWindow, SystemCursorIcon};
 use bevy_egui::EguiContexts;
 
+use super::image_processing::{linear_to_srgb, srgb_to_linear};
+
 #[derive(Component)]
 pub struct ToolCursor;
 
@@ -307,22 +309,6 @@ fn blend_pixel(dst: &mut [u8], src: &[u8]) {
         dst[channel] = (linear_to_srgb(out_linear).clamp(0.0, 1.0) * 255.0).round() as u8;
     }
     dst[3] = (out_alpha * 255.0).round() as u8;
-}
-
-fn srgb_to_linear(value: f32) -> f32 {
-    if value <= 0.04045 {
-        value / 12.92
-    } else {
-        ((value + 0.055) / 1.055).powf(2.4)
-    }
-}
-
-fn linear_to_srgb(value: f32) -> f32 {
-    if value <= 0.003_130_8 {
-        value * 12.92
-    } else {
-        1.055 * value.powf(1.0 / 2.4) - 0.055
-    }
 }
 
 #[cfg(test)]

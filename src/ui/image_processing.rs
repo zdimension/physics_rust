@@ -225,7 +225,7 @@ fn premultiply_rgba(data: &mut [u8]) {
     }
 }
 
-fn srgb_to_linear(value: f32) -> f32 {
+pub(super) fn srgb_to_linear(value: f32) -> f32 {
     if value <= 0.04045 {
         value / 12.92
     } else {
@@ -233,7 +233,7 @@ fn srgb_to_linear(value: f32) -> f32 {
     }
 }
 
-fn linear_to_srgb(value: f32) -> f32 {
+pub(super) fn linear_to_srgb(value: f32) -> f32 {
     if value <= 0.003_130_8 {
         value * 12.92
     } else {
