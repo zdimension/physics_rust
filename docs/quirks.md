@@ -1,0 +1,3 @@
+When a body is glued to the background, it has `glued = true` and `body = 0`. Setting `glued` to `true` manually doesn't do anything. However, spawning an object with `body = 0` glues it to the background (TODO: not implemented yet!). The `body` property cannot be modified manually. Loosening the object gives it a body ID (since it's now a dynamic object). 
+
+It's not clear yet which way hinge motors rotate by default. Seems to depend on the order of the geoms it's attached to.
