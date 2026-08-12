@@ -250,14 +250,15 @@ impl MenuWindow {
                         if has(Box::new(|info| info.2.is_some())) {
                             menu!("Collision layers", collisions, CollisionsWindow);
                         }
-                        if targets.iter().copied().any(|id| {
+                        let has_shapes = targets.iter().copied().any(|id| {
                             entity_info
                                 .get(id)
                                 .is_ok_and(|info| info.4.is_some() && !planes.contains(id))
-                        }) {
+                        });
+                        if has_shapes {
                             menu!("Geometry actions", /, GeometryActionsWindow);
+                            menu!("Combine shapes", csg, CombineShapesWindow);
                         }
-                        menu!("Combine shapes", csg, CombineShapesWindow);
                         menu!("Controller", controller, ControllerWindow);
                         if app_config.enable_script_menu {
                             menu!("Script", /, ScriptWindow);

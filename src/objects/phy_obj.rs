@@ -11,8 +11,12 @@ use avian2d::prelude::*;
 use crate::FillStroke;
 use crate::objects::attraction::Attraction;
 use crate::objects::{CircleAngleMarker, ColorComponent};
-use crate::tools::polygon::{polygon_path, tessellate_path};
+use crate::tools::{
+    add_object::DepthSorter,
+    polygon::{polygon_path, tessellate_path},
+};
 use crate::update_from::UpdateFrom;
+use bevy_prototype_lyon::prelude::tess::path::Path;
 
 #[derive(Component)]
 pub struct CircleVisual(pub f32);
@@ -193,6 +197,64 @@ impl PhysicalObject {
             self.z,
         );
         (body, geometry)
+    }
+
+    pub(crate) fn fragment(world: &mut World, source: Entity, path: Path) -> Option<Entity> {
+        let (pos, rotation) = super::body::pose(world, source)?;
+        let scene = world.get::<ChildOf>(source)?.parent();
+        let source_z = world.get::<Transform>(source)?.translation.z;
+        let z = {
+            let mut depth = world.resource_mut::<DepthSorter>();
+            depth.include(source_z);
+            depth.next()
+        };
+        let velocity = super::body::point_velocity(world, source)?;
+        let angular = world
+            .get::<ColliderOf>(source)
+            .and_then(|link| world.get::<AngularVelocity>(link.body))?
+            .0;
+        let mut object = Self::freeform_path(path, pos.extend(z), rotation.as_radians())?;
+
+        macro_rules! copy {
+            ($field:ident: $ty:ty) => {
+                if let Some(value) = world.get::<$ty>(source) {
+                    object.geometry.$field = *value;
+                }
+            };
+        }
+        copy!(density: ColliderDensity);
+        copy!(attraction: Attraction);
+        if let Some(color) = world.get::<ColorComponent>(source) {
+            object.geometry.color = ColorComponent(color.0);
+        }
+        macro_rules! property {
+            ($field:ident: $ty:ty) => {
+                if let Some(value) = world.get::<$ty>(source) {
+                    object.geometry.properties.$field = *value;
+                }
+            };
+        }
+        property!(friction: Friction);
+        property!(friction_model: FrictionModel);
+        property!(restitution: Restitution);
+        property!(groups: CollisionLayers);
+        property!(refractive_index: RefractiveIndex);
+
+        let center = object
+            .geometry
+            .collider
+            .shape()
+            .mass_properties(1.0)
+            .local_com;
+        let linear =
+            super::body::velocity_at_point(pos, velocity, angular, pos + rotation * center);
+        let mut commands = world.commands();
+        let (body, geometry) = object.spawn_with_body(&mut commands, scene);
+        commands.entity(geometry).insert(FreeformObject);
+        commands
+            .entity(body)
+            .insert((LinearVelocity(linear), AngularVelocity(angular)));
+        Some(geometry)
     }
 }
 

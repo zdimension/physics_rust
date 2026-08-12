@@ -163,7 +163,7 @@ impl GeometryActionsWindow {
     }
 }
 
-fn action_button(ui: &mut egui::Ui, icon: egui::TextureId, text: &str) -> bool {
+pub(super) fn action_button(ui: &mut egui::Ui, icon: egui::TextureId, text: &str) -> bool {
     ui.add(
         egui::Button::image_and_text(SizedTexture::new(icon, [16.0, 16.0]), text)
             .wrap_mode(egui::TextWrapMode::Extend),
