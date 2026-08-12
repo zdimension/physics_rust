@@ -44,7 +44,11 @@ fn direction_from_pointer(center: egui::Pos2, pointer: egui::Pos2) -> Option<f32
     (offset.length_sq() > f32::EPSILON).then(|| (-offset.y).atan2(offset.x))
 }
 
-fn direction_selector(ui: &mut egui::Ui, icons: &GuiIcons, direction: &mut f32) -> egui::Response {
+pub(super) fn direction_selector(
+    ui: &mut egui::Ui,
+    icons: &GuiIcons,
+    direction: &mut f32,
+) -> egui::Response {
     let (rect, mut response) = ui.allocate_exact_size(
         egui::Vec2::splat(DIRECTION_SELECTOR_SIZE),
         Sense::click_and_drag(),
