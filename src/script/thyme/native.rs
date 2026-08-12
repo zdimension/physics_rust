@@ -91,8 +91,8 @@ struct NativeClass {
 }
 
 macro_rules! native_class {
-    ($name:ident = $display:literal, [$($member:expr),* $(,)?]) => {
-        static $name: NativeClass = NativeClass {
+    ($vis:vis $name:ident = $display:literal, [$($member:expr),* $(,)?]) => {
+        $vis static $name: NativeClass = NativeClass {
             name: $display,
             members: &[$($member),*],
         };
@@ -289,6 +289,22 @@ macro_rules! native_event {
         NativeMember::Event { name: $name }
     };
 }
+
+mod app;
+mod console;
+mod gui;
+mod scene;
+mod sim;
+mod system;
+mod tools;
+
+use app::{APP, APP_GRID};
+use console::CONSOLE;
+use gui::GUI;
+use scene::{CAMERA, SCENE, real_entity};
+use sim::SIM;
+use system::SYSTEM;
+use tools::{DRAG_TOOL, GEAR_TOOL, TOOLS};
 
 fn type_error(name: &str, expected: &str) -> HostError {
     HostError::new(
@@ -970,316 +986,9 @@ fn set_z_order(world: &mut World, entity: Entity, value: &Value) -> Result<(), H
     Ok(())
 }
 
-native_class!(
-    SYSTEM = "System",
-    [
-        native_method!("exit", 0, |world: &mut World, _, _, _| {
-            world.write_message(AppExit::Success);
-            Ok(Value::Void)
-        }),
-        native_method!("time", 0, |world: &mut World, _, _, _| {
-            Ok(Value::Number(Number::Float(
-                world.resource::<Time>().elapsed_secs(),
-            )))
-        }),
-    ]
-);
-
-native_class!(
-    APP = "App",
-    [
-        native_read_only!("mousePos", |world: &World, _| {
-            let pos = world.resource::<MousePosWorld>();
-            Ok(floats([pos.x, pos.y]))
-        }),
-        resource_property!("laserWidth", AppConfig, laser_width, float),
-        NativeMember::Property {
-            name: "polytoolPreviewColor",
-            applies: None,
-            get: |world, _| Ok(color_value(
-                world.resource::<AppConfig>().polytool_preview_color
-            )),
-            set: Some(|world, _, value| {
-                let [r, g, b, a] = float_list(value, "polytoolPreviewColor")?;
-                world.resource_mut::<AppConfig>().polytool_preview_color = Color::srgba(r, g, b, a);
-                Ok(())
-            }),
-        },
-        resource_property!("enableScriptMenu", AppConfig, enable_script_menu, bool),
-        resource_property!("drawScaleIndicator", AppConfig, draw_scale_indicator, bool),
-    ]
-);
-
-native_class!(
-    APP_GRID = "Grid",
-    [
-        native_property!(
-            "base",
-            int,
-            |world: &World, _| world.resource::<GridSettings>().base as i32,
-            |world: &mut World, _, value| {
-                world.resource_mut::<GridSettings>().base = int_at_least_two(value, "base")?;
-                Ok(())
-            }
-        ),
-        resource_property!("grid", GridSettings, enabled, bool),
-        native_property!(
-            "numAxes",
-            int,
-            |world: &World, _| world.resource::<GridSettings>().axes as i32,
-            |world: &mut World, _, value| {
-                world.resource_mut::<GridSettings>().axes = int_at_least_two(value, "numAxes")?;
-                Ok(())
-            }
-        ),
-        resource_property!("opacity", GridSettings, opacity, float),
-        resource_property!("snap", GridSettings, snap, bool),
-    ]
-);
-
-native_class!(
-    GUI = "GUI",
-    [
-        native_property!(
-            "scale",
-            float,
-            |world: &World, _| world.resource::<AppConfig>().ui_scale,
-            |world: &mut World, _, scale: f32| {
-                if !scale.is_finite() || scale <= 0.0 {
-                    return Err(HostError::new(
-                        HostErrorKind::InvalidType,
-                        "scale must be finite and positive",
-                    ));
-                }
-                world.resource_mut::<AppConfig>().ui_scale = scale;
-                Ok(())
-            }
-        ),
-        resource_property!("cursor", AppConfig, tool_cursor, bool),
-        NativeMember::Property {
-            name: "angleColor",
-            applies: None,
-            get: |world, _| Ok(color_value(world.resource::<AppConfig>().angle_color)),
-            set: Some(|world, _, value| {
-                let [r, g, b, a] = float_list(value, "angleColor")?;
-                world.resource_mut::<AppConfig>().angle_color = Color::srgba(r, g, b, a);
-                Ok(())
-            }),
-        },
-        resource_property!(
-            "allowDrawSelect",
-            SelectionConfig,
-            select_by_encircling,
-            bool
-        ),
-    ]
-);
-
-native_class!(
-    SIM = "Sim",
-    [
-        native_read_only!("time", |world: &World, _| {
-            Ok(Value::from(
-                world.resource::<Time<Physics>>().elapsed_secs(),
-            ))
-        }),
-        native_property!(
-            "timeFactor",
-            float,
-            |world: &World, _| world.resource::<Time<Physics>>().relative_speed(),
-            |world: &mut World, _, value: f32| {
-                if !value.is_finite() || value < 0.0 {
-                    return Err(type_error("timeFactor", "non-negative number"));
-                }
-                world
-                    .resource_mut::<Time<Physics>>()
-                    .set_relative_speed(value);
-                Ok(())
-            }
-        ),
-        native_property!(
-            "running",
-            bool,
-            |world: &World, _| !world.resource::<Time<Physics>>().is_paused(),
-            |world: &mut World, _, running: bool| {
-                let mut time = world.resource_mut::<Time<Physics>>();
-                if running {
-                    time.unpause();
-                } else {
-                    time.pause();
-                }
-                Ok(())
-            }
-        ),
-        native_property!(
-            "gravityStrength",
-            float,
-            |world: &World, _| world.resource::<GravitySetting>().strength,
-            |world: &mut World, _, strength: f32| {
-                world.resource_mut::<GravitySetting>().strength = strength;
-                Ok(())
-            }
-        ),
-        native_property!(
-            "gravitySwitch",
-            bool,
-            |world: &World, _| world.resource::<GravitySetting>().enabled,
-            |world: &mut World, _, enabled: bool| {
-                world.resource_mut::<GravitySetting>().enabled = enabled;
-                Ok(())
-            }
-        ),
-        native_property!(
-            "gravityAngleOffset",
-            float,
-            |world: &World, _| world.resource::<GravitySetting>().direction
-                + std::f32::consts::FRAC_PI_2,
-            |world: &mut World, _, offset: f32| {
-                world.resource_mut::<GravitySetting>().direction =
-                    offset - std::f32::consts::FRAC_PI_2;
-                Ok(())
-            }
-        ),
-        resource_property!("airFrictionLinear", AirSettings, linear_term, float),
-        resource_property!("airFrictionQuadratic", AirSettings, quadratic_term, float),
-        resource_property!("airFrictionMultiplier", AirSettings, multiplier, float),
-        resource_property!("airSwitch", AirSettings, enabled, bool),
-        resource_property!("windAngle", AirSettings, wind_direction, float),
-        resource_property!("windStrength", AirSettings, wind_speed, float),
-    ]
-);
-
-native_class!(
-    CONSOLE = "Console",
-    [
-        native_method!(
-            "print",
-            1,
-            |world: &mut World, _, _, arguments: &[Value]| {
-                world.resource_mut::<Console>().push_line(&arguments[0]);
-                Ok(Value::Void)
-            }
-        ),
-        native_method!("clear", 0, |world: &mut World, _, _, _| {
-            world.resource_mut::<Console>().output.clear();
-            Ok(Value::Void)
-        }),
-    ]
-);
-
-fn entity_by_id(
-    world: &mut World,
-    registry: &mut NativeRegistry,
-    arguments: &[Value],
-    name: &str,
-) -> Result<Value, HostError> {
-    let Value::Number(Number::Int(id)) = &arguments[0] else {
-        return Err(type_error(name, "int"));
-    };
-    let Some(entity) = real_entity(world, *id) else {
-        return Ok(Value::Null);
-    };
-    let object = registry.ensure_entity(entity);
-    Ok(Value::Object(registry.instance(object)?.object.clone()))
-}
-
-fn queue_scene(world: &mut World, arguments: &[Value], import: bool) -> Result<Value, HostError> {
-    let Value::Str(path) = &arguments[0] else {
-        return Err(type_error("scene path", "string"));
-    };
-    super::scene::queue_path(world, path.as_ref(), import)
-        .map_err(|error| HostError::new(HostErrorKind::Other, error))?;
-    Ok(Value::Void)
-}
-
-fn real_entity(world: &World, id: i32) -> Option<Entity> {
-    let raw = Entity::from_raw_u32(id as u32)?;
-    let entity = world.entities().resolve_from_index(raw.index());
-    world.get_entity(entity).is_ok().then_some(entity)
-}
-
 fn is_geometry(world: &World, entity: Entity) -> bool {
     world.get::<PhysicalGeometry>(entity).is_some()
 }
-
-native_class!(
-    SCENE = "Scene",
-    [
-        native_method!("entityByID", 1, |world, registry, _, arguments| {
-            entity_by_id(world, registry, arguments, "entityByID")
-        }),
-        native_method!("entityByGeomID", 1, |world, registry, _, arguments| {
-            entity_by_id(world, registry, arguments, "entityByGeomID")
-        }),
-        native_method!("Open", 1, |world, _, _, arguments| {
-            queue_scene(world, arguments, false)
-        }),
-        native_method!("loadScene", 1, |world, _, _, arguments| {
-            queue_scene(world, arguments, false)
-        }),
-        native_method!("importPhunlet", 1, |world, _, _, arguments| {
-            queue_scene(world, arguments, true)
-        }),
-        native_method!("Clear", 0, |world: &mut World, _, _, _| {
-            super::scene::clear(world);
-            Ok(Value::Void)
-        }),
-        native_method!("New", 0, |world: &mut World, _, _, _| {
-            super::scene::queue_new(world);
-            Ok(Value::Void)
-        }),
-        native_builder_method!("addBox", spawn_default_box),
-        native_builder_method!("addCircle", spawn_default_circle),
-        native_host_method!("addFixjoint", 1, add_fixjoint),
-        native_host_method!("addHinge", 1, add_hinge),
-        native_host_method!("addPolygon", 1, add_polygon),
-    ]
-);
-
-native_class!(
-    CAMERA = "Camera",
-    [
-        NativeMember::Property {
-            name: "pan",
-            applies: None,
-            get: get_camera_pan,
-            set: Some(set_camera_pan),
-        },
-        NativeMember::Property {
-            name: "zoom",
-            applies: None,
-            get: get_camera_zoom,
-            set: Some(set_camera_zoom),
-        },
-        NativeMember::Property {
-            name: "rotation",
-            applies: None,
-            get: get_camera_rotation,
-            set: Some(set_camera_rotation),
-        },
-    ]
-);
-
-native_class!(TOOLS = "Tools", []);
-
-native_class!(
-    DRAG_TOOL = "DragTool",
-    [
-        resource_property!("centerOfMass", DragConfig, drag_center_of_mass, bool),
-        resource_property!("maxForce", DragConfig, max_force, float),
-        resource_property!("strength", DragConfig, strength, float),
-    ]
-);
-
-native_class!(
-    GEAR_TOOL = "GearTool",
-    [
-        resource_property!("cogSize", GearSettings, teeth_size, float),
-        resource_property!("inside", GearSettings, internal, bool),
-        resource_property!("outside", GearSettings, external, bool),
-        resource_property!("thickness", GearSettings, hollow_thickness, float),
-    ]
-);
 
 native_class!(
     SCENE_OBJECT = "SceneObject",
