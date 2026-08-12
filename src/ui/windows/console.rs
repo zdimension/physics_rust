@@ -1,4 +1,4 @@
-use bevy::prelude::{App, IntoScheduleConfigs, ResMut};
+use bevy::prelude::{App, ButtonInput, IntoScheduleConfigs, KeyCode, Res, ResMut};
 use bevy_egui::egui::{self, Key, KeyboardShortcut, Modifiers, TextEdit, TextStyle};
 use bevy_egui::egui::text::{CCursor, CCursorRange};
 use bevy_egui::{EguiContexts, EguiPrimaryContextPass};
@@ -10,8 +10,14 @@ use crate::ui::WindowExt;
 pub fn add_systems(app: &mut App) {
     app.add_systems(
         EguiPrimaryContextPass,
-        (draw_console, execute_console.after(draw_console)),
+        (toggle_console, draw_console, execute_console).chain(),
     );
+}
+
+fn toggle_console(keys: Res<ButtonInput<KeyCode>>, mut console: ResMut<Console>) {
+    if keys.just_pressed(KeyCode::F10) {
+        console.open = !console.open;
+    }
 }
 
 pub fn draw_console(
